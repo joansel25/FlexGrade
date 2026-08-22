@@ -1,0 +1,148 @@
+# ---------------------------------------------------------------------------
+# Despliegue a STAGING (CI_CD.md seccion 4.3)
+#
+# Automatico en cada push a `main`. Identico a deploy-dev.yml pero contra el
+# ambiente `matricula-staging` y con la etiqueta `staging-<sha>`. Despues del
+# despliegue corre la SUITE E2E COMPLETA contra staging: es la puerta que decide
+# si el release es apto para produccion.
+#
+# ESTADO ACTUAL (Fase 0): los ambientes de AWS todavia NO estan aprovisionados.
+# Los pasos que tocan AWS estan comentados con un TODO; la estructura del
+# workflow si esta escrita y es YAML valido.
+#
+# SECRETOS QUE NECESITA (Settings -> Secrets and variables -> Actions):
+#   - AWS_ACCESS_KEY_ID ....... credencial del usuario IAM del pipeline
+#   - AWS_SECRET_ACCESS_KEY ... contraparte de la anterior
+#   - ECR_REPOSITORY .......... URL del repositorio privado de imagenes
+#   - SLACK_WEBHOOK_URL ....... opcional, solo para el paso de notificacion
+#
+# SECRETOS QUE **NO** VAN AQUI (AWS Secrets Manager, inyectados por Elastic
+# Beanstalk como variables de entorno, CI_CD.md seccion 7):
+#   - DATABASE_URL_STAGING, JWT_SECRET_KEY, REDIS_URL
+# ---------------------------------------------------------------------------
+
+name: Deploy STAGING
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  EB_APPLICATION: matricula
+  EB_ENVIRONMENT: matricula-staging
+  IMAGE_TAG: staging-${{ github.sha }}
+  STAGING_URL: https://staging.matricula.example.com
+
+jobs:
+  # 1. CI completo antes de tocar nada.
+  ci:
+    name: CI previo
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Desplegar en STAGING
+    runs-on: ubuntu-latest
+    needs: ci
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Estado del ambiente
+        run: |
+          echo "::warning title=Despliegue no ejecutado::Los ambientes de AWS aun no estan aprovisionados (Fase 0). Los pasos de ECR, Alembic y Elastic Beanstalk estan comentados en .github/workflows/deploy-staging.yml. El CI si se ejecuto y esta verde."
+          echo "Imagen que se construiria: ${IMAGE_TAG}"
+          echo "Ambiente destino: ${EB_ENVIRONMENT} (${AWS_REGION})"
+
+      # ---------------------------------------------------------------------
+      # TODO(devops): descomentar cuando exista el ambiente `matricula-staging`
+      # y esten cargados los secretos de AWS.
+      # ---------------------------------------------------------------------
+      #
+      # - name: Configurar credenciales de AWS
+      #   uses: aws-actions/configure-aws-credentials@v4
+      #   with:
+      #     aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      #     aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      #     aws-region: ${{ env.AWS_REGION }}
+      #
+      # - name: Autenticarse en Amazon ECR
+      #   id: ecr
+      #   uses: aws-actions/amazon-ecr-login@v2
+      #
+      # - name: Construir la imagen
+      #   run: docker build --tag "${{ secrets.ECR_REPOSITORY }}:${IMAGE_TAG}" ./backend
+      #
+      # - name: Publicar la imagen en ECR
+      #   run: docker push "${{ secrets.ECR_REPOSITORY }}:${IMAGE_TAG}"
+      #
+      # # Migraciones antes del deploy de la aplicacion (CI_CD.md seccion 6).
+      # - name: Ejecutar migraciones de Alembic contra STAGING
+      #   working-directory: backend
+      #   env:
+      #     DATABASE_URL: ${{ secrets.DATABASE_URL_STAGING }}
+      #   run: |
+      #     pip install -e "."
+      #     alembic upgrade head
+      #
+      # - name: Desplegar en Elastic Beanstalk
+      #   run: |
+      #     pip install --quiet awsebcli==3.20.10
+      #     eb init "${EB_APPLICATION}" --region "${AWS_REGION}" --platform docker
+      #     eb deploy "${EB_ENVIRONMENT}" --label "${IMAGE_TAG}" --timeout 20
+      #
+      # - name: Smoke tests contra STAGING
+      #   run: |
+      #     curl --fail --silent --show-error --max-time 10 "${STAGING_URL}/health"
+      # ---------------------------------------------------------------------
+
+  # 2. Suite E2E completa contra el ambiente ya desplegado. Es lo que distingue a
+  #    staging de dev: si esto no esta verde, el release no pasa a produccion.
+  e2e:
+    name: Suite E2E contra STAGING
+    runs-on: ubuntu-latest
+    needs: deploy
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Instalar dependencias
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Estado de la suite E2E
+        run: |
+          echo "::warning title=E2E no ejecutada contra staging::No hay ambiente STAGING desplegado todavia (Fase 0). El paso de abajo esta comentado."
+
+      # ---------------------------------------------------------------------
+      # TODO(devops): descomentar junto con el despliegue. Los tests e2e apuntan
+      # al ambiente real via BASE_URL; hoy corren en proceso dentro de ci.yml.
+      #
+      # - name: Ejecutar suite E2E
+      #   working-directory: backend
+      #   env:
+      #     BASE_URL: ${{ env.STAGING_URL }}
+      #   run: pytest -m e2e
+      #
+      # - name: Notificar resultado
+      #   if: always()
+      #   run: |
+      #     curl --fail --silent --show-error \
+      #       --header "Content-Type: application/json" \
+      #       --data "{\"text\":\"Deploy STAGING ${IMAGE_TAG} + E2E: ${{ job.status }}\"}" \
+      #       "${{ secrets.SLACK_WEBHOOK_URL }}"
+      # ---------------------------------------------------------------------

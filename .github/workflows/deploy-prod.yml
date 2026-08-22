@@ -1,0 +1,233 @@
+# ---------------------------------------------------------------------------
+# Despliegue a PRODUCCION (CI_CD.md seccion 4.4)
+#
+# Manual (`workflow_dispatch`). Requiere que el commit ya este desplegado en
+# staging y haya pasado los E2E, y APROBACION MANUAL de un revisor autorizado.
+#
+# La aprobacion la impone el GitHub Environment `production`. Para que exista de
+# verdad hay que configurarlo una sola vez en:
+#   Settings -> Environments -> New environment -> "production"
+#     -> Required reviewers: el usuario o equipo autorizado
+#     -> Deployment branches: solo `main`
+# Sin esos revisores configurados, el environment existe pero NO detiene nada.
+#
+# ESTADO ACTUAL (Fase 0): los ambientes de AWS todavia NO estan aprovisionados.
+# Los pasos que tocan AWS estan comentados con un TODO; la estructura del
+# workflow (aprobacion, dry-run de migraciones, rolling deploy, health checks,
+# tag) si esta escrita y es YAML valido.
+#
+# SECRETOS QUE NECESITA (Settings -> Secrets and variables -> Actions):
+#   - AWS_ACCESS_KEY_ID ....... credencial del usuario IAM del pipeline
+#   - AWS_SECRET_ACCESS_KEY ... contraparte de la anterior
+#   - ECR_REPOSITORY .......... URL del repositorio privado de imagenes
+#   - SLACK_WEBHOOK_URL ....... opcional, solo para el paso de notificacion
+#   El GITHUB_TOKEN lo inyecta GitHub; se usa para crear el tag del release.
+#
+# SECRETOS QUE **NO** VAN AQUI (AWS Secrets Manager, inyectados por Elastic
+# Beanstalk como variables de entorno, CI_CD.md seccion 7):
+#   - DATABASE_URL_PROD, JWT_SECRET_KEY, REDIS_URL
+# ---------------------------------------------------------------------------
+
+name: Deploy PROD
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version del release, formato vMAJOR.MINOR.PATCH (ej. v0.1.0)"
+        required: true
+        type: string
+      staging_validado:
+        description: "Confirmo que esta version esta desplegada en STAGING y sus E2E pasaron"
+        required: true
+        type: boolean
+        default: false
+
+# Nunca dos despliegues a produccion a la vez, y jamas se cancela uno en curso.
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  EB_APPLICATION: matricula
+  EB_ENVIRONMENT: matricula-prod
+  PROD_URL: https://matricula.example.com
+
+jobs:
+  # 1. Validaciones que no cuestan nada y evitan un despliegue mal formado.
+  #    Corren ANTES de pedir la aprobacion humana.
+  validar:
+    name: Validar el release
+    runs-on: ubuntu-latest
+    # Los inputs del usuario se pasan por variable de entorno y NUNCA se
+    # interpolan dentro del script: una interpolacion directa en `run:` es una
+    # via de inyeccion de comandos en el runner.
+    env:
+      VERSION: ${{ inputs.version }}
+      STAGING_VALIDADO: ${{ inputs.staging_validado }}
+      RAMA: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validar el formato de la version
+        run: |
+          if ! printf '%s' "$VERSION" | grep --quiet --extended-regexp '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error title=Version invalida::La version no cumple el formato vMAJOR.MINOR.PATCH (ej. v0.1.0)."
+            exit 1
+          fi
+          echo "Version a publicar: $VERSION"
+
+      - name: Comprobar que el tag no exista ya
+        run: |
+          if git rev-parse --verify --quiet "refs/tags/$VERSION"; then
+            echo "::error title=Tag duplicado::El tag ya existe. Un release publicado no se reescribe."
+            exit 1
+          fi
+
+      - name: Comprobar la confirmacion de staging
+        run: |
+          if [ "$STAGING_VALIDADO" != "true" ]; then
+            echo "::error title=Staging sin validar::A produccion solo llega lo que ya paso por STAGING y sus E2E (CI_CD.md seccion 4.4)."
+            exit 1
+          fi
+
+      - name: Comprobar que se despliega desde main
+        run: |
+          if [ "$RAMA" != "main" ]; then
+            echo "::error title=Rama incorrecta::Produccion se despliega solo desde main; se recibio '$RAMA'."
+            exit 1
+          fi
+
+  # 2. Despliegue. El `environment: production` es la puerta de aprobacion manual:
+  #    el job queda en espera hasta que un revisor autorizado lo apruebe.
+  desplegar:
+    name: Desplegar en PRODUCCION
+    runs-on: ubuntu-latest
+    needs: validar
+    environment:
+      name: production
+      url: https://matricula.example.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Estado del ambiente
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          echo "::warning title=Despliegue no ejecutado::Los ambientes de AWS aun no estan aprovisionados (Fase 0). Los pasos de ECR, Alembic y Elastic Beanstalk estan comentados en .github/workflows/deploy-prod.yml."
+          echo "Release: $VERSION | Ambiente: ${EB_ENVIRONMENT} (${AWS_REGION})"
+
+      # ---------------------------------------------------------------------
+      # TODO(devops): descomentar cuando exista el ambiente `matricula-prod`
+      # y esten cargados los secretos de AWS.
+      # ---------------------------------------------------------------------
+      #
+      # - name: Configurar credenciales de AWS
+      #   uses: aws-actions/configure-aws-credentials@v4
+      #   with:
+      #     aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      #     aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      #     aws-region: ${{ env.AWS_REGION }}
+      #
+      # - name: Autenticarse en Amazon ECR
+      #   id: ecr
+      #   uses: aws-actions/amazon-ecr-login@v2
+      #
+      # - name: Construir y publicar la imagen
+      #   run: |
+      #     docker build --tag "${{ secrets.ECR_REPOSITORY }}:${{ inputs.version }}" ./backend
+      #     docker push "${{ secrets.ECR_REPOSITORY }}:${{ inputs.version }}"
+      #
+      # # 3. DRY-RUN de las migraciones: se genera el SQL y se publica como
+      # #    artefacto para revisarlo ANTES de tocar datos reales
+      # #    (CI_CD.md seccion 4.4 paso 3).
+      # - name: Migraciones en PROD - dry-run (--sql)
+      #   working-directory: backend
+      #   env:
+      #     DATABASE_URL: ${{ secrets.DATABASE_URL_PROD }}
+      #   run: |
+      #     pip install -e "."
+      #     alembic upgrade head --sql > "${RUNNER_TEMP}/migracion-prod.sql"
+      #     cat "${RUNNER_TEMP}/migracion-prod.sql"
+      #
+      # - name: Publicar el SQL de la migracion como artefacto
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: migracion-prod-${{ inputs.version }}
+      #     path: ${{ runner.temp }}/migracion-prod.sql
+      #     retention-days: 90
+      #
+      # # 4. Migracion real, SIEMPRE antes de que las instancias nuevas reciban
+      # #    trafico. Alembic solo avanza: ningun deploy la revierte
+      # #    (CI_CD.md seccion 6).
+      # - name: Migraciones en PROD - aplicar
+      #   working-directory: backend
+      #   env:
+      #     DATABASE_URL: ${{ secrets.DATABASE_URL_PROD }}
+      #   run: alembic upgrade head
+      #
+      # # 5. Rolling deploy: Elastic Beanstalk actualiza las instancias por lotes,
+      # #    sin downtime.
+      # - name: Rolling deploy en Elastic Beanstalk
+      #   run: |
+      #     pip install --quiet awsebcli==3.20.10
+      #     eb init "${EB_APPLICATION}" --region "${AWS_REGION}" --platform docker
+      #     eb deploy "${EB_ENVIRONMENT}" --label "${{ inputs.version }}" --timeout 30
+      #
+      # # 6. Health checks post-despliegue: si fallan, se dispara rollback-prod.yml.
+      # - name: Health checks post-despliegue
+      #   run: |
+      #     for intento in 1 2 3 4 5; do
+      #       if curl --fail --silent --show-error --max-time 10 "${PROD_URL}/health"; then
+      #         echo "Health check OK en el intento ${intento}."
+      #         exit 0
+      #       fi
+      #       echo "Health check fallido (intento ${intento}); se reintenta en 15s."
+      #       sleep 15
+      #     done
+      #     echo "::error title=Produccion no responde::El health check fallo tras 5 intentos. Ejecuta rollback-prod.yml."
+      #     exit 1
+      # ---------------------------------------------------------------------
+
+  # 3. Registro del release: el tag se crea solo si el despliegue salio bien
+  #    (CI_CD.md seccion 4.4 paso 6).
+  publicar-release:
+    name: Registrar el tag del release
+    runs-on: ubuntu-latest
+    needs: desplegar
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Estado del registro
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          echo "::warning title=Tag no creado::El release $VERSION no se etiqueta mientras el despliegue real siga comentado: un tag anunciaria en produccion algo que no se desplego."
+
+      # ---------------------------------------------------------------------
+      # TODO(devops): descomentar junto con el despliegue real.
+      #
+      # - name: Crear y publicar el tag
+      #   run: |
+      #     git config user.name "github-actions[bot]"
+      #     git config user.email "github-actions[bot]@users.noreply.github.com"
+      #     git tag --annotate "${{ inputs.version }}" \
+      #       --message "Release ${{ inputs.version }} desplegado en produccion desde ${{ github.sha }}"
+      #     git push origin "${{ inputs.version }}"
+      #
+      # - name: Notificar el release
+      #   if: always()
+      #   run: |
+      #     curl --fail --silent --show-error \
+      #       --header "Content-Type: application/json" \
+      #       --data "{\"text\":\"Deploy PROD ${{ inputs.version }}: ${{ job.status }}\"}" \
+      #       "${{ secrets.SLACK_WEBHOOK_URL }}"
+      # ---------------------------------------------------------------------

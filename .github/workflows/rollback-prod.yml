@@ -1,0 +1,152 @@
+# ---------------------------------------------------------------------------
+# ROLLBACK de PRODUCCION (CI_CD.md seccion 4.5)
+#
+# Workflow manual para emergencias. Recibe la version previa (tag de Git o SHA),
+# la vuelve a desplegar en Elastic Beanstalk, ADVIERTE sobre las migraciones de
+# base de datos y notifica el rollback ejecutado.
+#
+# ADVERTENCIA PERMANENTE: un rollback de la APLICACION no revierte la BASE DE
+# DATOS. Alembic no deshace migraciones automaticamente (CI_CD.md seccion 6). Si
+# el release que se esta revirtiendo aplico una migracion destructiva, revertir
+# el codigo NO recupera los datos: hay que evaluar `alembic downgrade` a mano,
+# con respaldo previo, y aceptar que puede no ser reversible.
+#
+# ESTADO ACTUAL (Fase 0): los ambientes de AWS todavia NO estan aprovisionados.
+# Los pasos que tocan AWS estan comentados con un TODO; la estructura del
+# workflow y las comprobaciones locales si estan activas y son YAML valido.
+#
+# SECRETOS QUE NECESITA (Settings -> Secrets and variables -> Actions):
+#   - AWS_ACCESS_KEY_ID ....... credencial del usuario IAM del pipeline
+#   - AWS_SECRET_ACCESS_KEY ... contraparte de la anterior
+#   - ECR_REPOSITORY .......... URL del repositorio privado de imagenes
+#   - SLACK_WEBHOOK_URL ....... opcional, solo para el paso de notificacion
+#
+# SECRETOS QUE **NO** VAN AQUI (AWS Secrets Manager, CI_CD.md seccion 7):
+#   - DATABASE_URL_PROD, JWT_SECRET_KEY, REDIS_URL
+# ---------------------------------------------------------------------------
+
+name: Rollback PROD
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_previa:
+        description: "Version a la que se vuelve: tag de Git (v0.1.0) o SHA de commit"
+        required: true
+        type: string
+      motivo:
+        description: "Motivo del rollback (queda en el registro del incidente)"
+        required: true
+        type: string
+      migraciones_revisadas:
+        description: "Confirmo que revise si el release actual aplico migraciones destructivas"
+        required: true
+        type: boolean
+        default: false
+
+# Un rollback en curso no se cancela ni se solapa con otro.
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  EB_APPLICATION: matricula
+  EB_ENVIRONMENT: matricula-prod
+  PROD_URL: https://matricula.example.com
+
+jobs:
+  rollback:
+    name: Revertir produccion
+    runs-on: ubuntu-latest
+    # El mismo environment que el despliegue: revertir produccion tambien pasa
+    # por la aprobacion de un revisor autorizado.
+    environment:
+      name: production
+      url: https://matricula.example.com
+    # Los inputs se pasan por variable de entorno, nunca interpolados dentro del
+    # script: una interpolacion directa en `run:` es una via de inyeccion.
+    env:
+      VERSION_PREVIA: ${{ inputs.version_previa }}
+      MOTIVO: ${{ inputs.motivo }}
+      MIGRACIONES_REVISADAS: ${{ inputs.migraciones_revisadas }}
+    steps:
+      # Historial completo: hace falta para resolver el tag o el SHA indicado.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Comprobar que la version indicada existe
+        run: |
+          if ! git rev-parse --verify --quiet "${VERSION_PREVIA}^{commit}"; then
+            echo "::error title=Version inexistente::No se encontro el tag ni el commit indicado en este repositorio."
+            exit 1
+          fi
+          echo "Se revertira a: $(git rev-parse --short "${VERSION_PREVIA}^{commit}")"
+          echo "Motivo: ${MOTIVO}"
+
+      - name: Advertencia sobre migraciones de base de datos
+        run: |
+          echo "::warning title=Las migraciones NO se revierten solas::Alembic no deshace migraciones automaticamente. Este rollback devuelve el CODIGO a ${VERSION_PREVIA}, no el ESQUEMA ni los DATOS. Si el release revertido aplico un cambio destructivo, revisa a mano si hace falta 'alembic downgrade' y haz respaldo antes."
+          if [ "${MIGRACIONES_REVISADAS}" != "true" ]; then
+            echo "::error title=Migraciones sin revisar::Marca la casilla solo despues de comprobar que migraciones aplico el release que se esta revirtiendo. Un rollback a ciegas sobre un esquema cambiado deja la aplicacion vieja hablando con una base nueva."
+            exit 1
+          fi
+
+      - name: Estado del ambiente
+        run: |
+          echo "::warning title=Rollback no ejecutado::Los ambientes de AWS aun no estan aprovisionados (Fase 0). Los pasos de ECR y Elastic Beanstalk estan comentados en .github/workflows/rollback-prod.yml."
+
+      # ---------------------------------------------------------------------
+      # TODO(devops): descomentar cuando exista el ambiente `matricula-prod` y
+      # esten cargados los secretos de AWS.
+      # ---------------------------------------------------------------------
+      #
+      # - name: Configurar credenciales de AWS
+      #   uses: aws-actions/configure-aws-credentials@v4
+      #   with:
+      #     aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      #     aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      #     aws-region: ${{ env.AWS_REGION }}
+      #
+      # - name: Autenticarse en Amazon ECR
+      #   id: ecr
+      #   uses: aws-actions/amazon-ecr-login@v2
+      #
+      # # La imagen de esa version ya existe en ECR: se redespliega la misma, no
+      # # se reconstruye. Rehacer el build daria un artefacto distinto al que
+      # # estuvo funcionando.
+      # - name: Comprobar que la imagen existe en ECR
+      #   run: |
+      #     docker pull "${{ secrets.ECR_REPOSITORY }}:${VERSION_PREVIA}"
+      #
+      # - name: Redesplegar la version previa en Elastic Beanstalk
+      #   run: |
+      #     pip install --quiet awsebcli==3.20.10
+      #     eb init "${EB_APPLICATION}" --region "${AWS_REGION}" --platform docker
+      #     eb deploy "${EB_ENVIRONMENT}" --version "${VERSION_PREVIA}" --timeout 30
+      #
+      # - name: Health checks post-rollback
+      #   run: |
+      #     for intento in 1 2 3 4 5; do
+      #       if curl --fail --silent --show-error --max-time 10 "${PROD_URL}/health"; then
+      #         echo "Produccion responde tras el rollback (intento ${intento})."
+      #         exit 0
+      #       fi
+      #       echo "Health check fallido (intento ${intento}); se reintenta en 15s."
+      #       sleep 15
+      #     done
+      #     echo "::error title=Produccion sigue caida::El rollback no restablecio el servicio. Escala el incidente."
+      #     exit 1
+      #
+      # - name: Notificar el rollback
+      #   if: always()
+      #   run: |
+      #     curl --fail --silent --show-error \
+      #       --header "Content-Type: application/json" \
+      #       --data "{\"text\":\"ROLLBACK PROD a ${VERSION_PREVIA} (${MOTIVO}): ${{ job.status }}\"}" \
+      #       "${{ secrets.SLACK_WEBHOOK_URL }}"
+      # ---------------------------------------------------------------------
