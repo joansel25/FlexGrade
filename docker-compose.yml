@@ -1,0 +1,81 @@
+# Entorno de desarrollo local del Sistema de Matricula.
+#
+#   docker-compose up -d   ->  PostgreSQL 16 + Redis 7 + backend en http://localhost:8000
+#   curl http://localhost:8000/health
+#
+# Los valores por defecto de este archivo son SOLO para desarrollo local.
+# Nunca se ponen credenciales reales aqui: en DEV/STAGING/PROD la configuracion
+# la inyecta Elastic Beanstalk desde AWS Secrets Manager (ver CI_CD.md seccion 7).
+# Para sobrescribir cualquier valor, copia .env.example a .env (que esta en .gitignore).
+
+name: matricula
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-matricula}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-matricula}
+    ports:
+      # Expuesto para poder inspeccionar la BD con un cliente local (psql, DBeaver).
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # pg_isready responde OK solo cuando el servidor acepta conexiones de verdad,
+      # no cuando el contenedor existe.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-matricula} -d ${POSTGRES_DB:-matricula}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  backend:
+    build:
+      context: ./backend
+      # Etapa de desarrollo: trae ademas pytest, black, isort y mypy, que son los
+      # que usan los targets `make test` y `make lint` via `docker-compose exec`.
+      target: dev
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-matricula}:${POSTGRES_PASSWORD:-devpassword}@postgres:5432/${POSTGRES_DB:-matricula}
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:-dev-only-insecure-secret-do-not-use-in-production}
+      JWT_EXPIRATION_SECONDS: ${JWT_EXPIRATION_SECONDS:-3600}
+      JWT_REFRESH_EXPIRATION_SECONDS: ${JWT_REFRESH_EXPIRATION_SECONDS:-604800}
+      ENVIRONMENT: ${ENVIRONMENT:-dev}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      API_V1_PREFIX: ${API_V1_PREFIX:-/api/v1}
+      APP_VERSION: ${APP_VERSION:-0.1.0}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      # Codigo montado para recarga en caliente durante el desarrollo.
+      - ./backend:/app
+    depends_on:
+      postgres:
+        # Espera a que este LISTO, no solo a que el contenedor exista.
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:

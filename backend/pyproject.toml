@@ -1,0 +1,129 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "matricula-backend"
+version = "0.1.0"
+description = "Sistema de Matricula y Gestion Academica - API REST (arquitectura hexagonal)"
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "Equipo Matricula" }]
+keywords = ["matricula", "fastapi", "hexagonal-architecture"]
+classifiers = [
+    "Private :: Do Not Upload",
+    "Programming Language :: Python :: 3.12",
+    "Framework :: FastAPI",
+]
+
+# Versiones FIJADAS con "==" para builds reproducibles (BEST_PRACTICES.md seccion 11).
+# Se actualizan con criterio y en su propio commit, nunca automaticamente.
+dependencies = [
+    "fastapi==0.115.6",
+    "uvicorn[standard]==0.34.0",
+    "sqlalchemy==2.0.36",
+    "alembic==1.14.0",
+    "pydantic==2.10.4",
+    "pydantic-settings==2.7.0",
+    "psycopg[binary]==3.2.3",
+    "redis==5.2.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.4",
+    "pytest-cov==6.0.0",
+    "pytest-mock==3.14.0",
+    "httpx==0.28.1",
+    "black==24.10.0",
+    "isort==5.13.2",
+    "mypy==1.14.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+# --------------------------------------------------------------------------
+# Formato
+# --------------------------------------------------------------------------
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  | \.venv
+  | alembic/versions
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+py_version = 312
+known_first_party = ["app"]
+# No se activa skip_gitignore: requiere el binario `git`, que no existe en la
+# imagen del backend (python:3.12-slim) y haria fallar `make lint`.
+extend_skip = [".venv", "alembic/versions"]
+
+# --------------------------------------------------------------------------
+# Tipado estatico (modo estricto - CLAUDE.md: "type hints obligatorios")
+# --------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+warn_no_return = true
+show_error_codes = true
+pretty = true
+plugins = ["pydantic.mypy"]
+exclude = ['^alembic/']
+
+[[tool.mypy.overrides]]
+# Los tests usan fixtures dinamicas; se relaja solo la exigencia de anotar
+# cada funcion de test, no la correccion de tipos.
+module = "tests.*"
+disallow_untyped_defs = false
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+# --------------------------------------------------------------------------
+# Tests
+# --------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+# NOTA: el umbral de cobertura (--cov-fail-under) NO va aqui. Se pasa en el
+# comando del CI (ver CI_CD.md seccion 4.1) para no bloquear las corridas
+# locales ni la Fase 0, donde todavia hay muy poco codigo cubierto.
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--import-mode=importlib",
+]
+markers = [
+    "unit: pruebas unitarias puras, sin IO ni dependencias externas",
+    "integration: pruebas que tocan base de datos, cache o red",
+    "e2e: pruebas de extremo a extremo contra la API desplegada",
+]
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+omit = ["*/__init__.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
