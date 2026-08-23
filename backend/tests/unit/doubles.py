@@ -9,6 +9,7 @@ Permiten probar los casos de uso en milisegundos y sin base de datos.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import replace
 from uuid import UUID
 
@@ -16,6 +17,7 @@ from app.application.dtos.auth_dto import TokenPayload, TokenType
 from app.application.dtos.pagination import Page
 from app.application.ports.auth_service import AuthService
 from app.application.ports.cache_service import CacheService
+from app.application.ports.repositories.academic_history_repository import AcademicHistoryReader
 from app.application.ports.repositories.course_repository import CourseRepository
 from app.application.ports.repositories.enrollment_repository import EnrollmentRepository
 from app.application.ports.repositories.offering_repository import OfferingRepository
@@ -163,6 +165,14 @@ class InMemoryCourseRepository(CourseRepository):
     def find_prerequisites(self, course_id: UUID) -> list[Course]:
         return sorted(self._prerequisites.get(course_id, []), key=lambda c: c.code.value)
 
+    def belongs_to_program(self, course_id: UUID, program_id: UUID) -> bool:
+        # Si no se declaro plan de estudios, se acepta todo: la mayoria de los tests no van
+        # sobre esta regla y obligarles a declararlo seria ruido en su bloque de preparacion.
+        if not self._plan:
+            return True
+
+        return any(cid == course_id for cid, _ in self._plan.get(program_id, []))
+
     def search(
         self,
         *,
@@ -233,6 +243,15 @@ class InMemoryOfferingRepository(OfferingRepository):
                     for o in self._offerings.values()
                     if o.course_id == course_id and o.enrollment_period_id == enrollment_period_id
                 ),
+                key=lambda o: o.group_number,
+            )
+        ]
+
+    def find_by_ids(self, offering_ids: Sequence[UUID]) -> list[CourseOffering]:
+        return [
+            self._copia(o)
+            for o in sorted(
+                (self._offerings[oid] for oid in offering_ids if oid in self._offerings),
                 key=lambda o: o.group_number,
             )
         ]
@@ -363,6 +382,9 @@ class ContadorDeConsultas(OfferingRepository):
         self.llamadas_count_enrolled += 1
         return self._interno.count_enrolled(offering_id)
 
+    def find_by_ids(self, offering_ids: Sequence[UUID]) -> list[CourseOffering]:
+        return self._interno.find_by_ids(offering_ids)
+
     def try_reserve_slot(self, offering_id: UUID) -> bool:
         return self._interno.try_reserve_slot(offering_id)
 
@@ -438,3 +460,18 @@ class FakeUnitOfWork(UnitOfWork):
 
     def flush(self) -> None:
         return None
+
+
+class InMemoryAcademicHistory(AcademicHistoryReader):
+    """Historial academico respaldado por un diccionario."""
+
+    def __init__(self, aprobadas: dict[UUID, set[UUID]] | None = None) -> None:
+        """Construye el doble.
+
+        Args:
+            aprobadas: identificadores de las materias aprobadas, por estudiante.
+        """
+        self._aprobadas = aprobadas or {}
+
+    def find_approved_course_ids(self, student_id: UUID) -> set[UUID]:
+        return self._aprobadas.get(student_id, set())

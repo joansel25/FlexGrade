@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.application.ports.auth_service import AuthService
 from app.application.ports.cache_service import CacheService
+from app.application.ports.repositories.academic_history_repository import AcademicHistoryReader
 from app.application.ports.repositories.course_repository import CourseRepository
 from app.application.ports.repositories.enrollment_repository import EnrollmentRepository
 from app.application.ports.repositories.offering_repository import OfferingRepository
@@ -36,6 +37,9 @@ from app.infrastructure.auth.jwt_auth_service import JWTAuthService
 from app.infrastructure.cache.client import get_redis_client
 from app.infrastructure.cache.redis_cache_service import RedisCacheService
 from app.infrastructure.config.settings import Settings, get_settings
+from app.infrastructure.persistence.sqlalchemy.repositories.academic_history_repository import (
+    SQLAlchemyAcademicHistoryRepository,
+)
 from app.infrastructure.persistence.sqlalchemy.repositories.course_repository import (
     SQLAlchemyCourseRepository,
 )
@@ -127,6 +131,14 @@ def get_enrollment_repository(session: SessionDep) -> EnrollmentRepository:
 
 
 EnrollmentRepositoryDep = Annotated[EnrollmentRepository, Depends(get_enrollment_repository)]
+
+
+def get_academic_history_reader(session: SessionDep) -> AcademicHistoryReader:
+    """Resuelve el puerto del historial académico al adaptador de SQLAlchemy."""
+    return SQLAlchemyAcademicHistoryRepository(session)
+
+
+AcademicHistoryReaderDep = Annotated[AcademicHistoryReader, Depends(get_academic_history_reader)]
 
 
 def get_unit_of_work(session: SessionDep) -> UnitOfWork:
@@ -263,19 +275,26 @@ def get_enroll_student_use_case(
     offering_repository: OfferingRepositoryDep,
     period_repository: PeriodRepositoryDep,
     course_repository: CourseRepositoryDep,
+    student_repository: StudentRepositoryDep,
+    academic_history: AcademicHistoryReaderDep,
     unit_of_work: UnitOfWorkDep,
     cache: CacheServiceDep,
 ) -> EnrollStudentUseCase:
-    """Construye el caso de uso de inscripción con sus seis dependencias.
+    """Construye el caso de uso de inscripción con sus dependencias.
 
     Todas son abstracciones (`ARCHITECTURE.md` sección 5, principio D): el caso de uso no sabe
     que detrás hay PostgreSQL ni Redis, y cambiar cualquiera de los dos se hace aquí.
+
+    Los dos servicios de dominio no se inyectan: no tienen estado ni dependencias, así que el
+    propio caso de uso los construye. Inyectarlos solo añadiría ruido al cableado.
     """
     return EnrollStudentUseCase(
         enrollment_repository,
         offering_repository,
         period_repository,
         course_repository,
+        student_repository,
+        academic_history,
         unit_of_work,
         cache,
     )

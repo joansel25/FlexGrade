@@ -67,6 +67,27 @@ class SQLAlchemyOfferingRepository(OfferingRepository):
 
         return [self._a_entidad(m, docentes=docentes, horarios=horarios) for m in modelos]
 
+    def find_by_ids(self, offering_ids: Sequence[UUID]) -> list[CourseOffering]:
+        if not offering_ids:
+            return []
+
+        sentencia = (
+            select(CourseOfferingModel)
+            .where(CourseOfferingModel.id.in_(offering_ids))
+            .order_by(CourseOfferingModel.group_number)
+        )
+        modelos = list(self._session.execute(sentencia).scalars())
+
+        if not modelos:
+            return []
+
+        # Mismo patron que `find_by_course_and_period`: un numero fijo de consultas, sea cual
+        # sea la cantidad de grupos.
+        docentes = self._docentes_de([m.professor_id for m in modelos])
+        horarios = self._horarios_de([m.id for m in modelos])
+
+        return [self._a_entidad(m, docentes=docentes, horarios=horarios) for m in modelos]
+
     def try_reserve_slot(self, offering_id: UUID) -> bool:
         # UNA sola sentencia: comprueba la capacidad y descuenta el cupo a la vez. No hay
         # lectura previa, asi que no existe ventana entre comprobar y escribir.

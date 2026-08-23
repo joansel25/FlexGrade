@@ -52,6 +52,21 @@ class CourseRepository(ABC):
         """
 
     @abstractmethod
+    def belongs_to_program(self, course_id: UUID, program_id: UUID) -> bool:
+        """Indica si la materia forma parte del plan de estudios de un programa.
+
+        Es lo que sostiene el `403 COURSE_NOT_IN_PROGRAM` de `API.md`: un estudiante de Derecho
+        no debe poder inscribir Programación II, aunque la materia exista y tenga cupo.
+
+        Args:
+            course_id: identificador de la materia.
+            program_id: programa contra el que comprobar.
+
+        Returns:
+            `True` si la materia está en ese plan de estudios.
+        """
+
+    @abstractmethod
     def search(
         self,
         *,

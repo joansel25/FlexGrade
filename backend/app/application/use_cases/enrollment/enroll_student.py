@@ -32,31 +32,42 @@ from uuid import UUID
 
 from app.application.dtos.enrollment_dto import EnrollmentDTO
 from app.application.ports.cache_service import CacheService
+from app.application.ports.repositories.academic_history_repository import AcademicHistoryReader
 from app.application.ports.repositories.course_repository import CourseRepository
 from app.application.ports.repositories.enrollment_repository import EnrollmentRepository
 from app.application.ports.repositories.offering_repository import OfferingRepository
 from app.application.ports.repositories.period_repository import PeriodRepository
+from app.application.ports.repositories.student_repository import StudentRepository
 from app.application.ports.unit_of_work import UnitOfWork
 from app.application.use_cases.catalog import catalog_cache
 from app.domain.entities.course_offering import CourseOffering
 from app.domain.entities.enrollment import Enrollment
 from app.domain.entities.enrollment_period import EnrollmentPeriod
+from app.domain.exceptions.authentication import StudentProfileNotFoundError
 from app.domain.exceptions.catalog import CourseNotFoundError, OfferingNotFoundError
 from app.domain.exceptions.enrollment import (
     AlreadyEnrolledError,
     CapacityExceededError,
+    CourseNotInProgramError,
     EnrollmentPeriodInactiveError,
 )
+from app.domain.services.prerequisite_validator import PrerequisiteValidator
+from app.domain.services.schedule_conflict_detector import ScheduleConflictDetector
 
 
 class EnrollStudentUseCase:
     """Inscribe a un estudiante en un grupo, sin permitir sobrecupo.
 
-    Orquesta, no decide. Quién puede inscribirse lo determinan la entidad `CourseOffering` —que
-    encapsula la invariante de cupo— y la entidad `EnrollmentPeriod` —que sabe si la ventana
-    está abierta—. La validación de prerrequisitos y de choque de horario llega en la iteración
-    3.3, como servicios de dominio aparte, para que este caso de uso siga teniendo una sola
-    razón para cambiar: el flujo.
+    Orquesta, no decide. Cada regla vive donde le corresponde y este caso de uso solo las
+    encadena (`ARCHITECTURE.md` sección 5, principio S):
+
+    - `EnrollmentPeriod` sabe si la ventana está abierta.
+    - `CourseOffering` encapsula la invariante de cupo.
+    - `PrerequisiteValidator` decide si faltan materias por aprobar.
+    - `ScheduleConflictDetector` decide si el horario choca.
+
+    Así, este caso de uso tiene una única razón para cambiar: que cambie el flujo. Si mañana se
+    endurece la regla de prerrequisitos, se toca el validador y nada más.
     """
 
     def __init__(
@@ -65,15 +76,26 @@ class EnrollStudentUseCase:
         offering_repository: OfferingRepository,
         period_repository: PeriodRepository,
         course_repository: CourseRepository,
+        student_repository: StudentRepository,
+        academic_history: AcademicHistoryReader,
         unit_of_work: UnitOfWork,
         cache: CacheService,
+        prerequisite_validator: PrerequisiteValidator | None = None,
+        schedule_conflict_detector: ScheduleConflictDetector | None = None,
     ) -> None:
         self._enrollment_repository = enrollment_repository
         self._offering_repository = offering_repository
         self._period_repository = period_repository
         self._course_repository = course_repository
+        self._student_repository = student_repository
+        self._academic_history = academic_history
         self._uow = unit_of_work
         self._cache = cache
+        # Los servicios de dominio no tienen estado ni dependencias, así que se construyen
+        # aquí por defecto. Se admiten por parámetro para poder sustituirlos en un test que
+        # quiera aislar el flujo de las reglas.
+        self._prerequisites = prerequisite_validator or PrerequisiteValidator()
+        self._schedule = schedule_conflict_detector or ScheduleConflictDetector()
 
     def execute(self, *, student_id: UUID, course_offering_id: UUID) -> EnrollmentDTO:
         """Inscribe al estudiante en el grupo indicado.
@@ -91,6 +113,9 @@ class EnrollStudentUseCase:
             OfferingNotFoundError: si el grupo no existe.
             CourseNotFoundError: si la materia del grupo no existe.
             AlreadyEnrolledError: si el estudiante ya está inscrito en ese grupo.
+            CourseNotInProgramError: si la materia no está en su plan de estudios.
+            PrerequisitesNotMetError: si le faltan materias por aprobar.
+            ScheduleConflictError: si el horario choca con otra inscripción activa.
             CapacityExceededError: si el grupo se llenó.
         """
         periodo = self._periodo_abierto()
@@ -142,6 +167,14 @@ class EnrollStudentUseCase:
                 student_id=student_id, grupo=grupo, periodo_id=periodo.id
             )
 
+            # Las reglas académicas van ANTES de tocar el cupo. El orden importa: descontar y
+            # revertir por una validación fallida sería trabajo desperdiciado en la operación
+            # más disputada del sistema, y durante ese instante el cupo aparecería ocupado ante
+            # cualquier otra petición.
+            self._validar_reglas_academicas(
+                student_id=student_id, grupo=grupo, periodo_id=periodo.id
+            )
+
             # La regla del dominio, sobre el grupo tal como se leyó. Falla de inmediato si ya
             # estaba lleno, sin gastar una escritura.
             grupo.reserve_slot()
@@ -161,6 +194,49 @@ class EnrollStudentUseCase:
         self._cache.delete(catalog_cache.clave_grupo(course_offering_id))
 
         return self._a_dto(inscripcion, grupo)
+
+    def _validar_reglas_academicas(
+        self, *, student_id: UUID, grupo: CourseOffering, periodo_id: UUID
+    ) -> None:
+        """Comprueba plan de estudios, prerrequisitos y choque de horario.
+
+        Se validan en ese orden, de más barato a más caro: la pertenencia al plan es una
+        consulta de existencia, los prerrequisitos leen el historial, y el choque de horario
+        exige traer los grupos ya inscritos con sus franjas. Rechazar en el primer paso ahorra
+        los dos siguientes.
+        """
+        estudiante = self._student_repository.find_by_id(student_id)
+
+        if estudiante is None:
+            raise StudentProfileNotFoundError()
+
+        if not self._course_repository.belongs_to_program(grupo.course_id, estudiante.program_id):
+            raise CourseNotInProgramError(grupo.course_id, estudiante.program_id)
+
+        self._prerequisites.validate(
+            course_id=grupo.course_id,
+            required=self._course_repository.find_prerequisites(grupo.course_id),
+            approved_course_ids=self._academic_history.find_approved_course_ids(student_id),
+        )
+
+        self._schedule.ensure_no_conflict(
+            candidate=grupo,
+            enrolled=self._grupos_ya_inscritos(student_id, periodo_id),
+        )
+
+    def _grupos_ya_inscritos(self, student_id: UUID, periodo_id: UUID) -> list[CourseOffering]:
+        """Trae los grupos activos del estudiante con su horario resuelto.
+
+        Dos consultas fijas —las inscripciones y después todos sus grupos de una vez—, nunca
+        una por inscripción. Un N+1 aquí caería dentro de la transacción crítica, que es el
+        peor sitio posible para tenerlo.
+        """
+        activas = self._enrollment_repository.find_active_by_student(student_id, periodo_id)
+
+        if not activas:
+            return []
+
+        return self._offering_repository.find_by_ids([e.course_offering_id for e in activas])
 
     def _preparar_inscripcion(
         self, *, student_id: UUID, grupo: CourseOffering, periodo_id: UUID

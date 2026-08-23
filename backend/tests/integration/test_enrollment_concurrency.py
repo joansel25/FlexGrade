@@ -32,6 +32,9 @@ from app.infrastructure.persistence.sqlalchemy.models.course_offering import Cou
 from app.infrastructure.persistence.sqlalchemy.models.enrollment import EnrollmentModel
 from app.infrastructure.persistence.sqlalchemy.models.student import StudentModel
 from app.infrastructure.persistence.sqlalchemy.models.user import UserModel
+from app.infrastructure.persistence.sqlalchemy.repositories.academic_history_repository import (
+    SQLAlchemyAcademicHistoryRepository,
+)
 from app.infrastructure.persistence.sqlalchemy.repositories.course_repository import (
     SQLAlchemyCourseRepository,
 )
@@ -43,6 +46,9 @@ from app.infrastructure.persistence.sqlalchemy.repositories.offering_repository 
 )
 from app.infrastructure.persistence.sqlalchemy.repositories.period_repository import (
     SQLAlchemyPeriodRepository,
+)
+from app.infrastructure.persistence.sqlalchemy.repositories.student_repository import (
+    SQLAlchemyStudentRepository,
 )
 from app.infrastructure.persistence.sqlalchemy.session import get_session_factory
 from app.infrastructure.persistence.sqlalchemy.unit_of_work import SQLAlchemyUnitOfWork
@@ -76,6 +82,8 @@ def _inscribir_en_hilo(
             SQLAlchemyOfferingRepository(session),
             SQLAlchemyPeriodRepository(session),
             SQLAlchemyCourseRepository(session),
+            SQLAlchemyStudentRepository(session),
+            SQLAlchemyAcademicHistoryRepository(session),
             SQLAlchemyUnitOfWork(session),
             # Caché en memoria y propia de cada hilo: lo que se mide es el bloqueo en
             # PostgreSQL, y meter Redis por medio añadiría una variable ajena al experimento.

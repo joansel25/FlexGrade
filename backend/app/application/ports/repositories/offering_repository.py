@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from uuid import UUID
 
 from app.domain.entities.course_offering import CourseOffering
@@ -42,6 +43,24 @@ class OfferingRepository(ABC):
         Returns:
             Los grupos ordenados por número de grupo, o una lista vacía si la materia no se
             ofrece en ese período.
+        """
+
+    @abstractmethod
+    def find_by_ids(self, offering_ids: Sequence[UUID]) -> list[CourseOffering]:
+        """Recupera varios grupos de una vez, con su docente y su horario resueltos.
+
+        Existe para la detección de choque de horario: el caso de uso tiene los identificadores
+        de los grupos que el estudiante ya cursa y necesita sus franjas. Pedirlos uno a uno
+        sería un N+1 dentro de la transacción crítica de la inscripción, que es el peor sitio
+        posible para tenerlo.
+
+        Args:
+            offering_ids: identificadores de los grupos.
+
+        Returns:
+            Los grupos encontrados, ordenados por número de grupo. Los identificadores que no
+            existan se omiten en silencio: quien llama pregunta por un conjunto, no comprueba
+            existencia.
         """
 
     @abstractmethod

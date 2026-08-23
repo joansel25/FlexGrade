@@ -48,6 +48,17 @@ class SQLAlchemyCourseRepository(CourseRepository):
         )
         return [self._a_entidad(m) for m in self._session.execute(sentencia).scalars()]
 
+    def belongs_to_program(self, course_id: UUID, program_id: UUID) -> bool:
+        # `exists()` y no un `count`: PostgreSQL se detiene en la primera coincidencia en vez
+        # de recorrer todas, y la respuesta es la misma.
+        sentencia = select(
+            select(ProgramCourseModel.course_id)
+            .where(ProgramCourseModel.course_id == course_id)
+            .where(ProgramCourseModel.program_id == program_id)
+            .exists()
+        )
+        return bool(self._session.execute(sentencia).scalar_one())
+
     def search(
         self,
         *,
