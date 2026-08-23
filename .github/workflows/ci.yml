@@ -134,54 +134,57 @@ jobs:
           mypy app
 
       # -----------------------------------------------------------------------
-      # DESVIACION DOCUMENTADA respecto a CI_CD.md seccion 4.1 paso 5.
+      # Tests unitarios, ya alineados con CI_CD.md seccion 4.1 paso 5.
       #
-      # El documento indica `pytest -m unit --cov=app --cov-fail-under=80`. En la
-      # Fase 0 todavia no existe ningun test marcado como `unit`: los tres tests
-      # actuales estan marcados `e2e` (backend/tests/e2e/test_health.py). Ejecutar
-      # `-m unit` hoy devuelve exit code 5 ("no tests ran") y 0% de cobertura, es
-      # decir, un CI rojo por una razon que no es un defecto del codigo.
-      #
-      # Se ejecuta entonces `-m "not integration"`, que incluye los tests e2e
-      # (corren en proceso con TestClient, no necesitan base de datos) y da 100%
-      # de cobertura sobre `app`.
-      #
-      # El umbral del 80% SE MANTIENE ACTIVO: un gate desactivado no protege nada.
-      #
-      # TODO(devops, 2026-08-22): volver a `-m unit` cuando la Fase 1 aporte tests
-      # unitarios reales, y mover los e2e a su propio paso contra el ambiente
-      # desplegado.
+      # En la Fase 0 este paso corria `-m "not integration"` porque no existia
+      # ningun test marcado `unit` y `-m unit` devolvia exit 5. La Fase 1 aporto
+      # 48 tests unitarios, que por si solos cubren el 84% de `app`, por encima
+      # del umbral. La desviacion queda resuelta.
       # -----------------------------------------------------------------------
       - name: Tests unitarios (con umbral de cobertura del 80%)
         working-directory: backend
-        run: pytest -m "not integration" --cov=app --cov-fail-under=80
+        run: pytest -m unit --cov=app --cov-fail-under=80
+
+      # -----------------------------------------------------------------------
+      # Tests e2e en proceso.
+      #
+      # Al pasar el paso anterior de `-m "not integration"` a `-m unit`, los tests
+      # marcados `e2e` dejaron de ejecutarse en ningun sitio: el job `e2e` de
+      # deploy-staging.yml, que es su destino final, sigue comentado hasta que
+      # exista el ambiente desplegado. Un test que no corre no protege nada, asi
+      # que se ejecutan aqui mientras tanto.
+      #
+      # Hoy no necesitan servicios: usan TestClient contra la app en proceso.
+      # Cuando deploy-staging.yml los apunte a la URL real de STAGING, este paso
+      # se elimina y su cobertura pasa alli.
+      # -----------------------------------------------------------------------
+      - name: Tests e2e (en proceso, contra la app con TestClient)
+        working-directory: backend
+        run: pytest -m e2e
 
       # -----------------------------------------------------------------------
       # Tests de integracion.
       #
-      # Hoy no existe ningun test marcado `integration`, y pytest devuelve exit
-      # code 5 en ese caso. Ese codigo concreto se traduce a "todavia no hay tests
-      # de este tipo" y el paso continua; CUALQUIER otro codigo distinto de 0 hace
-      # fallar el job.
-      #
-      # No se usa `continue-on-error: true` ni `|| true` a proposito: eso
-      # enmascararia fallos reales cuando lleguen los tests de las Fases 2 y 3.
+      # Las migraciones se aplican ANTES de los tests: sin ellas la base de datos
+      # del runner esta vacia y cada test fallaria con "relation does not exist".
+      # Se usa alembic (y no un create_all) para ejercitar en CI exactamente el
+      # mismo camino que corre en DEV, STAGING y PROD.
       # -----------------------------------------------------------------------
+      - name: Migraciones sobre la base de datos de pruebas
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+psycopg://matricula:testpassword@localhost:5432/matricula_test
+          REDIS_URL: redis://localhost:6379/0
+          JWT_SECRET: solo-para-ci-no-es-un-secreto-real
+        run: alembic upgrade head
+
       - name: Tests de integracion (Postgres 16 + Redis 7)
         working-directory: backend
         env:
           DATABASE_URL: postgresql+psycopg://matricula:testpassword@localhost:5432/matricula_test
           REDIS_URL: redis://localhost:6379/0
-        run: |
-          set +e
-          pytest -m integration
-          codigo=$?
-          set -e
-          if [ "$codigo" -eq 5 ]; then
-            echo "::notice title=Sin tests de integracion::pytest -m integration no encontro tests (exit 5). Se continua. TODO(devops, 2026-08-22): este paso empezara a fallar de verdad en cuanto la Fase 2 aporte tests de integracion."
-            exit 0
-          fi
-          exit "$codigo"
+          JWT_SECRET: solo-para-ci-no-es-un-secreto-real
+        run: pytest -m integration
 
       # -----------------------------------------------------------------------
       # Auditoria de dependencias (CI_CD.md seccion 8).

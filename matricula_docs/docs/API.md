@@ -73,11 +73,34 @@ Autentica un usuario y retorna tokens de acceso y refresh.
 
 ### POST /auth/refresh
 
-Renueva el access token usando un refresh token válido.
+Renueva el par de tokens usando un refresh token válido.
+
+**Request**
+```json
+{
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+**Response 200** — mismo cuerpo que el login pero sin el bloque `user`:
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer",
+  "expires_in": 3600
+}
+```
+
+La cuenta se vuelve a leer de la base de datos en cada refresco: si fue desactivada o cambió de rol después del login, el token nuevo lo refleja. Un access token presentado aquí se rechaza con `401 INVALID_TOKEN`; solo sirve un token de tipo `refresh`.
 
 ### POST /auth/logout
 
-Invalida el token actual.
+Cierra la sesión del usuario autenticado. Requiere `Authorization: Bearer <access_token>` y responde `204 No Content`.
+
+**Alcance real (Fase 1).** Los JWT son autocontenidos y sin estado: el servidor no puede invalidar un token ya emitido sin llevar registro de los revocados. Hoy el endpoint solo verifica que el token sea válido; la invalidación efectiva es que el cliente descarte ambos tokens. Como el access token dura una hora, la ventana de exposición es acotada.
+
+La revocación real (lista de denegación del `jti` en Redis, consultada por `get_current_user`) se implementará junto con el adaptador de Redis en la Fase 2.
 
 ## 2. Perfil del estudiante
 
@@ -101,6 +124,10 @@ Retorna el perfil del estudiante autenticado.
   "enrollment_date": "2022-01-15"
 }
 ```
+
+**Estado en la Fase 1.** La implementación actual devuelve `"program_id": "uuid"` plano en lugar del bloque `program` anidado: el repositorio de programas llega en la Fase 2 y resolver el `code` y el `name` hoy obligaría a que el router consultara la tabla por su cuenta. El resto del contrato ya se cumple. Es un cambio aditivo para el frontend, que todavía no consume este endpoint.
+
+El identificador del estudiante sale siempre del token, nunca de la petición: no existe forma de consultar el perfil de otra cuenta por este endpoint.
 
 ### GET /students/me/schedule
 

@@ -27,6 +27,9 @@ dependencies = [
     "pydantic-settings==2.7.0",
     "psycopg[binary]==3.2.3",
     "redis==5.2.1",
+    # Autenticacion (Fase 1): firma de tokens y hashing de contrasenas.
+    "pyjwt==2.13.0",
+    "bcrypt==5.0.0",
 ]
 
 [project.optional-dependencies]
