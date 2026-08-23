@@ -120,7 +120,16 @@ markers = [
 [tool.coverage.run]
 source = ["app"]
 branch = true
-omit = ["*/__init__.py"]
+omit = [
+    "*/__init__.py",
+    # Los puertos son contratos abstractos: imports, `class X(ABC)` y firmas con docstring.
+    # No contienen ni una linea de comportamiento. Su cobertura es binaria —0% si nadie
+    # importa el modulo, 100% en cuanto alguien lo hace— asi que mide "se importo", no la
+    # calidad de las pruebas. Incluirlos solo anade ruido al numero en ambos sentidos:
+    # hunde la cifra mientras el adaptador esta en camino e infla un 100% gratis despues.
+    # Lo que de verdad protege el contrato son los tests de integracion de cada adaptador.
+    "app/application/ports/*",
+]
 
 [tool.coverage.report]
 show_missing = true

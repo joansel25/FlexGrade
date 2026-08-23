@@ -50,7 +50,13 @@ Se ejecuta en cada push y en cada pull request. No despliega nada, solo valida.
 2. **Setup de Python 3.12** con caché de dependencias.
 3. **Instalar dependencias** (`pip install -e ".[dev]"`).
 4. **Linting**: `black --check`, `isort --check-only`, `mypy app`.
-5. **Tests unitarios**: `pytest -m unit --cov=app --cov-fail-under=80`.
+5. **Tests unitarios**: `pytest -m unit --cov=app/domain --cov=app/application --cov-fail-under=90`.
+
+   El umbral se aplica sobre el **núcleo**, no sobre toda la aplicación. Medir `--cov=app` con solo los tests unitarios cuenta como no cubiertos los adaptadores de `infrastructure/`, que se prueban con tests de integración contra Postgres y Redis reales porque es la única forma de obtener una señal veraz sobre ellos. Con ese planteamiento, cada adaptador nuevo hundía la cifra global sin que faltara un solo test, y el gate acababa fallando por su propio diseño en vez de por un defecto del código.
+
+   `domain` y `application` sí deben estar cubiertos por completo: ahí viven las reglas de negocio —cupos, prerrequisitos, choques de horario, vigencia del período— y no dependen de nada externo, así que no hay excusa para no probarlas de forma aislada y rápida. `infrastructure/` e `interfaces/` los garantizan los pasos de integración y e2e, que son funcionales: comprueban que el adaptador cumple lo que promete, no cuántas de sus líneas se ejecutaron.
+
+   Los módulos de `application/ports/` quedan fuera de la medición (`omit` en `pyproject.toml`). Son contratos abstractos sin una línea de comportamiento, y su cobertura es binaria: 0% mientras nadie importe el módulo y 100% en cuanto alguien lo hace. Mide si se importó, no si está bien probado.
 6. **Tests e2e en proceso**: `pytest -m e2e`. Paso provisional: los e2e corren con `TestClient` contra la app en el propio runner. Su destino final es el trabajo `e2e` de `deploy-staging.yml`, apuntando a la URL de STAGING; cuando ese trabajo se active, este paso se elimina.
 7. **Migraciones de la base de pruebas**: `alembic upgrade head`. Sin este paso la base del runner está vacía y los tests de integración fallarían con `relation does not exist`. Se usa Alembic —y no un `create_all`— para ejercitar en CI el mismo camino que corre en DEV, STAGING y PROD.
 8. **Tests de integración**: `pytest -m integration` (con Postgres y Redis levantados como servicios de GitHub Actions).
