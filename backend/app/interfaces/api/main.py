@@ -25,6 +25,16 @@ from app.domain.exceptions.catalog import (
     NoActivePeriodError,
     OfferingNotFoundError,
 )
+from app.domain.exceptions.enrollment import (
+    AlreadyEnrolledError,
+    CapacityExceededError,
+    CourseNotInProgramError,
+    EnrollmentAlreadyCancelledError,
+    EnrollmentNotFoundError,
+    EnrollmentPeriodInactiveError,
+    PrerequisitesNotMetError,
+    ScheduleConflictError,
+)
 from app.infrastructure.config.settings import get_settings
 from app.interfaces.api.routers import auth, courses, health, offerings, periods, students
 
@@ -69,6 +79,21 @@ _MAPEO_ERRORES: dict[type[DomainError], tuple[int, str]] = {
     CourseNotFoundError: (404, "COURSE_NOT_FOUND"),
     OfferingNotFoundError: (404, "OFFERING_NOT_FOUND"),
     NoActivePeriodError: (404, "NO_ACTIVE_PERIOD"),
+    # Inscripción (Fase 3), con los códigos que fija `API.md` sección 4.
+    #
+    # Casi todos son 409 y no 400: la petición está bien formada y el cliente tiene permiso;
+    # lo que impide la operación es el ESTADO del sistema. El mismo cuerpo enviado cinco
+    # minutos antes habría funcionado.
+    EnrollmentPeriodInactiveError: (409, "ENROLLMENT_PERIOD_INACTIVE"),
+    CapacityExceededError: (409, "COURSE_CAPACITY_EXCEEDED"),
+    AlreadyEnrolledError: (409, "ALREADY_ENROLLED"),
+    PrerequisitesNotMetError: (409, "PREREQUISITES_NOT_MET"),
+    ScheduleConflictError: (409, "SCHEDULE_CONFLICT"),
+    EnrollmentAlreadyCancelledError: (409, "ENROLLMENT_ALREADY_CANCELLED"),
+    # La excepción: no es un conflicto de estado sino una operación que a esta persona no le
+    # corresponde hacer.
+    CourseNotInProgramError: (403, "COURSE_NOT_IN_PROGRAM"),
+    EnrollmentNotFoundError: (404, "ENROLLMENT_NOT_FOUND"),
 }
 
 

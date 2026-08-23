@@ -12,15 +12,10 @@ Existentes:
 - `enrollment_period.py`: EnrollmentPeriod, la ventana temporal de matrícula (`is_open`,
   `time_remaining_seconds`).
 - `course_offering.py`: CourseOffering, la oferta de una materia en un período. Transporta el
-  campo `version` del bloqueo optimista y responde por su cupo disponible.
-
-Pendientes de la Fase 3:
-
-- `enrollment.py`: Enrollment, la inscripción de un estudiante en un grupo (ENROLLED,
-  CANCELLED, WAITLISTED).
-- El descuento de cupo de `CourseOffering` (`reserve_slot`, `release_slot`,
-  `can_accept_enrollment`), que llega con el caso de uso de inscripción y su protocolo de
-  reintentos.
+  campo `version` del bloqueo optimista y encapsula la invariante de cupo (`reserve_slot`,
+  `release_slot`, `can_accept_enrollment`).
+- `enrollment.py`: Enrollment, la inscripción de un estudiante en un grupo (`create`, `cancel`,
+  `reactivate`, `is_active`).
 
 Las entidades **no** heredan de `Base` de SQLAlchemy: el mapeo a la base de datos vive en
 `app.infrastructure.persistence.sqlalchemy` y los repositorios traducen entre ambos mundos.
