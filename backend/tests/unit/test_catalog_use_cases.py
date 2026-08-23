@@ -23,11 +23,16 @@ from app.domain.exceptions.catalog import (
     OfferingNotFoundError,
 )
 from tests.unit.doubles import (
+    InMemoryCacheService,
     InMemoryCourseRepository,
     InMemoryOfferingRepository,
     InMemoryPeriodRepository,
 )
 from tests.unit.factories import AHORA, crear_materia, crear_oferta, crear_periodo
+
+# Los tests de este archivo comprueban ORQUESTACION, no la politica de cache: usan una cache
+# vacia y nueva en cada caso. El comportamiento de la cache se prueba en `test_catalog_cache.py`.
+TTL = 30
 
 # ---------------------------------------------------------------------------
 # ListCoursesUseCase
@@ -36,7 +41,7 @@ from tests.unit.factories import AHORA, crear_materia, crear_oferta, crear_perio
 
 @pytest.mark.unit
 def test_list_courses_when_catalog_is_empty_returns_empty_page() -> None:
-    caso = ListCoursesUseCase(InMemoryCourseRepository())
+    caso = ListCoursesUseCase(InMemoryCourseRepository(), InMemoryCacheService(), TTL)
 
     resultado = caso.execute()
 
@@ -50,7 +55,7 @@ def test_list_courses_returns_courses_ordered_by_code() -> None:
         [crear_materia(code="MAT201"), crear_materia(code="ALG101"), crear_materia(code="FIS101")]
     )
 
-    resultado = ListCoursesUseCase(repo).execute()
+    resultado = ListCoursesUseCase(repo, InMemoryCacheService(), TTL).execute()
 
     assert [c.code.value for c in resultado.items] == ["ALG101", "FIS101", "MAT201"]
 
@@ -59,7 +64,9 @@ def test_list_courses_returns_courses_ordered_by_code() -> None:
 def test_list_courses_when_page_size_exceeds_the_limit_is_capped() -> None:
     # Sin este techo, `?size=100000` seria una forma trivial de tumbar la base de datos
     # durante el pico de matricula.
-    resultado = ListCoursesUseCase(InMemoryCourseRepository()).execute(size=100_000)
+    resultado = ListCoursesUseCase(InMemoryCourseRepository(), InMemoryCacheService(), TTL).execute(
+        size=100_000
+    )
 
     assert resultado.size == 100
 
@@ -68,14 +75,18 @@ def test_list_courses_when_page_size_exceeds_the_limit_is_capped() -> None:
 @pytest.mark.parametrize("pagina", [0, -5])
 def test_list_courses_when_page_is_not_positive_falls_back_to_the_first(pagina: int) -> None:
     # Una pagina 0 o negativa produciria un OFFSET negativo, que en PostgreSQL es un error.
-    resultado = ListCoursesUseCase(InMemoryCourseRepository()).execute(page=pagina)
+    resultado = ListCoursesUseCase(InMemoryCourseRepository(), InMemoryCacheService(), TTL).execute(
+        page=pagina
+    )
 
     assert resultado.page == 1
 
 
 @pytest.mark.unit
 def test_list_courses_when_size_is_not_positive_falls_back_to_one() -> None:
-    resultado = ListCoursesUseCase(InMemoryCourseRepository()).execute(size=0)
+    resultado = ListCoursesUseCase(InMemoryCourseRepository(), InMemoryCacheService(), TTL).execute(
+        size=0
+    )
 
     assert resultado.size == 1
 
@@ -86,7 +97,7 @@ def test_list_courses_reports_the_total_beyond_the_current_page() -> None:
     # los elementos de la pagina, la paginacion se rompe en silencio.
     repo = InMemoryCourseRepository([crear_materia(code=f"MAT{i:03d}") for i in range(1, 26)])
 
-    resultado = ListCoursesUseCase(repo).execute(page=1, size=10)
+    resultado = ListCoursesUseCase(repo, InMemoryCacheService(), TTL).execute(page=1, size=10)
 
     assert len(resultado.items) == 10
     assert resultado.total == 25
@@ -101,7 +112,7 @@ def test_list_courses_when_searching_matches_name_case_insensitively() -> None:
         ]
     )
 
-    resultado = ListCoursesUseCase(repo).execute(search="cálculo")
+    resultado = ListCoursesUseCase(repo, InMemoryCacheService(), TTL).execute(search="cálculo")
 
     assert [c.code.value for c in resultado.items] == ["MAT101"]
 
@@ -113,7 +124,7 @@ def test_list_courses_when_searching_matches_name_case_insensitively() -> None:
 
 @pytest.mark.unit
 def test_get_course_detail_when_course_does_not_exist_raises() -> None:
-    caso = GetCourseDetailUseCase(InMemoryCourseRepository())
+    caso = GetCourseDetailUseCase(InMemoryCourseRepository(), InMemoryCacheService(), TTL)
 
     with pytest.raises(CourseNotFoundError):
         caso.execute(uuid4())
@@ -127,7 +138,7 @@ def test_get_course_detail_returns_the_course_with_its_prerequisites() -> None:
         [calculo_i, calculo_ii], prerequisites={calculo_ii.id: [calculo_i]}
     )
 
-    resultado = GetCourseDetailUseCase(repo).execute(calculo_ii.id)
+    resultado = GetCourseDetailUseCase(repo, InMemoryCacheService(), TTL).execute(calculo_ii.id)
 
     assert resultado.course.id == calculo_ii.id
     assert [c.code.value for c in resultado.prerequisites] == ["MAT101"]
@@ -138,7 +149,10 @@ def test_get_course_detail_when_course_has_no_prerequisites_returns_empty_list()
     materia = crear_materia()
     repo = InMemoryCourseRepository([materia])
 
-    assert GetCourseDetailUseCase(repo).execute(materia.id).prerequisites == []
+    assert (
+        GetCourseDetailUseCase(repo, InMemoryCacheService(), TTL).execute(materia.id).prerequisites
+        == []
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -230,7 +244,7 @@ def test_get_course_offerings_when_course_is_not_offered_returns_empty_list_not_
 
 @pytest.mark.unit
 def test_get_offering_detail_when_offering_does_not_exist_raises() -> None:
-    caso = GetOfferingDetailUseCase(InMemoryOfferingRepository())
+    caso = GetOfferingDetailUseCase(InMemoryOfferingRepository(), InMemoryCacheService(), TTL)
 
     with pytest.raises(OfferingNotFoundError):
         caso.execute(uuid4())
@@ -239,7 +253,9 @@ def test_get_offering_detail_when_offering_does_not_exist_raises() -> None:
 @pytest.mark.unit
 def test_get_offering_detail_returns_the_offering() -> None:
     grupo = crear_oferta(total_capacity=40, enrolled_count=37)
-    caso = GetOfferingDetailUseCase(InMemoryOfferingRepository([grupo]))
+    caso = GetOfferingDetailUseCase(
+        InMemoryOfferingRepository([grupo]), InMemoryCacheService(), TTL
+    )
 
     resultado = caso.execute(grupo.id)
 

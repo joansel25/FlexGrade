@@ -14,6 +14,7 @@ from uuid import UUID
 from app.application.dtos.auth_dto import TokenPayload, TokenType
 from app.application.dtos.pagination import Page
 from app.application.ports.auth_service import AuthService
+from app.application.ports.cache_service import CacheService
 from app.application.ports.repositories.course_repository import CourseRepository
 from app.application.ports.repositories.offering_repository import OfferingRepository
 from app.application.ports.repositories.period_repository import PeriodRepository
@@ -232,3 +233,80 @@ class InMemoryPeriodRepository(PeriodRepository):
 
     def find_by_id(self, period_id: UUID) -> EnrollmentPeriod | None:
         return self._periods.get(period_id)
+
+
+class InMemoryCacheService(CacheService):
+    """Caché en memoria que registra cuántas veces se la consulta.
+
+    Los contadores permiten afirmar en un test que la segunda llamada NO fue a la base de
+    datos, que es justamente lo que un test de caché debe demostrar: sin ellos solo se
+    comprobaría que el resultado es el mismo, cosa que también ocurriría sin caché alguna.
+    """
+
+    def __init__(self) -> None:
+        self._datos: dict[str, str] = {}
+        self.lecturas = 0
+        self.escrituras = 0
+        self.invalidaciones = 0
+
+    def get(self, key: str) -> str | None:
+        self.lecturas += 1
+        return self._datos.get(key)
+
+    def set(self, key: str, value: str, ttl_seconds: int) -> None:
+        self.escrituras += 1
+        self._datos[key] = value
+
+    def delete(self, key: str) -> None:
+        self.invalidaciones += 1
+        self._datos.pop(key, None)
+
+    def envenenar(self, key: str, contenido: str) -> None:
+        """Coloca contenido corrupto bajo una clave, saltándose el contador de escrituras."""
+        self._datos[key] = contenido
+
+    def contiene(self, key: str) -> bool:
+        return key in self._datos
+
+
+class CacheCaida(CacheService):
+    """Caché que falla en toda operación, como un Redis caído.
+
+    El adaptador real captura `RedisError` y degrada; este doble simula la capa que hay por
+    debajo de esa captura para comprobar que, aun así, los casos de uso responden.
+    """
+
+    def get(self, key: str) -> str | None:
+        return None
+
+    def set(self, key: str, value: str, ttl_seconds: int) -> None:
+        return None
+
+    def delete(self, key: str) -> None:
+        return None
+
+
+class ContadorDeConsultas(OfferingRepository):
+    """Envoltorio que cuenta las llamadas a un repositorio de grupos.
+
+    Comprueba la regla que sostiene todo el diseño de la caché de este endpoint:
+    `count_enrolled` tiene que ejecutarse SIEMPRE, incluso cuando el grupo viene de la caché.
+    """
+
+    def __init__(self, interno: OfferingRepository) -> None:
+        self._interno = interno
+        self.llamadas_find_by_id = 0
+        self.llamadas_count_enrolled = 0
+
+    def find_by_id(self, offering_id: UUID) -> CourseOffering | None:
+        self.llamadas_find_by_id += 1
+        return self._interno.find_by_id(offering_id)
+
+    def find_by_course_and_period(
+        self, course_id: UUID, enrollment_period_id: UUID
+    ) -> list[CourseOffering]:
+        return self._interno.find_by_course_and_period(course_id, enrollment_period_id)
+
+    def count_enrolled(self, offering_id: UUID) -> int | None:
+        self.llamadas_count_enrolled += 1
+        return self._interno.count_enrolled(offering_id)

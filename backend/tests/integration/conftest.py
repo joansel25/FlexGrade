@@ -14,10 +14,12 @@ from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID, uuid4
 
 import pytest
+from redis.exceptions import RedisError
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.infrastructure.auth.jwt_auth_service import JWTAuthService
+from app.infrastructure.cache.client import get_redis_client
 from app.infrastructure.config.settings import get_settings
 from app.infrastructure.persistence.sqlalchemy.models.course import CourseModel
 from app.infrastructure.persistence.sqlalchemy.models.course_offering import CourseOfferingModel
@@ -52,6 +54,33 @@ TABLAS_A_LIMPIAR: tuple[str, ...] = (
     "users",
     "programs",
 )
+
+
+@pytest.fixture(autouse=True)
+def cache_limpia() -> Iterator[None]:
+    """Vacía la caché del catálogo antes y después de cada test de integración.
+
+    Es `autouse` a propósito. Redis es un servicio real y compartido: una entrada que deje un
+    test sobrevive al siguiente, y el resultado sería una suite que pasa o falla según el
+    orden de ejecución —el tipo de fallo intermitente que cuesta días localizar—. Solo se
+    borran las claves del catálogo, nunca la base entera, para no pisar nada más que corra
+    contra el mismo Redis.
+    """
+    _vaciar_cache_del_catalogo()
+    yield
+    _vaciar_cache_del_catalogo()
+
+
+def _vaciar_cache_del_catalogo() -> None:
+    cliente = get_redis_client()
+    try:
+        claves = list(cliente.scan_iter(match="catalog:*"))
+        if claves:
+            cliente.delete(*claves)
+    except RedisError:
+        # Si Redis no está disponible, los casos de uso degradan y van a PostgreSQL: los
+        # tests siguen siendo válidos, solo dejan de ejercitar el camino de la caché.
+        pass
 
 
 @pytest.fixture

@@ -8,12 +8,14 @@ el proveedor de tokens se hace aquí, sin tocar el resto del sistema.
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Annotated
 
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from app.application.ports.auth_service import AuthService
+from app.application.ports.cache_service import CacheService
 from app.application.ports.repositories.course_repository import CourseRepository
 from app.application.ports.repositories.offering_repository import OfferingRepository
 from app.application.ports.repositories.period_repository import PeriodRepository
@@ -22,7 +24,14 @@ from app.application.ports.repositories.student_repository import StudentReposit
 from app.application.ports.repositories.user_repository import UserRepository
 from app.application.use_cases.auth.authenticate_user import AuthenticateUserUseCase
 from app.application.use_cases.auth.refresh_token import RefreshTokenUseCase
+from app.application.use_cases.catalog.get_course_detail import GetCourseDetailUseCase
+from app.application.use_cases.catalog.get_course_offerings import GetCourseOfferingsUseCase
+from app.application.use_cases.catalog.get_current_period import GetCurrentPeriodUseCase
+from app.application.use_cases.catalog.get_offering_detail import GetOfferingDetailUseCase
+from app.application.use_cases.catalog.list_courses import ListCoursesUseCase
 from app.infrastructure.auth.jwt_auth_service import JWTAuthService
+from app.infrastructure.cache.client import get_redis_client
+from app.infrastructure.cache.redis_cache_service import RedisCacheService
 from app.infrastructure.config.settings import Settings, get_settings
 from app.infrastructure.persistence.sqlalchemy.repositories.course_repository import (
     SQLAlchemyCourseRepository,
@@ -102,6 +111,94 @@ def get_period_repository(session: SessionDep) -> PeriodRepository:
 
 
 PeriodRepositoryDep = Annotated[PeriodRepository, Depends(get_period_repository)]
+
+
+@lru_cache
+def get_cache_service() -> CacheService:
+    """Resuelve el puerto de caché al adaptador de Redis.
+
+    Devuelve SIEMPRE la misma instancia, y eso no es una optimización menor: el adaptador
+    lleva dentro el cortacircuitos que desactiva Redis tras varios fallos seguidos. Construir
+    uno nuevo en cada petición descartaría ese estado antes de que sirviera de nada, y durante
+    una caída de Redis cada petición volvería a pagar el tiempo de espera completo —que es
+    justo lo que el cortacircuitos existe para evitar—.
+
+    A diferencia de los repositorios, que dependen de la sesión de la petición y por eso se
+    construyen en cada una, el adaptador de caché solo depende del cliente de Redis, que ya es
+    único por proceso y seguro de compartir.
+    """
+    return RedisCacheService(get_redis_client())
+
+
+CacheServiceDep = Annotated[CacheService, Depends(get_cache_service)]
+
+
+# ---------------------------------------------------------------------------
+# Casos de uso del catálogo
+# ---------------------------------------------------------------------------
+
+
+def get_list_courses_use_case(
+    course_repository: CourseRepositoryDep,
+    cache: CacheServiceDep,
+    settings: SettingsDep,
+) -> ListCoursesUseCase:
+    """Construye el caso de uso del listado del catálogo."""
+    return ListCoursesUseCase(course_repository, cache, settings.catalog_cache_ttl_seconds)
+
+
+def get_course_detail_use_case(
+    course_repository: CourseRepositoryDep,
+    cache: CacheServiceDep,
+    settings: SettingsDep,
+) -> GetCourseDetailUseCase:
+    """Construye el caso de uso del detalle de una materia."""
+    return GetCourseDetailUseCase(course_repository, cache, settings.catalog_cache_ttl_seconds)
+
+
+def get_course_offerings_use_case(
+    course_repository: CourseRepositoryDep,
+    offering_repository: OfferingRepositoryDep,
+    period_repository: PeriodRepositoryDep,
+) -> GetCourseOfferingsUseCase:
+    """Construye el caso de uso de los grupos de una materia.
+
+    Sin caché: cada grupo de la respuesta lleva su `enrolled_count`, y refrescarlos todos
+    costaría tanto como la consulta original. Cachear la lista entera está descartado, porque
+    serviría cupos con antigüedad.
+    """
+    return GetCourseOfferingsUseCase(course_repository, offering_repository, period_repository)
+
+
+def get_offering_detail_use_case(
+    offering_repository: OfferingRepositoryDep,
+    cache: CacheServiceDep,
+    settings: SettingsDep,
+) -> GetOfferingDetailUseCase:
+    """Construye el caso de uso del detalle de un grupo."""
+    return GetOfferingDetailUseCase(offering_repository, cache, settings.catalog_cache_ttl_seconds)
+
+
+def get_current_period_use_case(period_repository: PeriodRepositoryDep) -> GetCurrentPeriodUseCase:
+    """Construye el caso de uso del período vigente.
+
+    Sin caché: la respuesta incluye una cuenta atrás en segundos, y servirla desde una entrada
+    de hace treinta segundos mostraría un reloj que va atrasado y salta hacia atrás.
+    """
+    return GetCurrentPeriodUseCase(period_repository)
+
+
+ListCoursesUseCaseDep = Annotated[ListCoursesUseCase, Depends(get_list_courses_use_case)]
+GetCourseDetailUseCaseDep = Annotated[GetCourseDetailUseCase, Depends(get_course_detail_use_case)]
+GetCourseOfferingsUseCaseDep = Annotated[
+    GetCourseOfferingsUseCase, Depends(get_course_offerings_use_case)
+]
+GetOfferingDetailUseCaseDep = Annotated[
+    GetOfferingDetailUseCase, Depends(get_offering_detail_use_case)
+]
+GetCurrentPeriodUseCaseDep = Annotated[
+    GetCurrentPeriodUseCase, Depends(get_current_period_use_case)
+]
 
 
 def get_authenticate_user_use_case(

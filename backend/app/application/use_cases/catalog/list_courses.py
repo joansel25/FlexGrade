@@ -5,15 +5,30 @@ from __future__ import annotations
 from uuid import UUID
 
 from app.application.dtos.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, Page
+from app.application.ports.cache_service import CacheService
 from app.application.ports.repositories.course_repository import CourseRepository
+from app.application.use_cases.catalog import catalog_cache
 from app.domain.entities.course import Course
 
 
 class ListCoursesUseCase:
-    """Devuelve una página del catálogo aplicando los filtros que llegan del cliente."""
+    """Devuelve una página del catálogo aplicando los filtros que llegan del cliente.
 
-    def __init__(self, course_repository: CourseRepository) -> None:
+    Se cachea entero, sin partirlo como el detalle de un grupo: una materia no lleva ningún
+    dato volátil —ni cupos, ni ocupación— así que servirla con treinta segundos de antigüedad
+    no puede inducir a error a nadie. Es además la consulta que más se repite idéntica: miles
+    de estudiantes abriendo la primera página del catálogo sin filtros.
+    """
+
+    def __init__(
+        self,
+        course_repository: CourseRepository,
+        cache: CacheService,
+        ttl_seconds: int,
+    ) -> None:
         self._course_repository = course_repository
+        self._cache = cache
+        self._ttl_seconds = ttl_seconds
 
     def execute(
         self,
@@ -41,10 +56,35 @@ class ListCoursesUseCase:
         Returns:
             La página de materias y el total de coincidencias.
         """
-        return self._course_repository.search(
-            page=max(1, page),
-            size=min(max(1, size), MAX_PAGE_SIZE),
+        # El saneado ocurre ANTES de construir la clave: si no, `?page=0` y `?page=-3` serían
+        # dos entradas distintas de la caché con exactamente el mismo contenido.
+        pagina = max(1, page)
+        tamano = min(max(1, size), MAX_PAGE_SIZE)
+
+        clave = catalog_cache.clave_listado(
+            page=pagina, size=tamano, program_id=program_id, semester=semester, search=search
+        )
+
+        contenido = self._cache.get(clave)
+
+        if contenido is not None:
+            cacheado = catalog_cache.materias_desde_json(contenido)
+            if cacheado is not None:
+                materias, total = cacheado
+                return Page(items=materias, total=total, page=pagina, size=tamano)
+
+        resultado = self._course_repository.search(
+            page=pagina,
+            size=tamano,
             program_id=program_id,
             semester=semester,
             search=search,
         )
+
+        self._cache.set(
+            clave,
+            catalog_cache.materias_a_json(list(resultado.items), resultado.total),
+            self._ttl_seconds,
+        )
+
+        return resultado
