@@ -16,6 +16,11 @@ from sqlalchemy import create_engine, pool
 
 from app.infrastructure.config.settings import get_settings
 
+# El import del paquete `models` completo (y no solo de `Base`) es deliberado: es lo que
+# registra cada modelo en `Base.metadata`. Un modelo no importado quedaria fuera del catalogo y
+# `--autogenerate` lo interpretaria como una tabla sobrante que hay que borrar.
+from app.infrastructure.persistence.sqlalchemy import models
+
 config = context.config
 
 if config.config_file_name is not None:
@@ -25,11 +30,11 @@ if config.config_file_name is not None:
 # el caracter "%" como interpolacion y romperia una contrasena que lo contenga.
 DATABASE_URL = get_settings().database_url
 
-# Fase 0: todavia no existen modelos ORM, por lo que no hay metadata que comparar.
-# Cuando aparezca la primera entidad persistida (Fase 1), aqui se importa la
-# `Base` declarativa y se asigna `target_metadata = Base.metadata` para habilitar
-# `alembic revision --autogenerate`.
-target_metadata = None
+# Catalogo contra el que Alembic compara el esquema real de la base de datos para generar
+# migraciones con `--autogenerate`. Autogenerate es una ayuda, no una autoridad: no detecta la
+# extension `pgcrypto`, ni los renombres (los ve como DROP + ADD, con perdida de datos), y
+# traduce mal algunos `CHECK` y `server_default`. Cada archivo generado se revisa a mano.
+target_metadata = models.Base.metadata
 
 
 def run_migrations_offline() -> None:
