@@ -125,8 +125,6 @@ Retorna el perfil del estudiante autenticado.
 }
 ```
 
-**Estado en la Fase 1.** La implementación actual devuelve `"program_id": "uuid"` plano en lugar del bloque `program` anidado: el repositorio de programas llega en la Fase 2 y resolver el `code` y el `name` hoy obligaría a que el router consultara la tabla por su cuenta. El resto del contrato ya se cumple. Es un cambio aditivo para el frontend, que todavía no consume este endpoint.
-
 El identificador del estudiante sale siempre del token, nunca de la petición: no existe forma de consultar el perfil de otra cuenta por este endpoint.
 
 ### GET /students/me/schedule
@@ -251,7 +249,16 @@ Retorna los grupos disponibles de una materia en el período activo.
 
 ### GET /offerings/{offering_id}
 
-Retorna el detalle de un grupo específico. Este endpoint se consulta con alta frecuencia durante la matrícula, por lo que su respuesta se cachea en Redis con TTL de 30 segundos.
+Retorna el detalle de un grupo específico. Es el endpoint más consultado durante la ventana de matrícula.
+
+**Qué se cachea y qué no.** La respuesta se sirve en dos mitades, y la distinción es deliberada:
+
+- **La parte estática** —materia, docente, horario, `total_capacity`— se cachea en Redis con TTL de 30 segundos. Cambia como mucho una vez por semestre.
+- **`enrolled_count` y, por tanto, `available_slots`** se leen **siempre** de PostgreSQL, con una consulta de una sola columna, incluso cuando el resto del grupo viene de la caché.
+
+Sin esa separación las dos reglas del proyecto se contradirían: este documento pide cachear el endpoint y `DATA_MODEL.md` prohíbe cachear la disponibilidad de cupos. Ambas se cumplen a la vez porque solo lo volátil se relee. Servir un `available_slots` de hace treinta segundos mostraría plazas libres en un grupo lleno y llevaría al estudiante a un `409` después de creer que tenía cupo, que es exactamente el fallo que el sistema existe para impedir.
+
+**Si Redis no está disponible**, el endpoint responde igual, leyendo todo de PostgreSQL. La caché es una optimización, nunca una fuente de verdad, y su caída degrada el rendimiento sin afectar a la corrección.
 
 ## 4. Inscripciones (operaciones críticas)
 

@@ -193,7 +193,10 @@ CREATE TABLE enrollment_periods (
     CHECK (ends_at > starts_at)
 );
 
-CREATE INDEX ix_enrollment_periods_active ON enrollment_periods(is_active) WHERE is_active = TRUE;
+-- Parcial y UNICO: acelera "dame el periodo activo" y a la vez impide que existan dos
+-- periodos activos a la vez. Las filas inactivas quedan fuera del indice, asi que puede
+-- haber tantos periodos historicos como haga falta. Ver "Un solo periodo activo" mas abajo.
+CREATE UNIQUE INDEX ix_enrollment_periods_active ON enrollment_periods(is_active) WHERE is_active = TRUE;
 
 CREATE TABLE course_offerings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -281,6 +284,16 @@ Las consultas de catálogo (listado de materias, disponibilidad de grupos) son l
 
 **No se cachea** la operación de inscripción ni la disponibilidad exacta en el momento del descuento: siempre consultan directo a PostgreSQL para garantizar consistencia.
 
+### Un solo período activo
+
+`enrollment_periods.is_active` lleva un índice **parcial y único** (`WHERE is_active = TRUE`), no un índice corriente. La estructura hace dos trabajos a la vez:
+
+1. **Rendimiento.** «Dame el período activo» es la consulta más frecuente del sistema: la ejecutan el catálogo de grupos y cada intento de inscripción. Indexar solo las filas activas cuesta unos pocos bytes; un índice sobre toda la columna acabaría apuntando a millones de filas inactivas sin resolver nada, porque la columna solo tiene dos valores distintos.
+
+2. **Corrección.** Impide que existan dos períodos activos simultáneos. Es lo que permite que `PeriodRepository.find_active()` devuelva un único período sin ambigüedad: con dos filas activas, la base devolvería una u otra de forma arbitraria y el catálogo mostraría la oferta del semestre equivocado. Dejar esa garantía en manos del endpoint de activación sería confiar en que ningún otro camino de escritura —un script de migración de datos, una corrección manual, un endpoint futuro— se equivoque nunca.
+
+Activar un período nuevo exige, por tanto, desactivar el anterior en la misma transacción. Es una restricción deseable: obliga a que el cambio de ventana sea una operación atómica y explícita, no un efecto colateral.
+
 ### Prerrequisitos
 
 Se modelan como una relación autoreferente sobre `courses`. Al inscribir un estudiante, la validación consulta `academic_history` filtrando por `status = 'APPROVED'` para verificar que todos los prerrequisitos estén cumplidos.
@@ -364,3 +377,14 @@ Al arrancar el sistema por primera vez se cargan datos mínimos mediante un seed
 - 50 estudiantes de prueba
 
 El seed es idempotente: puede ejecutarse múltiples veces sin duplicar datos.
+
+**Cómo se consigue la idempotencia.** Cada fila se busca por su **clave natural** —el `code` de un programa o una materia, el `student_code` de un estudiante, el correo de una cuenta— y solo se inserta si falta. Nunca por el identificador, porque los UUID los genera PostgreSQL y serían distintos en cada ejecución. Eso permite ejecutarlo como paso rutinario tras levantar el entorno sin tener que recordar si ya estaba sembrado.
+
+Lo que ya existe **no se sobrescribe**: si durante una prueba se cambió el cupo de un grupo a mano, volver a sembrar no lo revierte. Para partir de cero está `make clean`, que borra los volúmenes.
+
+Detalles de la implementación (`backend/app/infrastructure/seed.py`):
+
+- El período de matrícula se crea **abierto alrededor del instante actual**, no con fechas fijas: un período que naciera cerrado obligaría a tocar la base a mano antes de poder probar nada.
+- Las materias de Ingeniería forman una cadena de prerrequisitos de tres niveles (`MAT101` → `MAT102` → `MAT201`), pensada para ejercitar la validación de la Fase 3 en más de un salto.
+- Los grupos reciben ocupaciones variadas pero **deterministas**, de forma que el catálogo muestre grupos con holgura, casi llenos y llenos del todo sin depender del azar.
+- Todas las cuentas comparten la contraseña `SecurePass123`. Es un dato de desarrollo: el seed no se ejecuta en DEV, STAGING ni PROD, donde las cuentas reales se crean por los endpoints de administración.

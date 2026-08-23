@@ -20,8 +20,13 @@ from app.domain.exceptions.authentication import (
     StudentProfileNotFoundError,
 )
 from app.domain.exceptions.base import DomainError
+from app.domain.exceptions.catalog import (
+    CourseNotFoundError,
+    NoActivePeriodError,
+    OfferingNotFoundError,
+)
 from app.infrastructure.config.settings import get_settings
-from app.interfaces.api.routers import auth, health, students
+from app.interfaces.api.routers import auth, courses, health, offerings, periods, students
 
 settings = get_settings()
 
@@ -38,6 +43,9 @@ app.include_router(health.router)
 # Los routers de negocio sí se versionan.
 app.include_router(auth.router, prefix=settings.api_v1_prefix)
 app.include_router(students.router, prefix=settings.api_v1_prefix)
+app.include_router(courses.router, prefix=settings.api_v1_prefix)
+app.include_router(offerings.router, prefix=settings.api_v1_prefix)
+app.include_router(periods.router, prefix=settings.api_v1_prefix)
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +62,13 @@ _MAPEO_ERRORES: dict[type[DomainError], tuple[int, str]] = {
     InvalidTokenError: (401, "INVALID_TOKEN"),
     InactiveUserError: (403, "USER_INACTIVE"),
     StudentProfileNotFoundError: (404, "STUDENT_PROFILE_NOT_FOUND"),
+    # Catálogo académico (Fase 2). Se registran junto a las excepciones, no junto a los
+    # endpoints que las lanzan: una excepción de dominio sin entrada aquí cae en el 400
+    # genérico del final, y "la materia no existe" respondería 400 en vez de 404 sin que
+    # nada fallara de forma visible.
+    CourseNotFoundError: (404, "COURSE_NOT_FOUND"),
+    OfferingNotFoundError: (404, "OFFERING_NOT_FOUND"),
+    NoActivePeriodError: (404, "NO_ACTIVE_PERIOD"),
 }
 
 

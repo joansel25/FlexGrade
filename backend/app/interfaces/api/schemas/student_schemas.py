@@ -8,18 +8,26 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 
+class ProgramSummarySchema(BaseModel):
+    """Programa académico tal como aparece anidado dentro de otras respuestas."""
+
+    id: UUID
+    code: str
+    name: str
+
+
 class StudentProfileSchema(BaseModel):
     """Respuesta 200 de `GET /students/me`.
 
-    Sigue el contrato de `API.md`. El bloque `program` que allí aparece anidado
-    se completará en la Fase 2, cuando exista el repositorio de programas; por
-    ahora se expone `program_id`, que es el dato que ya está disponible.
+    Sigue el contrato de `API.md`, ya con el bloque `program` anidado: la Fase 1 lo
+    dejó como `program_id` plano por no existir todavía el repositorio de programas,
+    y la Fase 2 lo completa.
     """
 
     id: UUID
     student_code: str
     full_name: str
     email: str
-    program_id: UUID
+    program: ProgramSummarySchema
     current_semester: int = Field(ge=1)
     enrollment_date: date

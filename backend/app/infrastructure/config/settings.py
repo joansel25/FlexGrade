@@ -24,6 +24,10 @@ class Settings(BaseSettings):
         jwt_secret: secreto de firma de los tokens. Obligatorio; nunca se versiona.
         jwt_expiration_seconds: vigencia del token de acceso, en segundos.
         jwt_refresh_expiration_seconds: vigencia del token de refresco, en segundos.
+        catalog_cache_ttl_seconds: vigencia de las entradas de caché del catálogo. Corto a
+            propósito (`API.md`): el catálogo apenas cambia durante el semestre, pero un TTL
+            largo retrasaría la visibilidad de un grupo recién abierto. La disponibilidad de
+            cupos no se cachea nunca, así que este valor no afecta a su exactitud.
         environment: ambiente de ejecución (`dev`, `staging`, `prod`).
         log_level: nivel mínimo de logging (`DEBUG`, `INFO`, `WARNING`, `ERROR`).
         api_v1_prefix: prefijo común de los endpoints de negocio de la versión 1.
@@ -41,6 +45,7 @@ class Settings(BaseSettings):
     jwt_secret: str
     jwt_expiration_seconds: int = 3600
     jwt_refresh_expiration_seconds: int = 604800
+    catalog_cache_ttl_seconds: int = 30
     environment: str = "dev"
     log_level: str = "INFO"
     api_v1_prefix: str = "/api/v1"
