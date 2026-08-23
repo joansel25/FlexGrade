@@ -163,6 +163,23 @@ def test_course_search_by_text_is_case_insensitive_and_matches_the_name(
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("texto", ["calculo", "Calculo", "cálculo", "CÁLCULO", "cAlCuLo"])
+def test_course_search_ignores_accents(
+    db_session: Session, catalogo: CatalogoDePrueba, texto: str
+) -> None:
+    """Buscar "calculo" tiene que encontrar "Cálculo I".
+
+    `ILIKE` normaliza mayúsculas pero no diacríticos, así que sin la extensión `unaccent` la
+    búsqueda sin tilde devolvería cero resultados. En un catálogo en español, donde casi
+    ningún estudiante escribe las tildes al buscar, eso dejaría inencontrables justo las
+    materias más buscadas.
+    """
+    resultado = SQLAlchemyCourseRepository(db_session).search(page=1, size=20, search=texto)
+
+    assert {c.id for c in resultado.items} == {catalogo.calculo_i_id, catalogo.calculo_ii_id}
+
+
+@pytest.mark.integration
 def test_course_search_by_text_also_matches_the_code(
     db_session: Session, catalogo: CatalogoDePrueba
 ) -> None:

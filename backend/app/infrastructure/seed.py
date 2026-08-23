@@ -151,8 +151,22 @@ MATERIAS: tuple[MateriaSembrada, ...] = (
     ),
 )
 
-# 20 grupos: las materias de primeros semestres tienen dos, el resto uno.
-MATERIAS_CON_DOS_GRUPOS = ("MAT101", "PRG101", "ADM101", "CON101", "DER101")
+# No toda materia se dicta cada semestre, y el catálogo tiene que poder decirlo. Estas dos
+# quedan sin grupo a propósito: es lo que permite comprobar que `GET /courses/{id}/offerings`
+# responde 200 con una lista vacía —un resultado legítimo— en vez de un 404.
+MATERIAS_SIN_GRUPO = ("MAT201", "RED301")
+
+# Las materias de primeros semestres, que son las de mayor demanda, tienen dos grupos.
+# 13 materias con oferta + 7 grupos adicionales = los 20 que fija DATA_MODEL.md.
+MATERIAS_CON_DOS_GRUPOS = (
+    "MAT101",
+    "MAT102",
+    "PRG101",
+    "PRG102",
+    "ADM101",
+    "CON101",
+    "DER101",
+)
 
 # Horarios base, rotados por grupo para que existan choques reales que la Fase 3 pueda detectar.
 FRANJAS: tuple[tuple[int, time, time], ...] = (
@@ -320,6 +334,9 @@ def _sembrar_grupos(
     indice = 0
 
     for definicion in MATERIAS:
+        if definicion.code in MATERIAS_SIN_GRUPO:
+            continue
+
         cuantos = 2 if definicion.code in MATERIAS_CON_DOS_GRUPOS else 1
 
         for numero in range(1, cuantos + 1):

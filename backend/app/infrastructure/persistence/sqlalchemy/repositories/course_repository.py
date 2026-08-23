@@ -109,11 +109,18 @@ class SQLAlchemyCourseRepository(CourseRepository):
             sentencia = sentencia.where(ProgramCourseModel.suggested_semester == semester)
 
         if search and search.strip():
-            # `ilike` para que la búsqueda no distinga mayúsculas. El texto del usuario viaja
-            # como parámetro enlazado, nunca interpolado en el SQL.
+            # `ilike` ignora mayúsculas; `unaccent` ignora las tildes. Hacen falta las dos: en
+            # un catálogo en español casi nadie escribe «Cálculo» con tilde al buscar, y sin
+            # `unaccent` esa búsqueda devolvería cero resultados justo en las materias más
+            # buscadas. Se aplica a los dos lados —al dato y al patrón— porque el usuario
+            # puede escribirlo con tilde o sin ella.
+            #
+            # El texto del usuario viaja como parámetro enlazado, nunca interpolado en el SQL.
             patron = f"%{search.strip()}%"
+            sin_tildes = func.unaccent(patron)
             coincide: ColumnElement[bool] = or_(
-                CourseModel.name.ilike(patron), CourseModel.code.ilike(patron)
+                func.unaccent(CourseModel.name).ilike(sin_tildes),
+                func.unaccent(CourseModel.code).ilike(sin_tildes),
             )
             sentencia = sentencia.where(coincide)
 

@@ -194,6 +194,32 @@ def test_seeded_prerequisite_chain_is_linked(db_session: Session) -> None:
 
 
 @pytest.mark.integration
+def test_some_courses_are_deliberately_not_offered(db_session: Session) -> None:
+    """No toda materia se dicta cada semestre, y el catálogo tiene que poder decirlo.
+
+    Sin al menos una materia sin grupo, `GET /courses/{id}/offerings` no tendría forma de
+    probar su caso más sutil: devolver 200 con una lista vacía —un resultado legítimo— en vez
+    de confundirlo con un 404.
+    """
+    from app.infrastructure.seed import MATERIAS_SIN_GRUPO
+
+    sembrar(db_session)
+    db_session.commit()
+
+    sin_oferta = db_session.execute(
+        select(CourseModel.code)
+        .where(CourseModel.code.in_(MATERIAS_SIN_GRUPO))
+        .where(
+            ~select(CourseOfferingModel.id)
+            .where(CourseOfferingModel.course_id == CourseModel.id)
+            .exists()
+        )
+    ).scalars()
+
+    assert set(sin_oferta) == set(MATERIAS_SIN_GRUPO)
+
+
+@pytest.mark.integration
 def test_seeded_offerings_all_have_a_schedule(db_session: Session) -> None:
     sembrar(db_session)
     db_session.commit()
