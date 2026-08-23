@@ -377,3 +377,14 @@ Al arrancar el sistema por primera vez se cargan datos mínimos mediante un seed
 - 50 estudiantes de prueba
 
 El seed es idempotente: puede ejecutarse múltiples veces sin duplicar datos.
+
+**Cómo se consigue la idempotencia.** Cada fila se busca por su **clave natural** —el `code` de un programa o una materia, el `student_code` de un estudiante, el correo de una cuenta— y solo se inserta si falta. Nunca por el identificador, porque los UUID los genera PostgreSQL y serían distintos en cada ejecución. Eso permite ejecutarlo como paso rutinario tras levantar el entorno sin tener que recordar si ya estaba sembrado.
+
+Lo que ya existe **no se sobrescribe**: si durante una prueba se cambió el cupo de un grupo a mano, volver a sembrar no lo revierte. Para partir de cero está `make clean`, que borra los volúmenes.
+
+Detalles de la implementación (`backend/app/infrastructure/seed.py`):
+
+- El período de matrícula se crea **abierto alrededor del instante actual**, no con fechas fijas: un período que naciera cerrado obligaría a tocar la base a mano antes de poder probar nada.
+- Las materias de Ingeniería forman una cadena de prerrequisitos de tres niveles (`MAT101` → `MAT102` → `MAT201`), pensada para ejercitar la validación de la Fase 3 en más de un salto.
+- Los grupos reciben ocupaciones variadas pero **deterministas**, de forma que el catálogo muestre grupos con holgura, casi llenos y llenos del todo sin depender del azar.
+- Todas las cuentas comparten la contraseña `SecurePass123`. Es un dato de desarrollo: el seed no se ejecuta en DEV, STAGING ni PROD, donde las cuentas reales se crean por los endpoints de administración.

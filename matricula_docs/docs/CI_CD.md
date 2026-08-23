@@ -60,6 +60,8 @@ Se ejecuta en cada push y en cada pull request. No despliega nada, solo valida.
 6. **Tests e2e en proceso**: `pytest -m e2e`. Paso provisional: los e2e corren con `TestClient` contra la app en el propio runner. Su destino final es el trabajo `e2e` de `deploy-staging.yml`, apuntando a la URL de STAGING; cuando ese trabajo se active, este paso se elimina.
 7. **Migraciones de la base de pruebas**: `alembic upgrade head`. Sin este paso la base del runner está vacía y los tests de integración fallarían con `relation does not exist`. Se usa Alembic —y no un `create_all`— para ejercitar en CI el mismo camino que corre en DEV, STAGING y PROD.
 8. **Tests de integración**: `pytest -m integration` (con Postgres y Redis levantados como servicios de GitHub Actions).
+
+   **Los tests nunca corren contra la base de desarrollo.** Vacían tablas enteras al terminar cada caso, así que hacerlo contra `matricula` borraría los datos de `make seed` en cada `make test-int`. La suite redirige `DATABASE_URL` a una base con sufijo `_test`, la crea si falta y le aplica las migraciones; en el CI la variable ya apunta a `matricula_test` y se respeta tal cual. Redis usa además una base lógica aparte (la 1 en vez de la 0), para que vaciar las claves del catálogo entre tests no toque la caché de desarrollo.
 9. **Escaneo de seguridad**: `pip-audit` para detectar dependencias vulnerables.
 10. **Escaneo de secretos**: `gitleaks` para detectar credenciales filtradas en el diff.
 
