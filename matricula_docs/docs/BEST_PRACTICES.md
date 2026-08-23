@@ -261,6 +261,74 @@ Implementado a nivel de API para prevenir abuso. Los límites están documentado
 - **Consultas N+1** son bug, no detalle. Se detectan y corrigen con `eager loading` de SQLAlchemy.
 - **Índices en columnas de búsqueda frecuente.** Definidos en las migraciones, no como parche posterior.
 
+### Convenciones de base de datos
+
+`DATA_MODEL.md` es la fuente de verdad del esquema; lo que sigue es el criterio que se aplica al crear o modificar una tabla. Las cuatro reglas nacen de defectos reales detectados en el esquema durante la Fase 1.
+
+#### Nunca un índice manual sobre una columna que ya tiene `UNIQUE` (ni sobre la PK)
+
+PostgreSQL crea automáticamente un índice B-tree para poder imponer la restricción `UNIQUE`, y lo mismo hace con la `PRIMARY KEY`. Un segundo índice sobre la misma columna no aporta nada en lectura: cuesta espacio en disco y, sobre todo, penaliza cada `INSERT` y cada `UPDATE`, porque hay que mantener dos estructuras en vez de una.
+
+```sql
+-- ✗ MAL — el UNIQUE de user_id ya generó un índice; este es un duplicado exacto
+CREATE TABLE students (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    student_code VARCHAR(20) NOT NULL UNIQUE,
+    program_id UUID NOT NULL REFERENCES programs(id)
+);
+CREATE INDEX ix_students_user ON students(user_id);          -- ✗ redundante
+CREATE INDEX ix_students_code ON students(student_code);     -- ✗ redundante
+
+-- ✓ BIEN — se confía en el índice del UNIQUE y se indexa solo lo que falta
+CREATE INDEX ix_students_program ON students(program_id);
+```
+
+#### Siempre indexar el lado hijo de una FK que se use en joins
+
+PostgreSQL indexa la columna **referenciada** (el lado padre, que es la PK), pero **no** la columna que referencia. Sin ese índice, cualquier join por la FK y cualquier `ON DELETE CASCADE` obligan a un sequential scan de la tabla hija. En `enrollments`, que llega a decenas de miles de filas por período, eso es la diferencia entre una consulta de milisegundos y una que se degrada con el volumen.
+
+Ejemplo del proyecto: `students.program_id` referencia a `programs(id)`; el índice `ix_students_program` existe precisamente para eso.
+
+#### Prefijo `ix_` para todos los índices
+
+Es lo que genera la `naming_convention` del `MetaData` de SQLAlchemy y, por lo tanto, lo que produce `alembic revision --autogenerate`. Mezclar prefijos (`idx_` a mano, `ix_` generado) hace que dos índices equivalentes se vean distintos sin ninguna razón, y complica referenciarlos por nombre en migraciones futuras (`op.drop_index`).
+
+| Objeto | Prefijo | Ejemplo |
+|---|---|---|
+| Primary key | `pk_` | `pk_students` |
+| Unique | `uq_` | `uq_students_student_code` |
+| Foreign key | `fk_` | `fk_students_program_id_programs` |
+| Check | `ck_` | `ck_offerings_capacity` |
+| Índice | `ix_` | `ix_students_program` |
+
+#### `created_at` y `updated_at` en toda tabla transaccional, con trigger para `updated_at`
+
+Un `DEFAULT NOW()` solo cubre la inserción. Sin trigger, la columna miente a partir del primer `UPDATE`: sigue mostrando la fecha de creación, y cualquier auditoría o sincronización incremental que dependa de ella queda inservible.
+
+Se usa una función compartida `set_updated_at()` y un trigger `BEFORE UPDATE` por tabla. Se prefiere el trigger a `onupdate=func.now()` de SQLAlchemy porque el trigger cubre **toda** escritura —migraciones de Alembic, scripts de mantenimiento, un `psql` manual—, no solo las que pasan por el ORM.
+
+Las tablas de catálogo estáticas (`programs`, `courses`) solo necesitan `created_at`: si nunca se actualizan, `updated_at` es ruido.
+
+```sql
+-- ✗ MAL — updated_at nunca cambia después del INSERT
+updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+
+-- ✓ BIEN — la función se define una vez y cada tabla declara su trigger
+CREATE OR REPLACE FUNCTION set_updated_at() RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_users_updated_at
+    BEFORE UPDATE ON users
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+```
+
+El detalle por tabla está en la sección "Auditoría temporal" de `DATA_MODEL.md`.
+
 ### Caché
 
 - Se cachea lo que se lee mucho y cambia poco: catálogo de materias, listado de grupos.

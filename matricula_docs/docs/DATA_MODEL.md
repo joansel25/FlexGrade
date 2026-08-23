@@ -91,6 +91,8 @@ El dominio de matrícula académica gira alrededor de tres ideas centrales:
 - Timestamps `created_at` y `updated_at` en todas las tablas transaccionales.
 - Restricciones referenciales explícitas con `ON DELETE` según corresponda.
 - Índices en columnas usadas para búsqueda y en claves foráneas de alta frecuencia.
+- Índices con prefijo `ix_`, siguiendo la `naming_convention` del `MetaData` de SQLAlchemy y lo que genera Alembic con `--autogenerate`.
+- No se declaran índices sobre columnas ya cubiertas por un `UNIQUE`: PostgreSQL crea un índice B-tree al imponer la restricción, y duplicarlo solo añade coste de escritura y de mantenimiento.
 
 ### DDL completo
 
@@ -113,8 +115,6 @@ CREATE TABLE users (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_users_email ON users(email);
-
 CREATE TABLE programs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     code VARCHAR(20) NOT NULL UNIQUE,        -- "ISIS", "DER"
@@ -134,8 +134,7 @@ CREATE TABLE students (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_students_program ON students(program_id);
-CREATE INDEX idx_students_code ON students(student_code);
+CREATE INDEX ix_students_program ON students(program_id);
 
 CREATE TABLE administrators (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -163,8 +162,6 @@ CREATE TABLE courses (
     description TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX idx_courses_code ON courses(code);
 
 CREATE TABLE program_courses (
     program_id UUID NOT NULL REFERENCES programs(id) ON DELETE CASCADE,
@@ -196,7 +193,7 @@ CREATE TABLE enrollment_periods (
     CHECK (ends_at > starts_at)
 );
 
-CREATE INDEX idx_enrollment_periods_active ON enrollment_periods(is_active) WHERE is_active = TRUE;
+CREATE INDEX ix_enrollment_periods_active ON enrollment_periods(is_active) WHERE is_active = TRUE;
 
 CREATE TABLE course_offerings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -208,12 +205,13 @@ CREATE TABLE course_offerings (
     enrolled_count INTEGER NOT NULL DEFAULT 0 CHECK (enrolled_count >= 0),
     version INTEGER NOT NULL DEFAULT 0,       -- para bloqueo optimista
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (enrollment_period_id, course_id, group_number),
     CHECK (enrolled_count <= total_capacity)
 );
 
-CREATE INDEX idx_offerings_period ON course_offerings(enrollment_period_id);
-CREATE INDEX idx_offerings_course ON course_offerings(course_id);
+CREATE INDEX ix_offerings_period ON course_offerings(enrollment_period_id);
+CREATE INDEX ix_offerings_course ON course_offerings(course_id);
 
 CREATE TABLE schedule_blocks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -225,7 +223,7 @@ CREATE TABLE schedule_blocks (
     CHECK (end_time > start_time)
 );
 
-CREATE INDEX idx_schedule_offering ON schedule_blocks(course_offering_id);
+CREATE INDEX ix_schedule_offering ON schedule_blocks(course_offering_id);
 
 -- =========================================================
 -- Inscripciones (transaccional crítico)
@@ -239,13 +237,13 @@ CREATE TABLE enrollments (
         CHECK (status IN ('ENROLLED', 'CANCELLED', 'WAITLISTED')),
     enrolled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     cancelled_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (student_id, course_offering_id, enrollment_period_id)
 );
 
-CREATE INDEX idx_enrollments_student ON enrollments(student_id);
-CREATE INDEX idx_enrollments_offering ON enrollments(course_offering_id);
-CREATE INDEX idx_enrollments_period ON enrollments(enrollment_period_id);
-CREATE INDEX idx_enrollments_active ON enrollments(status) WHERE status = 'ENROLLED';
+CREATE INDEX ix_enrollments_offering ON enrollments(course_offering_id);
+CREATE INDEX ix_enrollments_period ON enrollments(enrollment_period_id);
+CREATE INDEX ix_enrollments_active ON enrollments(status) WHERE status = 'ENROLLED';
 
 -- =========================================================
 -- Historial académico (para validación de prerrequisitos)
@@ -262,8 +260,8 @@ CREATE TABLE academic_history (
     UNIQUE (student_id, course_id, academic_period)
 );
 
-CREATE INDEX idx_history_student ON academic_history(student_id);
-CREATE INDEX idx_history_student_status ON academic_history(student_id, status);
+CREATE INDEX ix_history_student ON academic_history(student_id);
+CREATE INDEX ix_history_student_status ON academic_history(student_id, status);
 ```
 
 ## 3. Notas de diseño
@@ -286,6 +284,63 @@ Las consultas de catálogo (listado de materias, disponibilidad de grupos) son l
 ### Prerrequisitos
 
 Se modelan como una relación autoreferente sobre `courses`. Al inscribir un estudiante, la validación consulta `academic_history` filtrando por `status = 'APPROVED'` para verificar que todos los prerrequisitos estén cumplidos.
+
+### Auditoría temporal
+
+No todas las tablas necesitan el mismo rastro temporal. La distinción sigue el ciclo de vida real de cada fila:
+
+| Tipo de tabla | Tablas | Columnas |
+|---|---|---|
+| Catálogo y registro histórico (se crean y rara vez cambian) | `programs`, `courses`, `professors`, `students`, `administrators`, `schedule_blocks`, `academic_history`, `enrollment_periods` | `created_at` |
+| Transaccional (mutan después de creadas) | `users`, `course_offerings`, `enrollments` | `created_at` + `updated_at` |
+
+Las tablas de catálogo se corrigen mediante migraciones o tareas administrativas puntuales, no como parte del flujo normal del sistema; un `updated_at` ahí sería una columna que nadie consulta. Las transaccionales sí cambian en operación normal: `enrolled_count` y `version` en `course_offerings` durante cada inscripción, `status` y `cancelled_at` en `enrollments` al cancelar, y las credenciales o el estado activo en `users`. En esas tres, saber cuándo fue la última modificación es información de diagnóstico real.
+
+#### Mantenimiento de `updated_at`
+
+`DEFAULT NOW()` **solo cubre la inserción**. Una columna `updated_at` con únicamente un default queda congelada en el instante del `INSERT` y miente a partir del primer `UPDATE`. El valor se mantiene con un trigger `BEFORE UPDATE` en PostgreSQL.
+
+La función es una sola, reutilizable por todas las tablas:
+
+```sql
+-- =========================================================
+-- Auditoría temporal: función compartida de updated_at
+-- =========================================================
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+Y un trigger por cada tabla que tenga la columna:
+
+```sql
+-- =========================================================
+-- Auditoría temporal: triggers por tabla
+-- =========================================================
+CREATE TRIGGER trg_users_updated_at
+    BEFORE UPDATE ON users
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_course_offerings_updated_at
+    BEFORE UPDATE ON course_offerings
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_enrollments_updated_at
+    BEFORE UPDATE ON enrollments
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+```
+
+#### Por qué un trigger y no `onupdate=func.now()`
+
+SQLAlchemy ofrece `onupdate=func.now()` a nivel de columna, pero solo actúa sobre las escrituras que pasan por el ORM. El trigger cubre **toda** escritura sobre la tabla: las del ORM, las de una migración de Alembic, las de un script de mantenimiento y las de una sesión manual de `psql`. La diferencia importa porque `updated_at` es una garantía del dato, no una convención de la aplicación: si una corrección hecha por `psql` deja la columna sin tocar, la columna deja de ser confiable para auditoría y para depurar incidentes.
+
+#### Nota operativa
+
+La función `set_updated_at()` se crea **una sola vez**, en la migración que introduce la primera tabla con `updated_at`. Las migraciones posteriores que añadan una tabla con esa columna solo agregan su `CREATE TRIGGER`; no vuelven a definir la función. El `CREATE OR REPLACE` la hace idempotente por si una migración necesita redefinirla.
 
 ### Ausencias intencionales
 
