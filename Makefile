@@ -9,7 +9,7 @@
 COMPOSE ?= docker compose
 BACKEND_IMAGE ?= matricula-backend:local
 
-.PHONY: dev build test test-unit test-int lint format migrate migrate-create seed clean
+.PHONY: dev build test test-unit test-int test-e2e lint format migrate migrate-create seed clean
 
 ## Levanta postgres + redis + backend (el backend espera a que los datos esten sanos)
 dev:
@@ -31,6 +31,10 @@ test-unit:
 ## Solo tests de integracion (tocan base de datos y cache)
 test-int:
 	$(COMPOSE) exec backend pytest -m integration
+
+## Solo tests e2e (en proceso, contra la app con TestClient)
+test-e2e:
+	$(COMPOSE) exec backend pytest -m e2e
 
 ## Verifica formato y tipos sin modificar nada (lo mismo que corre el CI)
 lint:

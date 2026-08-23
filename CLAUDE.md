@@ -142,6 +142,7 @@ docker-compose exec backend python -m app.infrastructure.seed             # make
 docker-compose exec backend pytest                    # make test
 docker-compose exec backend pytest -m unit            # make test-unit
 docker-compose exec backend pytest -m integration     # make test-int
+docker-compose exec backend pytest -m e2e             # make test-e2e
 docker-compose exec backend pytest --cov=app
 
 # Linting y formato
