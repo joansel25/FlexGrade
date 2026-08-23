@@ -88,13 +88,27 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name=op.f("pk_enrollment_periods")),
         sa.UniqueConstraint("code", name=op.f("uq_enrollment_periods_code")),
     )
-    # Indice PARCIAL: solo indexa las filas activas, que son una o ninguna. La consulta
-    # "dame el periodo activo" corre en casi cada peticion de catalogo e inscripcion.
+    # Indice PARCIAL y UNICO. Hace dos trabajos con una sola estructura:
+    #
+    # 1. Acelera la consulta "dame el periodo activo", que corre en casi cada peticion de
+    #    catalogo y en cada intento de inscripcion. Al indexar solo las filas activas ocupa
+    #    unos pocos bytes, frente a un indice sobre toda la columna que con el tiempo
+    #    apuntaria a millones de filas inactivas y no serviria para nada.
+    # 2. Impone la invariante de que no puede haber DOS periodos activos a la vez. Es la
+    #    razon por la que `PeriodRepository.find_active()` puede devolver un unico periodo
+    #    sin ambiguedad: con dos filas activas, la consulta mas critica del sistema
+    #    devolveria una u otra de forma arbitraria y el catalogo mostraria la oferta del
+    #    semestre equivocado. Un UNIQUE parcial hace ese estado imposible; dejarlo en manos
+    #    del endpoint de activacion seria confiar en que ningun otro camino de escritura se
+    #    equivoque nunca.
+    #
+    # Las filas con `is_active = false` quedan fuera del indice, asi que puede haber tantos
+    # periodos historicos como haga falta.
     op.create_index(
         "ix_enrollment_periods_active",
         "enrollment_periods",
         ["is_active"],
-        unique=False,
+        unique=True,
         postgresql_where=sa.text("is_active = true"),
     )
 

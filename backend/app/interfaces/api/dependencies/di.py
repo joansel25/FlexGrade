@@ -14,12 +14,28 @@ from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from app.application.ports.auth_service import AuthService
+from app.application.ports.repositories.course_repository import CourseRepository
+from app.application.ports.repositories.offering_repository import OfferingRepository
+from app.application.ports.repositories.period_repository import PeriodRepository
+from app.application.ports.repositories.program_repository import ProgramRepository
 from app.application.ports.repositories.student_repository import StudentRepository
 from app.application.ports.repositories.user_repository import UserRepository
 from app.application.use_cases.auth.authenticate_user import AuthenticateUserUseCase
 from app.application.use_cases.auth.refresh_token import RefreshTokenUseCase
 from app.infrastructure.auth.jwt_auth_service import JWTAuthService
 from app.infrastructure.config.settings import Settings, get_settings
+from app.infrastructure.persistence.sqlalchemy.repositories.course_repository import (
+    SQLAlchemyCourseRepository,
+)
+from app.infrastructure.persistence.sqlalchemy.repositories.offering_repository import (
+    SQLAlchemyOfferingRepository,
+)
+from app.infrastructure.persistence.sqlalchemy.repositories.period_repository import (
+    SQLAlchemyPeriodRepository,
+)
+from app.infrastructure.persistence.sqlalchemy.repositories.program_repository import (
+    SQLAlchemyProgramRepository,
+)
 from app.infrastructure.persistence.sqlalchemy.repositories.student_repository import (
     SQLAlchemyStudentRepository,
 )
@@ -54,6 +70,38 @@ def get_student_repository(session: SessionDep) -> StudentRepository:
 
 
 StudentRepositoryDep = Annotated[StudentRepository, Depends(get_student_repository)]
+
+
+def get_program_repository(session: SessionDep) -> ProgramRepository:
+    """Resuelve el puerto de programas al adaptador de SQLAlchemy."""
+    return SQLAlchemyProgramRepository(session)
+
+
+ProgramRepositoryDep = Annotated[ProgramRepository, Depends(get_program_repository)]
+
+
+def get_course_repository(session: SessionDep) -> CourseRepository:
+    """Resuelve el puerto del catálogo de materias al adaptador de SQLAlchemy."""
+    return SQLAlchemyCourseRepository(session)
+
+
+CourseRepositoryDep = Annotated[CourseRepository, Depends(get_course_repository)]
+
+
+def get_offering_repository(session: SessionDep) -> OfferingRepository:
+    """Resuelve el puerto de grupos al adaptador de SQLAlchemy."""
+    return SQLAlchemyOfferingRepository(session)
+
+
+OfferingRepositoryDep = Annotated[OfferingRepository, Depends(get_offering_repository)]
+
+
+def get_period_repository(session: SessionDep) -> PeriodRepository:
+    """Resuelve el puerto de períodos de matrícula al adaptador de SQLAlchemy."""
+    return SQLAlchemyPeriodRepository(session)
+
+
+PeriodRepositoryDep = Annotated[PeriodRepository, Depends(get_period_repository)]
 
 
 def get_authenticate_user_use_case(

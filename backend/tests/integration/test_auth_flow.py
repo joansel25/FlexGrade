@@ -155,3 +155,24 @@ def test_logout_when_token_is_valid_returns_204(
 @pytest.mark.integration
 def test_logout_when_no_token_is_sent_returns_401(client: TestClient) -> None:
     assert client.post(RUTA_LOGOUT).status_code == 401
+
+
+@pytest.mark.integration
+def test_profile_returns_the_nested_program_block(
+    client: TestClient, estudiante_registrado: dict[str, str]
+) -> None:
+    """Cierre de la divergencia que la Fase 1 dejo documentada en API.md.
+
+    Aquel `program_id` plano existia solo porque no habia repositorio de programas. Ahora que
+    lo hay, la respuesta cumple el contrato: un bloque `program` con codigo y nombre, para que
+    el frontend no tenga que hacer una segunda llamada solo para mostrar la carrera.
+    """
+    tokens = _iniciar_sesion(client, estudiante_registrado)
+
+    cuerpo = client.get(
+        RUTA_PERFIL, headers={"Authorization": f"Bearer {tokens['access_token']}"}
+    ).json()
+
+    assert cuerpo["program"]["code"] == estudiante_registrado["program_code"]
+    assert cuerpo["program"]["name"] == estudiante_registrado["program_name"]
+    assert "program_id" not in cuerpo

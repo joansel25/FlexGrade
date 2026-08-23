@@ -125,8 +125,6 @@ Retorna el perfil del estudiante autenticado.
 }
 ```
 
-**Estado en la Fase 1.** La implementación actual devuelve `"program_id": "uuid"` plano en lugar del bloque `program` anidado: el repositorio de programas llega en la Fase 2 y resolver el `code` y el `name` hoy obligaría a que el router consultara la tabla por su cuenta. El resto del contrato ya se cumple. Es un cambio aditivo para el frontend, que todavía no consume este endpoint.
-
 El identificador del estudiante sale siempre del token, nunca de la petición: no existe forma de consultar el perfil de otra cuenta por este endpoint.
 
 ### GET /students/me/schedule

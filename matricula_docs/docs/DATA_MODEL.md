@@ -193,7 +193,10 @@ CREATE TABLE enrollment_periods (
     CHECK (ends_at > starts_at)
 );
 
-CREATE INDEX ix_enrollment_periods_active ON enrollment_periods(is_active) WHERE is_active = TRUE;
+-- Parcial y UNICO: acelera "dame el periodo activo" y a la vez impide que existan dos
+-- periodos activos a la vez. Las filas inactivas quedan fuera del indice, asi que puede
+-- haber tantos periodos historicos como haga falta. Ver "Un solo periodo activo" mas abajo.
+CREATE UNIQUE INDEX ix_enrollment_periods_active ON enrollment_periods(is_active) WHERE is_active = TRUE;
 
 CREATE TABLE course_offerings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -280,6 +283,16 @@ En la capa de aplicación, la inscripción se ejecuta dentro de una transacción
 Las consultas de catálogo (listado de materias, disponibilidad de grupos) son las de mayor frecuencia durante el pico. Se cachean en Redis con TTL corto (30-60 segundos), lo suficiente para absorber miles de consultas idénticas sin golpear la base de datos.
 
 **No se cachea** la operación de inscripción ni la disponibilidad exacta en el momento del descuento: siempre consultan directo a PostgreSQL para garantizar consistencia.
+
+### Un solo período activo
+
+`enrollment_periods.is_active` lleva un índice **parcial y único** (`WHERE is_active = TRUE`), no un índice corriente. La estructura hace dos trabajos a la vez:
+
+1. **Rendimiento.** «Dame el período activo» es la consulta más frecuente del sistema: la ejecutan el catálogo de grupos y cada intento de inscripción. Indexar solo las filas activas cuesta unos pocos bytes; un índice sobre toda la columna acabaría apuntando a millones de filas inactivas sin resolver nada, porque la columna solo tiene dos valores distintos.
+
+2. **Corrección.** Impide que existan dos períodos activos simultáneos. Es lo que permite que `PeriodRepository.find_active()` devuelva un único período sin ambigüedad: con dos filas activas, la base devolvería una u otra de forma arbitraria y el catálogo mostraría la oferta del semestre equivocado. Dejar esa garantía en manos del endpoint de activación sería confiar en que ningún otro camino de escritura —un script de migración de datos, una corrección manual, un endpoint futuro— se equivoque nunca.
+
+Activar un período nuevo exige, por tanto, desactivar el anterior en la misma transacción. Es una restricción deseable: obliga a que el cambio de ventana sea una operación atómica y explícita, no un efecto colateral.
 
 ### Prerrequisitos
 

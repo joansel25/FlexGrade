@@ -1,0 +1,161 @@
+"""Adaptador de `OfferingRepository` sobre SQLAlchemy."""
+
+from __future__ import annotations
+
+from collections import defaultdict
+from collections.abc import Sequence
+from uuid import UUID
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.application.ports.repositories.offering_repository import OfferingRepository
+from app.domain.entities.course_offering import CourseOffering
+from app.domain.entities.professor import Professor
+from app.domain.value_objects.schedule_block import ScheduleBlock
+from app.infrastructure.persistence.sqlalchemy.models.course_offering import CourseOfferingModel
+from app.infrastructure.persistence.sqlalchemy.models.professor import ProfessorModel
+from app.infrastructure.persistence.sqlalchemy.models.schedule_block import ScheduleBlockModel
+
+
+class SQLAlchemyOfferingRepository(OfferingRepository):
+    """Implementación del puerto de grupos contra PostgreSQL.
+
+    Devuelve siempre el grupo completo —con su docente y sus franjas de horario— y lo hace en
+    un **número fijo de consultas**, independientemente de cuántos grupos se pidan: una trae
+    los grupos, otra los docentes de todos ellos y otra las franjas de todos ellos. Recorrer
+    los grupos preguntando por su horario uno a uno (el problema N+1) convertiría el endpoint
+    más consultado del pico de matrícula en decenas de viajes a la base de datos.
+
+    Se resuelve con consultas por lote en vez de con un `LEFT JOIN` deliberadamente: el join
+    obligaría a tratar el docente como una columna que puede venir nula dentro de una fila
+    tipada como si nunca lo fuera, y esa discrepancia entre lo declarado y lo real es
+    justamente donde se esconden los `AttributeError` en producción.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def find_by_id(self, offering_id: UUID) -> CourseOffering | None:
+        modelo = self._session.get(CourseOfferingModel, offering_id)
+
+        if modelo is None:
+            return None
+
+        return self._a_entidad(
+            modelo,
+            docentes=self._docentes_de([modelo.professor_id]),
+            horarios=self._horarios_de([modelo.id]),
+        )
+
+    def find_by_course_and_period(
+        self, course_id: UUID, enrollment_period_id: UUID
+    ) -> list[CourseOffering]:
+        sentencia = (
+            select(CourseOfferingModel)
+            .where(CourseOfferingModel.course_id == course_id)
+            .where(CourseOfferingModel.enrollment_period_id == enrollment_period_id)
+            .order_by(CourseOfferingModel.group_number)
+        )
+        modelos = list(self._session.execute(sentencia).scalars())
+
+        if not modelos:
+            return []
+
+        docentes = self._docentes_de([m.professor_id for m in modelos])
+        horarios = self._horarios_de([m.id for m in modelos])
+
+        return [self._a_entidad(m, docentes=docentes, horarios=horarios) for m in modelos]
+
+    def count_enrolled(self, offering_id: UUID) -> int | None:
+        # Lectura mínima y siempre contra PostgreSQL: es el dato que nunca se cachea. Trae una
+        # sola columna en vez de la fila entera porque se ejecuta en cada consulta de detalle
+        # durante el pico.
+        sentencia = select(CourseOfferingModel.enrolled_count).where(
+            CourseOfferingModel.id == offering_id
+        )
+        return self._session.execute(sentencia).scalar_one_or_none()
+
+    # ------------------------------------------------------------------ helpers
+
+    def _docentes_de(self, professor_ids: Sequence[UUID | None]) -> dict[UUID, Professor]:
+        """Trae en una sola consulta los docentes de todos los grupos indicados.
+
+        Args:
+            professor_ids: identificadores de docente, tal como vienen de los grupos. Se
+                admiten `None` porque un grupo puede publicarse sin docente asignado.
+
+        Returns:
+            Los docentes indexados por identificador.
+        """
+        presentes = {pid for pid in professor_ids if pid is not None}
+
+        if not presentes:
+            return {}
+
+        sentencia = select(ProfessorModel).where(ProfessorModel.id.in_(presentes))
+
+        return {
+            m.id: Professor(
+                id=m.id,
+                full_name=m.full_name,
+                email=m.email,
+                created_at=m.created_at,
+            )
+            for m in self._session.execute(sentencia).scalars()
+        }
+
+    def _horarios_de(self, offering_ids: Sequence[UUID]) -> dict[UUID, list[ScheduleBlock]]:
+        """Trae en una sola consulta las franjas de todos los grupos indicados.
+
+        Args:
+            offering_ids: identificadores de los grupos.
+
+        Returns:
+            Las franjas agrupadas por grupo y ordenadas por día y hora. Es un `defaultdict`,
+            así que un grupo sin horario publicado devuelve una lista vacía en vez de fallar.
+        """
+        agrupados: dict[UUID, list[ScheduleBlock]] = defaultdict(list)
+
+        if not offering_ids:
+            return agrupados
+
+        sentencia = (
+            select(ScheduleBlockModel)
+            .where(ScheduleBlockModel.course_offering_id.in_(offering_ids))
+            .order_by(ScheduleBlockModel.day_of_week, ScheduleBlockModel.start_time)
+        )
+
+        for modelo in self._session.execute(sentencia).scalars():
+            agrupados[modelo.course_offering_id].append(
+                ScheduleBlock(
+                    day_of_week=modelo.day_of_week,
+                    start_time=modelo.start_time,
+                    end_time=modelo.end_time,
+                    classroom=modelo.classroom,
+                )
+            )
+
+        return agrupados
+
+    @staticmethod
+    def _a_entidad(
+        modelo: CourseOfferingModel,
+        *,
+        docentes: dict[UUID, Professor],
+        horarios: dict[UUID, list[ScheduleBlock]],
+    ) -> CourseOffering:
+        """Convierte el modelo ORM y sus datos asociados en la entidad del dominio."""
+        return CourseOffering(
+            id=modelo.id,
+            enrollment_period_id=modelo.enrollment_period_id,
+            course_id=modelo.course_id,
+            group_number=modelo.group_number,
+            total_capacity=modelo.total_capacity,
+            enrolled_count=modelo.enrolled_count,
+            version=modelo.version,
+            professor=(
+                docentes.get(modelo.professor_id) if modelo.professor_id is not None else None
+            ),
+            schedule=tuple(horarios.get(modelo.id, [])),
+        )

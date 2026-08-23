@@ -62,14 +62,23 @@ class EnrollmentPeriodModel(Base):
     __table_args__ = (
         # Nombre corto: la convención lo expande a `ck_enrollment_periods_valid_range`.
         CheckConstraint("ends_at > starts_at", name="valid_range"),
-        # Índice PARCIAL. La consulta que importa es "dame el período activo", que se ejecuta
-        # en casi cada petición de catálogo e inscripción. Un índice sobre toda la columna
-        # sería casi inútil (solo dos valores distintos, y millones de filas apuntando a
-        # `false` con el tiempo); el parcial indexa únicamente las contadas filas activas, así
-        # que ocupa unos pocos bytes y resuelve esa consulta al instante.
+        # Índice PARCIAL y ÚNICO, que hace dos trabajos con una sola estructura:
+        #
+        # 1. Resuelve al instante "dame el período activo", la consulta que se ejecuta en casi
+        #    cada petición de catálogo y en cada intento de inscripción. Un índice sobre toda
+        #    la columna sería casi inútil (solo dos valores distintos, y con el tiempo casi
+        #    todas las filas en `false`); el parcial indexa únicamente las activas.
+        # 2. Impone que no pueda haber DOS períodos activos a la vez. Es lo que permite que
+        #    `PeriodRepository.find_active()` devuelva un único período sin ambigüedad: con
+        #    dos filas activas, el catálogo mostraría la oferta del semestre equivocado según
+        #    cuál devolviera la base. Dejar esa garantía en manos del endpoint de activación
+        #    sería confiar en que ningún otro camino de escritura se equivoque nunca.
+        #
+        # Las filas inactivas quedan fuera del índice: puede haber tantas como haga falta.
         Index(
             "ix_enrollment_periods_active",
             "is_active",
+            unique=True,
             postgresql_where=text("is_active = true"),
         ),
     )
