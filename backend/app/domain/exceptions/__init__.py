@@ -1,6 +1,16 @@
 """Excepciones del dominio: cada regla de negocio violada tiene su excepción específica.
 
-Contendrá:
+Existentes:
+
+- `base.py`: DomainError, la raíz de la jerarquía. Nunca se lanza directamente.
+- `invalid_value.py`: los value objects rechazando un valor que viola su invariante
+  (`InvalidEmailError`, `InvalidStudentCodeError`, `InvalidCourseCodeError`,
+  `InvalidScheduleBlockError`).
+- `authentication.py`: credenciales inválidas, cuenta desactivada, token inválido y cuenta
+  sin perfil de estudiante.
+- `catalog.py`: materia o grupo inexistentes, y ausencia de período de matrícula activo.
+
+Pendientes de la Fase 3:
 
 - `capacity_exceeded.py`: el grupo ya no tiene cupo disponible.
 - `prerequisites_not_met.py`: el estudiante no ha aprobado los prerrequisitos de la materia.

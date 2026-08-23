@@ -15,3 +15,11 @@ class InvalidEmailError(InvalidValueError):
 
 class InvalidStudentCodeError(InvalidValueError):
     """El código de estudiante no cumple el formato institucional."""
+
+
+class InvalidCourseCodeError(InvalidValueError):
+    """El código de materia no cumple el formato institucional."""
+
+
+class InvalidScheduleBlockError(InvalidValueError):
+    """La franja horaria tiene un día fuera de rango o termina antes de empezar."""
