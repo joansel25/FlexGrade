@@ -8,11 +8,14 @@ elementos existe en SQLite. Probar contra un motor distinto daría un verde fals
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
+from urllib.parse import urlparse, urlunparse
 from uuid import UUID, uuid4
 
+import psycopg
 import pytest
 from redis.exceptions import RedisError
 from sqlalchemy import text
@@ -54,6 +57,49 @@ TABLAS_A_LIMPIAR: tuple[str, ...] = (
     "users",
     "programs",
 )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def base_de_datos_de_pruebas() -> None:
+    """Prepara la base de datos antes de que corra ningún test de integración.
+
+    La crea si falta y le aplica todas las migraciones. Vive AQUÍ y no en el conftest raíz por
+    una razón que el CI dejó clara: como fixture global se ejecutaba también para los tests
+    unitarios, que deben poder correr sin PostgreSQL levantado. En el paso de unitarios del CI
+    no hay ninguna base alcanzable —y no debe haberla—, así que los 168 tests unitarios
+    fallaban con un error de resolución de nombre antes siquiera de empezar.
+
+    Usar Alembic y no un `create_all` significa que los tests corren contra exactamente el
+    mismo esquema que DEV, STAGING y PROD, con sus triggers, índices parciales y `CHECK`.
+    """
+    from alembic import command
+    from alembic.config import Config
+
+    url = os.environ["DATABASE_URL"]
+    _crear_base_si_falta(url)
+
+    configuracion = Config("alembic.ini")
+    command.upgrade(configuracion, "head")
+
+
+def _crear_base_si_falta(url: str) -> None:
+    """Crea la base de datos de pruebas si todavía no existe.
+
+    `CREATE DATABASE` no admite ejecutarse dentro de una transacción, de ahí el `autocommit`.
+    Se conecta a `postgres`, la base de mantenimiento que siempre está presente.
+    """
+    partes = urlparse(url)
+    objetivo = partes.path.lstrip("/")
+    # `psycopg.connect` no entiende el prefijo de dialecto de SQLAlchemy.
+    mantenimiento = urlunparse(partes._replace(scheme="postgresql", path="/postgres"))
+
+    with psycopg.connect(mantenimiento, autocommit=True) as conexion:
+        existe = conexion.execute(
+            "SELECT 1 FROM pg_database WHERE datname = %s", (objetivo,)
+        ).fetchone()
+
+        if existe is None:
+            conexion.execute(f'CREATE DATABASE "{objetivo}"')
 
 
 @pytest.fixture(autouse=True)

@@ -25,8 +25,17 @@ test:
 	$(COMPOSE) exec backend pytest
 
 ## Solo tests unitarios (rapidos, sin IO)
+#
+# Se ejecutan con una DATABASE_URL y una REDIS_URL DELIBERADAMENTE INALCANZABLES. No es un
+# adorno: un test unitario que necesite infraestructura deja de serlo, y dentro del contenedor
+# Postgres y Redis siempre estan a mano, asi que esa dependencia se cuela sin que nadie lo
+# note. El CI corre este paso sin ningun servicio y ahi si falla, pero descubrirlo alli cuesta
+# una vuelta entera de pipeline. Con estos valores, el mismo fallo aparece al instante en local.
 test-unit:
-	$(COMPOSE) exec backend pytest -m unit
+	$(COMPOSE) exec \
+	  -e DATABASE_URL=postgresql+psycopg://nadie:nadie@sin-base-de-datos:5432/ninguna \
+	  -e REDIS_URL=redis://sin-cache:6379/0 \
+	  backend pytest -m unit
 
 ## Solo tests de integracion (tocan base de datos y cache)
 test-int:

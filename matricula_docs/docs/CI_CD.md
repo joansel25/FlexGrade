@@ -62,6 +62,10 @@ Se ejecuta en cada push y en cada pull request. No despliega nada, solo valida.
 8. **Tests de integración**: `pytest -m integration` (con Postgres y Redis levantados como servicios de GitHub Actions).
 
    **Los tests nunca corren contra la base de desarrollo.** Vacían tablas enteras al terminar cada caso, así que hacerlo contra `matricula` borraría los datos de `make seed` en cada `make test-int`. La suite redirige `DATABASE_URL` a una base con sufijo `_test`, la crea si falta y le aplica las migraciones; en el CI la variable ya apunta a `matricula_test` y se respeta tal cual. Redis usa además una base lógica aparte (la 1 en vez de la 0), para que vaciar las claves del catálogo entre tests no toque la caché de desarrollo.
+
+   Esa preparación vive en `tests/integration/conftest.py`, **no** en el conftest raíz, y la distinción no es cosmética: como fixture global se ejecutaría también en el paso 5, donde no hay ninguna base alcanzable y no debe haberla. Un test unitario que necesite infraestructura deja de serlo.
+
+   Para que ese error salte en local en vez de una vuelta de pipeline más tarde, `make test-unit` ejecuta los unitarios con una `DATABASE_URL` y una `REDIS_URL` **deliberadamente inalcanzables**. Dentro del contenedor Postgres y Redis siempre están a mano, así que sin esa medida la dependencia se cuela sin que nadie lo note.
 9. **Escaneo de seguridad**: `pip-audit` para detectar dependencias vulnerables.
 10. **Escaneo de secretos**: `gitleaks` para detectar credenciales filtradas en el diff.
 
