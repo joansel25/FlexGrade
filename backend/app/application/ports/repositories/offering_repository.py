@@ -45,6 +45,55 @@ class OfferingRepository(ABC):
         """
 
     @abstractmethod
+    def try_reserve_slot(self, offering_id: UUID) -> bool:
+        """Ocupa un cupo del grupo de forma atómica, o informa de que ya no quedan.
+
+        Es el punto exacto donde se decide quién gana el último cupo, y la razón de que el
+        sobrecupo sea imposible.
+
+        La implementación debe ser **una sola sentencia** que compruebe la capacidad y
+        descuente el cupo a la vez, sin leer antes. Es lo que impide que dos transacciones
+        pasen la comprobación con el mismo estado: PostgreSQL serializa el acceso a la fila, y
+        la segunda evalúa la condición contra el valor que la primera ya escribió.
+
+        POR QUÉ NO SE CONDICIONA POR `version`. El diseño original de `DATA_MODEL.md` proponía
+        `WHERE version = :esperada` con reintentos. Se implementó y se midió, y no escala: con
+        N transacciones sobre la misma fila solo una gana por ronda, así que harían falta hasta
+        N reintentos. Con 40 concurrentes y 100 cupos libres solo entraban 10 —a 30 personas se
+        les rechazaba un cupo que existía—. Condicionar por `enrolled_count < total_capacity`
+        elimina el problema de raíz: cada transacción reevalúa la condición real contra el
+        estado actual, nadie es rechazado sin motivo y no hace falta reintentar nunca.
+
+        `version` se sigue incrementando en la misma sentencia. Conserva su valor como marca de
+        modificación y para el bloqueo optimista de otras operaciones sobre el grupo —ajustar
+        la capacidad desde administración, en la Fase 4—, donde los conflictos sí son raros y
+        el mecanismo por versión es el adecuado.
+
+        Args:
+            offering_id: identificador del grupo.
+
+        Returns:
+            `True` si quedó un cupo ocupado; `False` si el grupo estaba lleno o no existe.
+        """
+
+    @abstractmethod
+    def try_release_slot(self, offering_id: UUID) -> bool:
+        """Libera un cupo del grupo de forma atómica, al cancelarse una inscripción.
+
+        Igual que su contraria, en una sola sentencia y condicionada: solo descuenta si el
+        contador es mayor que cero. Sin esa guarda, una cancelación procesada dos veces dejaría
+        `enrolled_count` por debajo de la ocupación real, y ese hueco fantasma lo podrían tomar
+        dos personas.
+
+        Args:
+            offering_id: identificador del grupo.
+
+        Returns:
+            `True` si se liberó un cupo; `False` si el contador ya estaba en cero o el grupo no
+            existe.
+        """
+
+    @abstractmethod
     def count_enrolled(self, offering_id: UUID) -> int | None:
         """Lee el número de cupos ocupados directamente de la base de datos.
 
