@@ -54,3 +54,19 @@ class NoActivePeriodError(DomainError):
 
     def __init__(self) -> None:
         super().__init__("No hay un período de matrícula activo")
+
+
+class ProfessorNotFoundError(DomainError):
+    """El docente indicado no existe.
+
+    Vive aquí por la misma razón que `PeriodNotFoundError`: es una búsqueda que no encuentra
+    nada, no una regla de administración. La comprobación existe porque la clave foránea de
+    `course_offerings.professor_id` fallaría con un error de integridad opaco —y un 500— en
+    lugar de decir que el identificador no corresponde a ningún docente.
+    """
+
+    def __init__(self, professor_id: UUID) -> None:
+        super().__init__(
+            "El docente indicado no existe",
+            details={"professor_id": str(professor_id)},
+        )

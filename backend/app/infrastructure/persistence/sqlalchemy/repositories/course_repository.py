@@ -99,6 +99,20 @@ class SQLAlchemyCourseRepository(CourseRepository):
 
         return Page(items=materias, total=total, page=page, size=size)
 
+    def save(self, course: Course) -> None:
+        # `merge` y no `add`: sirve tanto para una materia nueva como para una que ya existe,
+        # que es lo que promete el puerto. Con `add`, guardar una materia leída antes en esta
+        # misma sesión fallaría con clave duplicada.
+        self._session.merge(
+            CourseModel(
+                id=course.id,
+                code=course.code.value,
+                name=course.name,
+                credits=course.credits,
+                description=course.description,
+            )
+        )
+
     # ------------------------------------------------------------------ helpers
 
     @staticmethod

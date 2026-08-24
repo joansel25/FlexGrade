@@ -21,6 +21,7 @@ from app.application.ports.repositories.course_repository import CourseRepositor
 from app.application.ports.repositories.enrollment_repository import EnrollmentRepository
 from app.application.ports.repositories.offering_repository import OfferingRepository
 from app.application.ports.repositories.period_repository import PeriodRepository
+from app.application.ports.repositories.professor_repository import ProfessorReader
 from app.application.ports.repositories.program_repository import ProgramRepository
 from app.application.ports.repositories.student_repository import StudentRepository
 from app.application.ports.repositories.user_repository import UserRepository
@@ -28,6 +29,9 @@ from app.application.ports.unit_of_work import UnitOfWork
 from app.application.use_cases.admin.activate_enrollment_period import (
     ActivateEnrollmentPeriodUseCase,
 )
+from app.application.use_cases.admin.adjust_offering_capacity import AdjustOfferingCapacityUseCase
+from app.application.use_cases.admin.create_course import CreateCourseUseCase
+from app.application.use_cases.admin.create_course_offering import CreateCourseOfferingUseCase
 from app.application.use_cases.admin.create_enrollment_period import CreateEnrollmentPeriodUseCase
 from app.application.use_cases.admin.list_enrollment_periods import ListEnrollmentPeriodsUseCase
 from app.application.use_cases.auth.authenticate_user import AuthenticateUserUseCase
@@ -58,6 +62,9 @@ from app.infrastructure.persistence.sqlalchemy.repositories.offering_repository 
 )
 from app.infrastructure.persistence.sqlalchemy.repositories.period_repository import (
     SQLAlchemyPeriodRepository,
+)
+from app.infrastructure.persistence.sqlalchemy.repositories.professor_repository import (
+    SQLAlchemyProfessorRepository,
 )
 from app.infrastructure.persistence.sqlalchemy.repositories.program_repository import (
     SQLAlchemyProgramRepository,
@@ -121,6 +128,14 @@ def get_offering_repository(session: SessionDep) -> OfferingRepository:
 
 
 OfferingRepositoryDep = Annotated[OfferingRepository, Depends(get_offering_repository)]
+
+
+def get_professor_reader(session: SessionDep) -> ProfessorReader:
+    """Resuelve el puerto de docentes al adaptador de SQLAlchemy."""
+    return SQLAlchemyProfessorRepository(session)
+
+
+ProfessorReaderDep = Annotated[ProfessorReader, Depends(get_professor_reader)]
 
 
 def get_period_repository(session: SessionDep) -> PeriodRepository:
@@ -382,4 +397,52 @@ ActivateEnrollmentPeriodUseCaseDep = Annotated[
 ]
 ListEnrollmentPeriodsUseCaseDep = Annotated[
     ListEnrollmentPeriodsUseCase, Depends(get_list_enrollment_periods_use_case)
+]
+
+
+def get_create_course_use_case(
+    course_repository: CourseRepositoryDep,
+    unit_of_work: UnitOfWorkDep,
+) -> CreateCourseUseCase:
+    """Construye el caso de uso de alta de materias."""
+    return CreateCourseUseCase(course_repository, unit_of_work)
+
+
+def get_create_course_offering_use_case(
+    offering_repository: OfferingRepositoryDep,
+    course_repository: CourseRepositoryDep,
+    period_repository: PeriodRepositoryDep,
+    professor_reader: ProfessorReaderDep,
+    unit_of_work: UnitOfWorkDep,
+) -> CreateCourseOfferingUseCase:
+    """Construye el caso de uso de apertura de grupos."""
+    return CreateCourseOfferingUseCase(
+        offering_repository,
+        course_repository,
+        period_repository,
+        professor_reader,
+        unit_of_work,
+    )
+
+
+def get_adjust_offering_capacity_use_case(
+    offering_repository: OfferingRepositoryDep,
+    unit_of_work: UnitOfWorkDep,
+    cache: CacheServiceDep,
+) -> AdjustOfferingCapacityUseCase:
+    """Construye el caso de uso de ajuste de cupo.
+
+    Recibe la caché porque es la única operación de administración que invalida una entrada:
+    `catalog:v1:offering:{id}` guarda `total_capacity`, y servirlo caducado junto a un
+    `enrolled_count` fresco daría unos cupos disponibles que no cuadran.
+    """
+    return AdjustOfferingCapacityUseCase(offering_repository, unit_of_work, cache)
+
+
+CreateCourseUseCaseDep = Annotated[CreateCourseUseCase, Depends(get_create_course_use_case)]
+CreateCourseOfferingUseCaseDep = Annotated[
+    CreateCourseOfferingUseCase, Depends(get_create_course_offering_use_case)
+]
+AdjustOfferingCapacityUseCaseDep = Annotated[
+    AdjustOfferingCapacityUseCase, Depends(get_adjust_offering_capacity_use_case)
 ]

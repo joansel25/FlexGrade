@@ -22,6 +22,7 @@ from app.application.ports.repositories.course_repository import CourseRepositor
 from app.application.ports.repositories.enrollment_repository import EnrollmentRepository
 from app.application.ports.repositories.offering_repository import OfferingRepository
 from app.application.ports.repositories.period_repository import PeriodRepository
+from app.application.ports.repositories.professor_repository import ProfessorReader
 from app.application.ports.repositories.program_repository import ProgramRepository
 from app.application.ports.repositories.student_repository import StudentRepository
 from app.application.ports.repositories.user_repository import UserRepository
@@ -176,6 +177,9 @@ class InMemoryCourseRepository(CourseRepository):
 
         return any(cid == course_id for cid, _ in self._plan.get(program_id, []))
 
+    def save(self, course: Course) -> None:
+        self._courses[course.id] = course
+
     def search(
         self,
         *,
@@ -290,6 +294,32 @@ class InMemoryOfferingRepository(OfferingRepository):
         grupo.version += 1
         return True
 
+    def save(self, offering: CourseOffering) -> None:
+        # Se guarda una copia por la misma razon que las lecturas devuelven una: quien llama
+        # conserva su entidad y mutarla despues no debe cambiar lo "persistido".
+        self._offerings[offering.id] = self._copia(offering)
+
+    def update_capacity(
+        self, offering_id: UUID, *, new_capacity: int, expected_version: int
+    ) -> bool:
+        """Reproduce el UPDATE condicionado por version del adaptador SQL."""
+        grupo = self._offerings.get(offering_id)
+
+        if grupo is None or grupo.version != expected_version:
+            return False
+
+        # Misma guarda que el SQL: el cupo nunca queda por debajo de la ocupacion real.
+        if new_capacity < grupo.enrolled_count:
+            return False
+
+        grupo.total_capacity = new_capacity
+        grupo.version += 1
+        return True
+
+    def mover_version(self, offering_id: UUID) -> None:
+        """Incrementa la version del grupo, para simular que otra escritura se adelanto."""
+        self._offerings[offering_id].version += 1
+
     def llenar(self, offering_id: UUID) -> None:
         """Deja el grupo sin cupos, para simular que se lleno tras leerlo."""
         grupo = self._offerings[offering_id]
@@ -325,6 +355,16 @@ class InMemoryPeriodRepository(PeriodRepository):
 
     def save(self, period: EnrollmentPeriod) -> None:
         self._periods[period.id] = period
+
+
+class InMemoryProfessorReader(ProfessorReader):
+    """Lector de docentes respaldado por un conjunto de identificadores."""
+
+    def __init__(self, professor_ids: set[UUID] | None = None) -> None:
+        self._ids = professor_ids or set()
+
+    def exists(self, professor_id: UUID) -> bool:
+        return professor_id in self._ids
 
 
 class InMemoryCacheService(CacheService):
@@ -411,6 +451,16 @@ class ContadorDeConsultas(OfferingRepository):
 
     def try_release_slot(self, offering_id: UUID) -> bool:
         return self._interno.try_release_slot(offering_id)
+
+    def save(self, offering: CourseOffering) -> None:
+        self._interno.save(offering)
+
+    def update_capacity(
+        self, offering_id: UUID, *, new_capacity: int, expected_version: int
+    ) -> bool:
+        return self._interno.update_capacity(
+            offering_id, new_capacity=new_capacity, expected_version=expected_version
+        )
 
 
 class InMemoryEnrollmentRepository(EnrollmentRepository):

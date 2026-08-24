@@ -113,3 +113,14 @@ class CourseRepository(ABC):
         Returns:
             La página de resultados y el total de coincidencias.
         """
+
+    @abstractmethod
+    def save(self, course: Course) -> None:
+        """Persiste una materia nueva o los cambios de una existente.
+
+        No confirma la transacción: eso le corresponde a la `UnitOfWork` del caso de uso, que
+        es quien sabe si la operación completa terminó bien.
+
+        Args:
+            course: la materia a persistir.
+        """

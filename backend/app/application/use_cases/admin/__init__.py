@@ -8,11 +8,14 @@ Existentes:
   la anterior en la misma transacción y en ese orden, porque el índice único parcial rechaza
   el estado intermedio con dos activas.
 - `list_enrollment_periods.py`: ListEnrollmentPeriodsUseCase, listado paginado.
+- `create_course.py`: CreateCourseUseCase, alta de una materia del catálogo.
+- `create_course_offering.py`: CreateCourseOfferingUseCase, apertura de un grupo en el período
+  activo, con su horario.
+- `adjust_offering_capacity.py`: AdjustOfferingCapacityUseCase, ajuste de cupo con bloqueo
+  optimista por `version` e invalidación de la caché del grupo.
 
 Pendientes:
 
-- `create_course.py` y `create_course_offering.py`: alta de materias y de grupos.
-- `adjust_offering_capacity.py`: ajuste de cupo con bloqueo optimista.
 - `generate_enrollment_report.py` y el de ocupación.
 
 Todos exigen rol ADMIN. La comprobación vive en la dependencia `AdminUserDep` y no en cada

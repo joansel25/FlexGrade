@@ -13,7 +13,15 @@ from __future__ import annotations
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.domain.exceptions.admin import DuplicatePeriodCodeError, InvalidPeriodRangeError
+from app.domain.exceptions.admin import (
+    CapacityBelowEnrolledError,
+    ConcurrentOfferingUpdateError,
+    DuplicateCourseCodeError,
+    DuplicateOfferingGroupError,
+    DuplicatePeriodCodeError,
+    InvalidPeriodRangeError,
+    OverlappingScheduleError,
+)
 from app.domain.exceptions.authentication import (
     AdminRequiredError,
     InactiveUserError,
@@ -28,6 +36,7 @@ from app.domain.exceptions.catalog import (
     NoActivePeriodError,
     OfferingNotFoundError,
     PeriodNotFoundError,
+    ProfessorNotFoundError,
 )
 from app.domain.exceptions.enrollment import (
     AlreadyEnrolledError,
@@ -97,6 +106,7 @@ _MAPEO_ERRORES: dict[type[DomainError], tuple[int, str]] = {
     OfferingNotFoundError: (404, "OFFERING_NOT_FOUND"),
     NoActivePeriodError: (404, "NO_ACTIVE_PERIOD"),
     PeriodNotFoundError: (404, "PERIOD_NOT_FOUND"),
+    ProfessorNotFoundError: (404, "PROFESSOR_NOT_FOUND"),
     # Inscripción (Fase 3), con los códigos que fija `API.md` sección 4.
     #
     # Casi todos son 409 y no 400: la petición está bien formada y el cliente tiene permiso;
@@ -116,6 +126,14 @@ _MAPEO_ERRORES: dict[type[DomainError], tuple[int, str]] = {
     # quien la envía tiene permiso; lo que impide la operación es el estado del sistema.
     DuplicatePeriodCodeError: (409, "DUPLICATE_PERIOD_CODE"),
     InvalidPeriodRangeError: (409, "INVALID_PERIOD_RANGE"),
+    DuplicateCourseCodeError: (409, "DUPLICATE_COURSE_CODE"),
+    DuplicateOfferingGroupError: (409, "DUPLICATE_OFFERING_GROUP"),
+    CapacityBelowEnrolledError: (409, "CAPACITY_BELOW_ENROLLED"),
+    OverlappingScheduleError: (409, "OVERLAPPING_SCHEDULE"),
+    # 409 y no 500: la escritura no se aplicó porque otra ganó la carrera, y repetir la misma
+    # petición tiene todas las papeletas de funcionar. Un 500 diría que el servidor falló, que
+    # es exactamente lo que no ocurrió.
+    ConcurrentOfferingUpdateError: (409, "CONCURRENT_MODIFICATION"),
 }
 
 

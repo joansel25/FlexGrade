@@ -129,3 +129,46 @@ class OfferingRepository(ABC):
         Returns:
             Los cupos ocupados, o `None` si el grupo ya no existe.
         """
+
+    @abstractmethod
+    def save(self, offering: CourseOffering) -> None:
+        """Persiste un grupo nuevo junto con sus franjas de horario.
+
+        Las franjas se guardan en la misma llamada, no en un puerto aparte: en el dominio no
+        tienen identidad propia —son value objects dentro del grupo— y un grupo publicado sin
+        su horario es un estado que nadie debería poder observar.
+
+        No confirma la transacción; de eso se encarga la `UnitOfWork` del caso de uso.
+
+        Args:
+            offering: el grupo a persistir, con su horario ya completo.
+        """
+
+    @abstractmethod
+    def update_capacity(
+        self, offering_id: UUID, *, new_capacity: int, expected_version: int
+    ) -> bool:
+        """Cambia el cupo total del grupo si nadie lo ha modificado entretanto.
+
+        Aquí sí se condiciona por `version`, al contrario que en `try_reserve_slot`. La razón
+        es la contención esperada: dos administradores ajustando el mismo grupo a la vez es
+        excepcional, así que el bloqueo optimista casi nunca falla y, cuando falla, rechazar es
+        justo lo que se quiere —la alternativa sería que la segunda escritura pisara en
+        silencio la decisión de la primera—. En el descuento de cupo la contención es la norma
+        y condicionar por versión rechazaba inscripciones legítimas; por eso allí se condiciona
+        por `enrolled_count < total_capacity`.
+
+        La sentencia lleva además `WHERE enrolled_count <= :new_capacity`, y no es redundante
+        con la comprobación previa del caso de uso: entre leer el grupo y escribirlo pueden
+        entrar inscripciones nuevas, y sin esa condición el `UPDATE` chocaría contra el
+        `CHECK (enrolled_count <= total_capacity)` y abortaría la transacción entera.
+
+        Args:
+            offering_id: identificador del grupo.
+            new_capacity: cupo total que se quiere dejar.
+            expected_version: versión que tenía el grupo cuando se leyó.
+
+        Returns:
+            `True` si el cupo quedó ajustado; `False` si el grupo cambió entretanto, ya no
+            existe, o el cupo pedido es menor que la ocupación actual.
+        """

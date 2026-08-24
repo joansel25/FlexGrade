@@ -123,6 +123,55 @@ class SQLAlchemyOfferingRepository(OfferingRepository):
 
         return bool(self._session.execute(sentencia).rowcount == 1)
 
+    def save(self, offering: CourseOffering) -> None:
+        # Grupo y franjas en la misma llamada, dentro de la transacción de quien llama: un
+        # grupo publicado sin su horario no es un estado que deba poder observarse.
+        self._session.merge(
+            CourseOfferingModel(
+                id=offering.id,
+                enrollment_period_id=offering.enrollment_period_id,
+                course_id=offering.course_id,
+                professor_id=None if offering.professor is None else offering.professor.id,
+                group_number=offering.group_number,
+                total_capacity=offering.total_capacity,
+                enrolled_count=offering.enrolled_count,
+                version=offering.version,
+            )
+        )
+
+        for franja in offering.schedule:
+            self._session.add(
+                ScheduleBlockModel(
+                    course_offering_id=offering.id,
+                    day_of_week=franja.day_of_week,
+                    start_time=franja.start_time,
+                    end_time=franja.end_time,
+                    classroom=franja.classroom,
+                )
+            )
+
+    def update_capacity(
+        self, offering_id: UUID, *, new_capacity: int, expected_version: int
+    ) -> bool:
+        sentencia = (
+            update(CourseOfferingModel)
+            .where(CourseOfferingModel.id == offering_id)
+            # Bloqueo optimista por version: si otra operacion toco el grupo entre la lectura
+            # y esta escritura, no se aplica nada y quien llama decide si reintentar.
+            .where(CourseOfferingModel.version == expected_version)
+            # Segunda condicion, y no es redundante con la comprobacion del caso de uso: entre
+            # leer el grupo y escribirlo pueden entrar inscripciones nuevas. Sin ella el UPDATE
+            # chocaria contra el CHECK (enrolled_count <= total_capacity) y abortaria la
+            # transaccion entera en vez de devolver un fallo que se puede manejar.
+            .where(CourseOfferingModel.enrolled_count <= new_capacity)
+            .values(
+                total_capacity=new_capacity,
+                version=CourseOfferingModel.version + 1,
+            )
+        )
+
+        return bool(self._session.execute(sentencia).rowcount == 1)
+
     def count_enrolled(self, offering_id: UUID) -> int | None:
         # Lectura mínima y siempre contra PostgreSQL: es el dato que nunca se cachea. Trae una
         # sola columna en vez de la fila entera porque se ejecuta en cada consulta de detalle

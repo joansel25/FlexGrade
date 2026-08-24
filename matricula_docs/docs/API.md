@@ -409,9 +409,31 @@ Activa un período. Solo puede haber un período activo a la vez; activar uno nu
 
 Crea una nueva materia en el catálogo.
 
+**Request**
+```json
+{
+  "code": "QUI101",
+  "name": "Química General",
+  "credits": 3,
+  "description": "Fundamentos de química"
+}
+```
+
+**Response 201** — la materia creada, con el código normalizado en mayúsculas.
+
+| Código HTTP | error.code | Situación |
+|---|---|---|
+| 400 | `DOMAIN_ERROR` | El código no cumple el formato institucional (`MAT101`) |
+| 409 | `DUPLICATE_COURSE_CODE` | Ya existe una materia con ese código |
+
+Crear la materia no la pone en oferta: hasta que no se le abre un grupo con
+`POST /admin/offerings` no aparece en `GET /courses/{id}/offerings` ni se puede inscribir.
+
 ### POST /admin/offerings
 
-Crea un nuevo grupo para el período activo.
+Crea un nuevo grupo para el período activo. El período **no** viaja en el cuerpo: se toma del
+que esté activo. Aceptarlo permitiría abrir grupos en un semestre cerrado con un identificador
+copiado de otro, y el error solo se notaría cuando los estudiantes no vieran la materia.
 
 **Request**
 ```json
@@ -431,9 +453,41 @@ Crea un nuevo grupo para el período activo.
 }
 ```
 
+**Response 201** — el grupo creado, con la misma forma que devuelve `GET /offerings/{id}`.
+
+| Código HTTP | error.code | Situación |
+|---|---|---|
+| 404 | `NO_ACTIVE_PERIOD` | No hay ninguna ventana de matrícula activa |
+| 404 | `COURSE_NOT_FOUND` | La materia indicada no existe |
+| 404 | `PROFESSOR_NOT_FOUND` | El docente indicado no existe |
+| 409 | `DUPLICATE_OFFERING_GROUP` | Ese número de grupo ya existe para la materia en el período |
+| 409 | `OVERLAPPING_SCHEDULE` | Dos franjas del propio horario se cruzan entre sí |
+
 ### PUT /admin/offerings/{id}/capacity
 
 Ajusta el cupo total de un grupo. No permite reducir por debajo del número de inscritos actuales.
+
+**Request**
+```json
+{ "total_capacity": 45 }
+```
+
+**Response 200** — el grupo con su cupo ya ajustado.
+
+| Código HTTP | error.code | Situación |
+|---|---|---|
+| 404 | `OFFERING_NOT_FOUND` | El grupo no existe |
+| 409 | `CAPACITY_BELOW_ENROLLED` | El cupo pedido es menor que los inscritos actuales |
+| 409 | `CONCURRENT_MODIFICATION` | Otra operación modificó el grupo; repetir la petición |
+
+Es la única operación de administración que **invalida la caché**: la entrada
+`catalog:v1:offering:{id}` guarda `total_capacity`, y servirla caducada junto a un
+`enrolled_count` fresco daría unos cupos disponibles que no cuadran.
+
+El `UPDATE` se condiciona por `version` —bloqueo optimista— y se reintenta hasta tres veces.
+Aquí ese mecanismo sí es el adecuado, al contrario que en el descuento de cupo: dos
+administradores ajustando el mismo grupo a la vez es excepcional, y cuando ocurre es mejor
+rechazar la segunda escritura que dejar que pise en silencio la decisión de la primera.
 
 ### GET /admin/reports/enrollments
 
