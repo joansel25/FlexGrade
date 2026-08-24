@@ -4,6 +4,9 @@
 .env
 .env.*
 !.env.example
+# El .env de los tests del frontend SI se comitea: no lleva secretos y el runner del CI
+# no tiene ningun .env.local, asi que sin el los tests apuntarian a una URL vacia.
+!frontend/.env.test
 *.key
 *.pem
 *.p12
@@ -54,6 +57,7 @@ htmlcov/
 # ---------------------------------------------------------------------------
 node_modules/
 frontend/dist/
+frontend/coverage/
 frontend/build/
 .vite/
 frontend/.vite/

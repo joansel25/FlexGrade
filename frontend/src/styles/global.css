@@ -1,0 +1,92 @@
+/*
+ * Estilos base y sistema de diseño.
+ *
+ * Tailwind 4 se configura desde CSS, no desde un `tailwind.config.js`: los tokens se declaran
+ * en `@theme` y quedan disponibles como utilidades (`bg-brand-600`, `text-ink-500`). Tener una
+ * sola fuente de verdad para el color y el espaciado es lo que evita que cada pantalla acabe
+ * con su propio azul ligeramente distinto.
+ */
+
+@import "tailwindcss";
+
+@theme {
+  /* Azul institucional. La escala completa existe para que los estados —hover, activo,
+     deshabilitado— salgan del mismo tono y no de un color inventado sobre la marcha. */
+  --color-brand-50: oklch(0.97 0.02 250);
+  --color-brand-100: oklch(0.93 0.05 250);
+  --color-brand-200: oklch(0.87 0.09 250);
+  --color-brand-300: oklch(0.78 0.13 250);
+  --color-brand-400: oklch(0.68 0.17 250);
+  --color-brand-500: oklch(0.6 0.19 250);
+  --color-brand-600: oklch(0.52 0.19 250);
+  --color-brand-700: oklch(0.44 0.16 250);
+  --color-brand-800: oklch(0.37 0.13 250);
+  --color-brand-900: oklch(0.3 0.1 250);
+
+  /* Grises con una pizca del mismo azul: un gris neutro puro junto a un azul saturado se ve
+     sucio. Se usan para texto, bordes y fondos. */
+  --color-ink-50: oklch(0.98 0.003 250);
+  --color-ink-100: oklch(0.96 0.005 250);
+  --color-ink-200: oklch(0.91 0.008 250);
+  --color-ink-300: oklch(0.83 0.01 250);
+  --color-ink-400: oklch(0.66 0.013 250);
+  --color-ink-500: oklch(0.53 0.014 250);
+  --color-ink-600: oklch(0.43 0.014 250);
+  --color-ink-700: oklch(0.35 0.012 250);
+  --color-ink-800: oklch(0.26 0.01 250);
+  --color-ink-900: oklch(0.19 0.008 250);
+
+  /* Colores de estado. En esta aplicación no son decorativos: durante la matrícula comunican
+     si un grupo tiene cupo, si va justo o si ya se llenó, y esa lectura tiene que ser
+     instantánea. */
+  --color-success-50: oklch(0.96 0.03 155);
+  --color-success-600: oklch(0.55 0.14 155);
+  --color-success-700: oklch(0.46 0.12 155);
+  --color-warning-50: oklch(0.97 0.04 85);
+  --color-warning-600: oklch(0.62 0.14 85);
+  --color-warning-700: oklch(0.52 0.13 85);
+  --color-danger-50: oklch(0.96 0.03 25);
+  --color-danger-600: oklch(0.55 0.19 25);
+  --color-danger-700: oklch(0.47 0.17 25);
+
+  /* Pila del sistema: sin fuentes externas. Una fuente web añade una petición bloqueante y un
+     salto de texto al cargar, y en la nube significa además otro dominio en el CSP. */
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+
+  --radius-card: 0.75rem;
+}
+
+@layer base {
+  html {
+    /* El desplazamiento suave se desactiva más abajo para quien pide menos movimiento. */
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-ink-50 text-ink-800 font-sans antialiased;
+  }
+
+  /* Un foco visible y consistente en TODO lo que se puede enfocar. Es la diferencia entre
+     poder matricular con el teclado o no poder: sin este anillo, quien navega con tabulador
+     no sabe dónde está. Nunca se pone `outline: none` sin sustituirlo por algo visible. */
+  :focus-visible {
+    @apply outline-brand-600 outline-2 outline-offset-2;
+  }
+
+  /* Respeta a quien ha pedido reducir el movimiento en su sistema operativo. */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
