@@ -6,6 +6,12 @@ Siembra lo que describe `docs/DATA_MODEL.md` sección 4: 3 programas, 10 profeso
 materias con sus prerrequisitos, 1 período de matrícula activo, 20 grupos con horario y cupos,
 y 50 estudiantes de prueba.
 
+Siembra además **historial académico** para una parte de los estudiantes. No lo pedía el
+documento, pero sin él la validación de prerrequisitos de la Fase 3 no se puede probar a mano:
+todo el mundo tendría el expediente vacío y `MAT102` sería inaccesible para cualquiera. Con este
+reparto hay estudiantes en los dos lados de cada regla, que es lo que hace útil un juego de
+datos de ejemplo.
+
 **Idempotente de verdad, no "casi".** Cada fila se busca por su clave natural —el `code` de un
 programa, el `student_code` de un estudiante— y solo se inserta si falta. Ejecutarlo diez
 veces seguidas deja exactamente el mismo resultado que ejecutarlo una, y no lanza ningún error
@@ -24,6 +30,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
+from decimal import Decimal
 from typing import TypeVar
 
 from sqlalchemy import select
@@ -31,6 +38,7 @@ from sqlalchemy.orm import Session
 
 from app.infrastructure.auth.jwt_auth_service import JWTAuthService
 from app.infrastructure.config.settings import get_settings
+from app.infrastructure.persistence.sqlalchemy.models.academic_history import AcademicHistoryModel
 from app.infrastructure.persistence.sqlalchemy.models.administrator import AdministratorModel
 from app.infrastructure.persistence.sqlalchemy.models.base import Base
 from app.infrastructure.persistence.sqlalchemy.models.course import CourseModel
@@ -56,6 +64,21 @@ logger = logging.getLogger(__name__)
 PASSWORD_DE_EJEMPLO = "SecurePass123"
 
 CORREO_ADMIN = "admin@tdea.edu.co"
+
+# El historial académico solo se siembra a los estudiantes de INGENIERÍA, porque la cadena
+# MAT101 -> MAT102 -> MAT201 pertenece a ese plan de estudios. Dar Cálculo I a alguien de
+# Derecho produciría datos que se contradicen: tendría la materia aprobada y aun así no podría
+# inscribir Cálculo II, por no estar en su plan.
+#
+# Los de Ingeniería se reparten en cuatro grupos, para dejar gente en los dos lados de cada
+# regla y que probar a mano no exija preparar datos antes:
+#
+#   1er cuarto  sin historial     -> NO pueden MAT102 (les falta MAT101)
+#   2do cuarto  MAT101 aprobada   -> SÍ pueden MAT102, no MAT201
+#   3er cuarto  MAT101 y MAT102   -> SÍ pueden MAT201, la cadena completa
+#   4to cuarto  MAT101 PERDIDA    -> NO pueden MAT102: comprueba que solo APPROVED habilita
+PROGRAMA_CON_CADENA = "ISIS"
+PERIODO_HISTORICO = "2025-1"
 
 T = TypeVar("T", bound=Base)
 
@@ -151,18 +174,21 @@ MATERIAS: tuple[MateriaSembrada, ...] = (
     ),
 )
 
-# No toda materia se dicta cada semestre, y el catálogo tiene que poder decirlo. Estas dos
-# quedan sin grupo a propósito: es lo que permite comprobar que `GET /courses/{id}/offerings`
-# responde 200 con una lista vacía —un resultado legítimo— en vez de un 404.
-MATERIAS_SIN_GRUPO = ("MAT201", "RED301")
+# No toda materia se dicta cada semestre, y el catálogo tiene que poder decirlo. Esta queda sin
+# grupo a propósito: es lo que permite comprobar que `GET /courses/{id}/offerings` responde 200
+# con una lista vacía —un resultado legítimo— en vez de un 404.
+#
+# `MAT201` SÍ se ofrece, aunque sea de tercer semestre: es el último eslabón de la cadena
+# MAT101 -> MAT102 -> MAT201, y sin grupo no habría forma de probar a mano la validación de
+# prerrequisitos en más de un salto.
+MATERIAS_SIN_GRUPO = ("RED301",)
 
 # Las materias de primeros semestres, que son las de mayor demanda, tienen dos grupos.
-# 13 materias con oferta + 7 grupos adicionales = los 20 que fija DATA_MODEL.md.
+# 14 materias con oferta + 6 grupos adicionales = los 20 que fija DATA_MODEL.md.
 MATERIAS_CON_DOS_GRUPOS = (
     "MAT101",
     "MAT102",
     "PRG101",
-    "PRG102",
     "ADM101",
     "CON101",
     "DER101",
@@ -218,7 +244,7 @@ def _obtener_o_crear(
 # ---------------------------------------------------------------------------
 
 
-def sembrar(session: Session) -> dict[str, int]:
+def sembrar(session: Session) -> tuple[dict[str, int], dict[str, list[str]]]:
     """Siembra los datos de ejemplo y devuelve cuántas filas hay de cada tipo.
 
     Args:
@@ -226,7 +252,8 @@ def sembrar(session: Session) -> dict[str, int]:
             revertir todo lo sembrado.
 
     Returns:
-        El recuento por tabla, para poder informar de lo que quedó.
+        El recuento por tabla y el reparto del historial académico, para poder informar de lo
+        que quedó y de con qué cuenta probar cada regla.
     """
     hasher = JWTAuthService(get_settings())
     password_hash = hasher.hash(PASSWORD_DE_EJEMPLO)
@@ -284,6 +311,7 @@ def sembrar(session: Session) -> dict[str, int]:
     periodo = _sembrar_periodo(session)
     grupos = _sembrar_grupos(session, periodo, materias, profesores)
     _sembrar_cuentas(session, programas, password_hash)
+    reparto = _sembrar_historial(session, programas, materias)
 
     return {
         "programas": len(programas),
@@ -291,7 +319,8 @@ def sembrar(session: Session) -> dict[str, int]:
         "materias": len(materias),
         "grupos": len(grupos),
         "estudiantes": session.query(StudentModel).count(),
-    }
+        "historial": session.query(AcademicHistoryModel).count(),
+    }, reparto
 
 
 def _sembrar_periodo(session: Session) -> EnrollmentPeriodModel:
@@ -429,13 +458,80 @@ def _sembrar_cuentas(
         )
 
 
+def _sembrar_historial(
+    session: Session, programas: dict[str, ProgramModel], materias: dict[str, CourseModel]
+) -> dict[str, list[str]]:
+    """Da expediente académico a los estudiantes de Ingeniería.
+
+    Returns:
+        Qué códigos de estudiante quedaron en cada grupo, para poder informarlos al terminar.
+        Sin esa lista, probar los prerrequisitos a mano obligaría a consultar la base primero.
+    """
+    de_ingenieria = list(
+        session.execute(
+            select(StudentModel)
+            .where(StudentModel.program_id == programas[PROGRAMA_CON_CADENA].id)
+            .order_by(StudentModel.student_code)
+        ).scalars()
+    )
+
+    if not de_ingenieria:
+        return {}
+
+    # Cuatro grupos de tamaño parecido. `max(1, ...)` evita que un grupo quede vacío si algún
+    # día se siembran menos estudiantes.
+    tamano = max(1, len(de_ingenieria) // 4)
+    cuartos = [
+        de_ingenieria[:tamano],
+        de_ingenieria[tamano : tamano * 2],
+        de_ingenieria[tamano * 2 : tamano * 3],
+        de_ingenieria[tamano * 3 :],
+    ]
+
+    cursadas_por_cuarto: tuple[list[tuple[str, str, Decimal]], ...] = (
+        [],
+        [("MAT101", "APPROVED", Decimal("4.10"))],
+        [
+            ("MAT101", "APPROVED", Decimal("4.30")),
+            ("MAT102", "APPROVED", Decimal("3.80")),
+        ],
+        # Perdida, no aprobada: es lo que comprueba que la validación distingue ambos estados
+        # en vez de contar cualquier fila del historial.
+        [("MAT101", "FAILED", Decimal("2.40"))],
+    )
+
+    reparto: dict[str, list[str]] = {}
+    etiquetas = ("sin_historial", "mat101_aprobada", "cadena_completa", "mat101_perdida")
+
+    for etiqueta, estudiantes, cursadas in zip(
+        etiquetas, cuartos, cursadas_por_cuarto, strict=True
+    ):
+        reparto[etiqueta] = [e.student_code for e in estudiantes]
+
+        for estudiante in estudiantes:
+            for codigo, estado, nota in cursadas:
+                _obtener_o_crear(
+                    session,
+                    AcademicHistoryModel,
+                    {
+                        "student_id": estudiante.id,
+                        "course_id": materias[codigo].id,
+                        "academic_period": PERIODO_HISTORICO,
+                    },
+                    final_grade=nota,
+                    status=estado,
+                )
+
+    return reparto
+
+
 def main() -> None:
     """Punto de entrada del script."""
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     session = get_session_factory()()
     try:
-        recuento = sembrar(session)
+        recuento, reparto = sembrar(session)
         session.commit()
     except Exception:
         session.rollback()
@@ -450,6 +546,17 @@ def main() -> None:
     logger.info("Cuentas de prueba (contrasena: %s):", PASSWORD_DE_EJEMPLO)
     logger.info("  admin        %s", CORREO_ADMIN)
     logger.info("  estudiante   estudiante01@tdea.edu.co  ... estudiante50@tdea.edu.co")
+    logger.info("")
+    logger.info("Historial academico (solo Ingenieria), para probar los prerrequisitos:")
+    for etiqueta, descripcion in (
+        ("sin_historial", "sin historial   -> NO pueden MAT102"),
+        ("mat101_aprobada", "MAT101 aprobada -> SI pueden MAT102"),
+        ("cadena_completa", "MAT101+MAT102   -> SI pueden MAT201"),
+        ("mat101_perdida", "MAT101 PERDIDA  -> NO pueden MAT102"),
+    ):
+        codigos = reparto.get(etiqueta, [])
+        if codigos:
+            logger.info("  %-16s %s", ", ".join(codigos[:3]) + "...", descripcion)
 
 
 if __name__ == "__main__":

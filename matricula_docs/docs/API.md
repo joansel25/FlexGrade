@@ -129,7 +129,11 @@ El identificador del estudiante sale siempre del token, nunca de la petición: n
 
 ### GET /students/me/schedule
 
-Retorna el horario armado del estudiante en el período activo.
+Retorna el horario armado del estudiante en el período activo. Requiere `Authorization: Bearer <access_token>`; el estudiante sale del token, así que nadie puede consultar el horario de otro.
+
+Las franjas llegan **ordenadas por día y hora**, que es como se lee un horario: el repositorio ya devuelve ordenadas las de cada grupo, pero aquí se mezclan las de varias materias.
+
+Un estudiante sin nada inscrito recibe `200` con `blocks` vacío —es un resultado legítimo, no un error—. Si no hay período activo, responde `404 NO_ACTIVE_PERIOD`: sin semestre no hay horario al que referirse. Las inscripciones canceladas no aparecen.
 
 **Response 200**
 ```json
@@ -298,11 +302,30 @@ Inscribe al estudiante autenticado en un grupo. Es la operación más sensible d
 | 409 | `PREREQUISITES_NOT_MET` | Faltan materias prerrequisito |
 | 403 | `COURSE_NOT_IN_PROGRAM` | La materia no pertenece al programa del estudiante |
 
+**Notas de implementación**
+
+- El **estudiante sale del token**, nunca del cuerpo. Aceptarlo del cliente permitiría inscribir a otra persona.
+- El **período tampoco se puede elegir**: es siempre el activo. Dejarlo por parámetro permitiría inscribirse contra semestres ya cerrados.
+- `enrolled_at` lo asigna PostgreSQL con su `DEFAULT NOW()`, no la aplicación: es la única fuente horaria fiable cuando varias instancias pueden tener relojes ligeramente distintos.
+- Reinscribirse en un grupo que se canceló antes **reactiva la fila existente** en vez de crear otra. La restricción `UNIQUE (student_id, course_offering_id, enrollment_period_id)` lo impediría, y borrar la anterior perdería el rastro de que hubo una cancelación.
+- El descuento del cupo y la creación de la inscripción ocurren en **una sola transacción**. Ver `DATA_MODEL.md`, «Concurrencia en el descuento de cupos», para el mecanismo que impide el sobrecupo.
+
+Los `details` del error llevan lo que el cliente necesita para explicarlo sin interpretar el mensaje: `COURSE_CAPACITY_EXCEEDED` incluye `capacity` y `enrolled`; `PREREQUISITES_NOT_MET`, la lista `missing_prerequisites` con los códigos que faltan; y `SCHEDULE_CONFLICT`, el `conflicting_offering_id` con el día y la hora del cruce.
+
 ### DELETE /enrollments/{enrollment_id}
 
 Cancela una inscripción activa y libera el cupo. Solo el propio estudiante puede cancelar sus inscripciones.
 
 **Response 204** (sin cuerpo)
+
+| Código HTTP | error.code | Situación |
+|---|---|---|
+| 404 | `ENROLLMENT_NOT_FOUND` | La inscripción no existe **o pertenece a otra persona** |
+| 409 | `ENROLLMENT_ALREADY_CANCELLED` | Ya estaba cancelada |
+
+Cancelar una inscripción ajena responde `404`, exactamente igual que si no existiera. Es deliberado: un `403` confirmaría que ese identificador corresponde a una inscripción real y permitiría enumerarlas probando identificadores.
+
+Cancelar dos veces se rechaza porque liberaría el cupo dos veces, dejando `enrolled_count` por debajo de la ocupación real. Ese hueco fantasma lo podrían tomar dos personas.
 
 ## 5. Períodos de matrícula
 
