@@ -16,27 +16,53 @@ Se elige GitHub Actions por integración nativa con el repositorio, generoso tie
 
 ## 3. Estrategia de ramas y ambientes
 
-| Rama | Propósito | Ambiente de despliegue | Automático |
-|---|---|---|---|
-| `feature/*` | Desarrollo de una funcionalidad | Ninguno (solo CI) | Sí (CI) |
-| `fix/*` | Corrección de bug | Ninguno (solo CI) | Sí (CI) |
-| `develop` | Integración continua | `dev` (Elastic Beanstalk) | Sí |
-| `main` | Código productivo estable | `staging` y luego `prod` | Sí a staging, manual a prod |
+El repositorio tiene **cuatro ramas permanentes**. No se crea una rama por funcionalidad ni por fase: el trabajo de desarrollo ocurre directamente sobre `develop`.
 
-El flujo típico:
+| Rama | Propósito | Nace de | Ambiente | Automático |
+|---|---|---|---|---|
+| `develop` | Donde se desarrolla. Todo el trabajo diario entra aquí | — | `dev` | Sí |
+| `qa` | Validación antes de considerar un release apto | `develop` | `staging` | Sí |
+| `main` | Código productivo. Es la rama por defecto | `qa` | `prod` | Manual, con aprobación |
+| `hotfix` | Corrección urgente de un fallo en producción | `main` | `prod` | Manual, con aprobación |
+
+El flujo normal:
 
 ```
-feature/enrollment-endpoint
-        │
-        │ Pull Request
-        ▼
-     develop ─────► despliegue automático a DEV
-        │
-        │ Pull Request (release)
-        ▼
-       main ──────► despliegue automático a STAGING
-                    despliegue a PROD con aprobación manual
+   develop ──────► despliegue automático a DEV
+      │
+      │ merge cuando el CI está verde y la funcionalidad está completa
+      ▼
+     qa ────────► despliegue automático a STAGING + suite E2E
+      │
+      │ merge cuando QA aprueba
+      ▼
+    main ───────► despliegue a PROD con aprobación manual
 ```
+
+El flujo de emergencia, cuando hay un fallo en producción:
+
+```
+    main ──┬──► hotfix ──► corrección + CI verde
+           │                   │
+           │                   ├──► main   (despliegue a PROD)
+           │                   │
+           └───────────────────┴──► develop  (para que no reaparezca)
+```
+
+**La regla que sostiene el flujo de emergencia:** un hotfix se mergea **siempre a las dos ramas**. Llevarlo solo a `main` significa que la siguiente entrega desde `develop` reintroduciría el fallo, porque `develop` nunca recibió la corrección.
+
+### Por qué no hay ramas por funcionalidad
+
+Es un proyecto de un solo desarrollador. Una rama por funcionalidad resuelve un problema que aquí no existe —varias personas tocando lo mismo a la vez— y a cambio añade un ciclo de rama, PR y merge a cada cambio. `DEVELOPMENT_WORKFLOW.md` sección 9 advierte contra las ramas que viven semanas y se desincronizan; con una sola persona, `develop` **es** la rama de integración y trabajar en ella directamente evita esa deriva por completo.
+
+Lo que no cambia es la exigencia: **todo commit que entra en `develop` deja el CI en verde**, porque de `develop` sale lo que llega a `qa` y de ahí a producción. La disciplina se traslada del PR al commit.
+
+### Qué protege cada rama
+
+- **`develop`** puede romperse un momento durante el desarrollo, pero nunca se deja rota al terminar la jornada. `DEVELOPMENT_WORKFLOW.md`: «Si el CI se pone rojo en `develop`, la máxima prioridad es arreglarlo».
+- **`qa`** solo recibe merges desde `develop` con el CI verde. Es el punto donde se prueba a mano lo que va a producción.
+- **`main`** solo recibe merges desde `qa` o desde `hotfix`. Nada llega ahí sin haber pasado por uno de los dos.
+- **`hotfix`** sale de `main`, no de `develop`: una corrección urgente no debe arrastrar consigo funcionalidades a medias que estén en desarrollo.
 
 ## 4. Workflows definidos
 

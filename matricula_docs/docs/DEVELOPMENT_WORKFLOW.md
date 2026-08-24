@@ -106,23 +106,23 @@ Esta fase es la más importante y la que más se debe probar. Merece dos semanas
 
 ### Iteraciones de 2 a 3 días
 
-Cada fase se subdivide en **iteraciones cortas** de 2-3 días. Cada iteración:
+Cada fase se subdivide en **iteraciones cortas** de 2-3 días. El trabajo ocurre directamente sobre `develop` (ver `CI_CD.md` sección 3: cuatro ramas permanentes, sin ramas por funcionalidad). Cada iteración:
 
-1. Empieza con una **rama nueva** (`feature/xxx` o `fix/xxx`) creada desde `develop`.
-2. Se hacen commits pequeños y frecuentes con mensajes claros.
-3. Se pushea al menos una vez al día (para que el CI corra y para no perder trabajo).
-4. Al terminar, se abre un **Pull Request** hacia `develop`.
-5. El CI debe estar verde antes de solicitar revisión.
-6. Se hace **auto-revisión** (o con `@code-reviewer` de Claude Code) antes de pedir revisión humana.
-7. Merge a `develop` con squash para mantener la historia limpia.
+1. Se hacen commits pequeños y frecuentes con mensajes claros, sobre `develop`.
+2. Se pushea al menos una vez al día, para que el CI corra y para no perder trabajo.
+3. Se hace **auto-revisión** (o con `@code-reviewer` de Claude Code) antes de cerrar la iteración.
+4. El CI tiene que estar verde antes de dar la iteración por terminada.
+5. Cuando la fase completa está lista, se mergea `develop` → `qa` para validarla a mano.
 
-### Regla de oro: nunca romper `develop`
+### Regla de oro: nunca dejar `develop` roto
 
-Si el CI se pone rojo en `develop`, la máxima prioridad del equipo es arreglarlo. Ningún trabajo nuevo hasta que esté verde de nuevo. Un `develop` roto bloquea a todos.
+Sin ramas por funcionalidad, `develop` es a la vez donde se trabaja y de donde sale lo que llega a producción. Puede romperse un momento mientras se desarrolla, pero **nunca se deja rota al terminar la jornada**: si el CI se pone rojo, arreglarlo es la máxima prioridad y no empieza trabajo nuevo hasta que vuelva a verde.
 
-### Un solo tema por rama
+La disciplina que antes garantizaba el Pull Request se traslada al commit: cada commit que se empuja debe dejar la suite en verde. Es más exigente, no menos.
 
-Una rama = una feature o un fix. No se mezclan cambios de UI con refactor de dominio en la misma rama. Si aparece un bug mientras se trabaja en una feature, se abre otra rama para el bug.
+### Un solo tema por commit
+
+Un commit resuelve una cosa. No se mezclan cambios de interfaz con refactor de dominio en el mismo commit: eso hace imposible revisar la historia y revertir con precisión. Si aparece un bug mientras se implementa una funcionalidad, se arregla en su propio commit.
 
 ## 4. Cómo se decide qué hacer primero
 

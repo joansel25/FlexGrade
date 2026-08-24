@@ -216,11 +216,18 @@ Un commit resuelve una cosa. Un commit gigante con "cambios varios" es difícil 
 
 ### Pull Requests
 
-- Descripción clara del **qué** y del **por qué**.
-- Vinculado a un issue o ticket.
-- Tests deben pasar en CI antes del merge.
-- Al menos una revisión aprobada.
-- Squash merge para mantener la historia limpia (opcional).
+El desarrollo diario ocurre directamente sobre `develop` y no abre PR (ver `CI_CD.md` sección 3). Los PR quedan reservados para los dos merges que promocionan código entre ambientes:
+
+- **`develop` → `qa`**, cuando una fase está completa y lista para validarse a mano.
+- **`qa` → `main`**, cuando QA aprueba y el release va a producción.
+- **`hotfix` → `main`** y **`hotfix` → `develop`**, en una emergencia. Las dos, siempre: llevarlo solo a `main` haría que la siguiente entrega reintrodujera el fallo.
+
+Cuando se abre uno:
+
+- Descripción clara del **qué** y del **por qué**, no solo del cómo.
+- Tests en verde en CI antes del merge. Sin excepciones.
+- Auto-revisión hecha (`@code-reviewer`) antes de mergear.
+- Merge de promoción **sin squash**: aplasta la historia de una fase entera en un commit y se pierde la trazabilidad de por qué se tomó cada decisión.
 
 ## 8. Seguridad
 

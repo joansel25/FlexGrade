@@ -26,7 +26,10 @@ name: Deploy STAGING
 on:
   push:
     branches:
-      - main
+      # STAGING se alimenta de `qa`, no de `main` (CI_CD.md seccion 3). `main` es la rama
+      # productiva: lo que llega ahi ya paso por QA, asi que desplegarlo a staging seria
+      # validar despues de haber promocionado.
+      - qa
 
 concurrency:
   group: deploy-staging
