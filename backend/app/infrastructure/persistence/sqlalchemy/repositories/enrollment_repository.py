@@ -62,7 +62,21 @@ class SQLAlchemyEnrollmentRepository(EnrollmentRepository):
         modelo = self._session.get(EnrollmentModel, enrollment.id)
 
         if modelo is None:
-            self._session.add(self._a_modelo(enrollment))
+            nuevo = self._a_modelo(enrollment)
+            self._session.add(nuevo)
+
+            # `flush` sin `commit`: envía el INSERT para que PostgreSQL aplique el
+            # `DEFAULT NOW()` de `enrolled_at`, y devuelve esa marca a la entidad. Hace falta
+            # porque el dominio deja deliberadamente esa fecha en manos de la base —es la
+            # única fuente horaria fiable con varias instancias en marcha— y sin esta lectura
+            # la respuesta de `POST /enrollments` saldría con `enrolled_at: null`, que es lo
+            # contrario de lo que promete `API.md`.
+            #
+            # Sigue dentro de la transacción: si algo falla después, este INSERT se revierte
+            # con todo lo demás.
+            self._session.flush()
+            self._session.refresh(nuevo, ["enrolled_at"])
+            enrollment.enrolled_at = nuevo.enrolled_at
             return
 
         modelo.status = enrollment.status.value

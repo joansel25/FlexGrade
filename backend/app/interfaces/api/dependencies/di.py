@@ -32,7 +32,9 @@ from app.application.use_cases.catalog.get_course_offerings import GetCourseOffe
 from app.application.use_cases.catalog.get_current_period import GetCurrentPeriodUseCase
 from app.application.use_cases.catalog.get_offering_detail import GetOfferingDetailUseCase
 from app.application.use_cases.catalog.list_courses import ListCoursesUseCase
+from app.application.use_cases.enrollment.cancel_enrollment import CancelEnrollmentUseCase
 from app.application.use_cases.enrollment.enroll_student import EnrollStudentUseCase
+from app.application.use_cases.enrollment.get_student_schedule import GetStudentScheduleUseCase
 from app.infrastructure.auth.jwt_auth_service import JWTAuthService
 from app.infrastructure.cache.client import get_redis_client
 from app.infrastructure.cache.redis_cache_service import RedisCacheService
@@ -124,7 +126,6 @@ def get_period_repository(session: SessionDep) -> PeriodRepository:
 PeriodRepositoryDep = Annotated[PeriodRepository, Depends(get_period_repository)]
 
 
-@lru_cache
 def get_enrollment_repository(session: SessionDep) -> EnrollmentRepository:
     """Resuelve el puerto de inscripciones al adaptador de SQLAlchemy."""
     return SQLAlchemyEnrollmentRepository(session)
@@ -155,6 +156,7 @@ def get_unit_of_work(session: SessionDep) -> UnitOfWork:
 UnitOfWorkDep = Annotated[UnitOfWork, Depends(get_unit_of_work)]
 
 
+@lru_cache
 @lru_cache
 def get_cache_service() -> CacheService:
     """Resuelve el puerto de caché al adaptador de Redis.
@@ -301,3 +303,37 @@ def get_enroll_student_use_case(
 
 
 EnrollStudentUseCaseDep = Annotated[EnrollStudentUseCase, Depends(get_enroll_student_use_case)]
+
+
+def get_cancel_enrollment_use_case(
+    enrollment_repository: EnrollmentRepositoryDep,
+    offering_repository: OfferingRepositoryDep,
+    unit_of_work: UnitOfWorkDep,
+    cache: CacheServiceDep,
+) -> CancelEnrollmentUseCase:
+    """Construye el caso de uso de cancelación."""
+    return CancelEnrollmentUseCase(enrollment_repository, offering_repository, unit_of_work, cache)
+
+
+def get_student_schedule_use_case(
+    enrollment_repository: EnrollmentRepositoryDep,
+    offering_repository: OfferingRepositoryDep,
+    course_repository: CourseRepositoryDep,
+    period_repository: PeriodRepositoryDep,
+) -> GetStudentScheduleUseCase:
+    """Construye el caso de uso del horario.
+
+    Recibe el repositorio completo de inscripciones pero lo declara como `EnrollmentReader`:
+    es de solo lectura y así queda escrito en su firma.
+    """
+    return GetStudentScheduleUseCase(
+        enrollment_repository, offering_repository, course_repository, period_repository
+    )
+
+
+CancelEnrollmentUseCaseDep = Annotated[
+    CancelEnrollmentUseCase, Depends(get_cancel_enrollment_use_case)
+]
+GetStudentScheduleUseCaseDep = Annotated[
+    GetStudentScheduleUseCase, Depends(get_student_schedule_use_case)
+]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from uuid import UUID
 
 from app.application.dtos.pagination import Page
@@ -33,6 +34,24 @@ class CourseRepository(ABC):
 
         Returns:
             La materia, o `None` si no existe.
+        """
+
+    @abstractmethod
+    def find_by_ids(self, course_ids: Sequence[UUID]) -> dict[UUID, Course]:
+        """Recupera varias materias de una vez, indexadas por identificador.
+
+        Existe para componer el horario del estudiante: se tienen los grupos y hace falta el
+        código y el nombre de cada materia. Pedirlas una a una sería un N+1 sobre una consulta
+        que el estudiante abre constantemente durante la matrícula.
+
+        Devuelve un diccionario y no una lista porque quien llama va a buscarlas por
+        identificador, no a recorrerlas.
+
+        Args:
+            course_ids: identificadores de las materias.
+
+        Returns:
+            Las materias encontradas. Los identificadores inexistentes se omiten.
         """
 
     @abstractmethod

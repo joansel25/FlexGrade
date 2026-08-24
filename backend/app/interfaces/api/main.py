@@ -36,7 +36,15 @@ from app.domain.exceptions.enrollment import (
     ScheduleConflictError,
 )
 from app.infrastructure.config.settings import get_settings
-from app.interfaces.api.routers import auth, courses, health, offerings, periods, students
+from app.interfaces.api.routers import (
+    auth,
+    courses,
+    enrollments,
+    health,
+    offerings,
+    periods,
+    students,
+)
 
 settings = get_settings()
 
@@ -56,6 +64,7 @@ app.include_router(students.router, prefix=settings.api_v1_prefix)
 app.include_router(courses.router, prefix=settings.api_v1_prefix)
 app.include_router(offerings.router, prefix=settings.api_v1_prefix)
 app.include_router(periods.router, prefix=settings.api_v1_prefix)
+app.include_router(enrollments.router, prefix=settings.api_v1_prefix)
 
 
 # ---------------------------------------------------------------------------

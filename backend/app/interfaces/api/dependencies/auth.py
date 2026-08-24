@@ -14,9 +14,10 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.application.dtos.auth_dto import TokenPayload, TokenType
-from app.domain.exceptions.authentication import InvalidTokenError
+from app.domain.entities.student import Student
+from app.domain.exceptions.authentication import InvalidTokenError, StudentProfileNotFoundError
 from app.domain.value_objects.user_role import UserRole
-from app.interfaces.api.dependencies.di import AuthServiceDep
+from app.interfaces.api.dependencies.di import AuthServiceDep, StudentRepositoryDep
 
 # `auto_error=False` para construir nosotros la respuesta 401: el 403 que
 # devuelve HTTPBearer por defecto ante un header ausente no distingue "no te has
@@ -85,3 +86,39 @@ def require_admin(current_user: CurrentUserDep) -> TokenPayload:
 
 
 AdminUserDep = Annotated[TokenPayload, Depends(require_admin)]
+
+
+def get_current_student(
+    current_user: CurrentUserDep,
+    student_repository: StudentRepositoryDep,
+) -> Student:
+    """Resuelve la cuenta autenticada a su perfil académico.
+
+    El token identifica una CUENTA (`user_id`), pero la inscripción y el horario se hacen sobre
+    un ESTUDIANTE (`student_id`), y no son lo mismo: un administrador tiene cuenta y no tiene
+    perfil académico. Esta dependencia hace esa traducción una sola vez y en un solo sitio, en
+    vez de repetirla en cada router.
+
+    Es además el punto que garantiza que nadie opere en nombre de otro: el identificador sale
+    del token y no hay ningún parámetro con el que pedir otro distinto.
+
+    Args:
+        current_user: identidad ya validada por `get_current_user`.
+        student_repository: acceso a los perfiles académicos.
+
+    Returns:
+        El perfil académico de quien hace la petición.
+
+    Raises:
+        StudentProfileNotFoundError: si la cuenta no tiene perfil de estudiante. Se traduce a
+            404, no a 403: la cuenta es válida, lo que no existe es el perfil.
+    """
+    estudiante = student_repository.find_by_user_id(current_user.user_id)
+
+    if estudiante is None:
+        raise StudentProfileNotFoundError()
+
+    return estudiante
+
+
+CurrentStudentDep = Annotated[Student, Depends(get_current_student)]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid as uuid_module
+from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy import ColumnElement, Select, func, or_, select
@@ -35,6 +36,13 @@ class SQLAlchemyCourseRepository(CourseRepository):
         sentencia = select(CourseModel).where(CourseModel.code == code.value)
         modelo = self._session.execute(sentencia).scalar_one_or_none()
         return self._a_entidad(modelo) if modelo is not None else None
+
+    def find_by_ids(self, course_ids: Sequence[UUID]) -> dict[UUID, Course]:
+        if not course_ids:
+            return {}
+
+        sentencia = select(CourseModel).where(CourseModel.id.in_(course_ids))
+        return {m.id: self._a_entidad(m) for m in self._session.execute(sentencia).scalars()}
 
     def find_prerequisites(self, course_id: UUID) -> list[Course]:
         sentencia = (

@@ -162,6 +162,9 @@ class InMemoryCourseRepository(CourseRepository):
     def find_by_code(self, code: CourseCode) -> Course | None:
         return next((c for c in self._courses.values() if c.code == code), None)
 
+    def find_by_ids(self, course_ids: Sequence[UUID]) -> dict[UUID, Course]:
+        return {cid: self._courses[cid] for cid in course_ids if cid in self._courses}
+
     def find_prerequisites(self, course_id: UUID) -> list[Course]:
         return sorted(self._prerequisites.get(course_id, []), key=lambda c: c.code.value)
 
