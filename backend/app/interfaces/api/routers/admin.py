@@ -9,14 +9,24 @@ protección sea el comportamiento por defecto y no algo que haya que recordar.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, status
+from typing import Annotated
+from uuid import UUID
 
+from fastapi import APIRouter, Depends, Query, status
+
+from app.application.dtos.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
+from app.domain.entities.enrollment_period import EnrollmentPeriod
 from app.interfaces.api.dependencies.auth import require_admin
-from app.interfaces.api.dependencies.di import CreateEnrollmentPeriodUseCaseDep
+from app.interfaces.api.dependencies.di import (
+    ActivateEnrollmentPeriodUseCaseDep,
+    CreateEnrollmentPeriodUseCaseDep,
+    ListEnrollmentPeriodsUseCaseDep,
+)
 from app.interfaces.api.schemas.admin_schemas import (
     CreateEnrollmentPeriodSchema,
     EnrollmentPeriodSchema,
 )
+from app.interfaces.api.schemas.catalog_schemas import PageSchema
 from app.interfaces.api.schemas.error_schemas import ErrorResponseSchema
 
 router = APIRouter(
@@ -59,6 +69,11 @@ def create_enrollment_period(
         ends_at=payload.ends_at,
     )
 
+    return _a_schema(periodo)
+
+
+def _a_schema(periodo: EnrollmentPeriod) -> EnrollmentPeriodSchema:
+    """Traduce la entidad a su representación pública."""
     return EnrollmentPeriodSchema(
         id=periodo.id,
         code=periodo.code,
@@ -68,3 +83,53 @@ def create_enrollment_period(
         ends_at=periodo.ends_at,
         is_active=periodo.is_active,
     )
+
+
+@router.get(
+    "/enrollment-periods",
+    response_model=PageSchema[EnrollmentPeriodSchema],
+    status_code=status.HTTP_200_OK,
+    summary="Listar las ventanas de matrícula",
+)
+def list_enrollment_periods(
+    use_case: ListEnrollmentPeriodsUseCaseDep,
+    page: Annotated[int, Query(ge=1, description="Número de página")] = 1,
+    size: Annotated[
+        int, Query(ge=1, le=MAX_PAGE_SIZE, description="Ventanas por página")
+    ] = DEFAULT_PAGE_SIZE,
+) -> PageSchema[EnrollmentPeriodSchema]:
+    """Lista las ventanas, de la más reciente a la más antigua.
+
+    Es lo que permite obtener el identificador de una ventana para activarla, sin depender de
+    haber guardado la respuesta de su creación.
+    """
+    resultado = use_case.execute(page=page, size=size)
+
+    return PageSchema[EnrollmentPeriodSchema](
+        items=[_a_schema(p) for p in resultado.items],
+        total=resultado.total,
+        page=resultado.page,
+        size=resultado.size,
+    )
+
+
+@router.put(
+    "/enrollment-periods/{period_id}/activate",
+    response_model=EnrollmentPeriodSchema,
+    status_code=status.HTTP_200_OK,
+    summary="Abrir una ventana de matrícula",
+    responses={404: {"model": ErrorResponseSchema, "description": "La ventana no existe"}},
+)
+def activate_enrollment_period(
+    period_id: UUID,
+    use_case: ActivateEnrollmentPeriodUseCaseDep,
+) -> EnrollmentPeriodSchema:
+    """Abre la ventana indicada y cierra la que estuviera abierta.
+
+    Las dos escrituras ocurren en la misma transacción y en ese orden: el índice único parcial
+    `ix_enrollment_periods_active` prohíbe que existan dos ventanas activas a la vez, así que
+    el cambio pasa por «ninguna activa» —un estado válido— y nunca por «dos activas».
+
+    Es idempotente: activar una ventana que ya está abierta devuelve la ventana sin tocar nada.
+    """
+    return _a_schema(use_case.execute(period_id))

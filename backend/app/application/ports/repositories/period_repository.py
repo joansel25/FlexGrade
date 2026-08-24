@@ -5,6 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from uuid import UUID
 
+from app.application.dtos.pagination import Page
 from app.domain.entities.enrollment_period import EnrollmentPeriod
 
 
@@ -58,6 +59,25 @@ class PeriodRepository(ABC):
 
         Returns:
             El período, o `None` si no existe.
+        """
+
+    @abstractmethod
+    def list_all(self, *, page: int, size: int) -> Page[EnrollmentPeriod]:
+        """Devuelve las ventanas de matrícula, de la más reciente a la más antigua.
+
+        Se pagina aunque hoy sean pocas: `BEST_PRACTICES.md` sección 9 lo exige para todo
+        listado con potencial de crecimiento, y este crece con cada semestre. Sin paginar,
+        dentro de unos años devolvería la historia completa de la institución en cada llamada.
+
+        El orden es por fecha de apertura descendente: quien consulta busca casi siempre la
+        ventana en curso o la siguiente, no la de hace cinco años.
+
+        Args:
+            page: número de página, empezando en 1.
+            size: cuántas ventanas por página.
+
+        Returns:
+            La página de resultados y el total.
         """
 
     @abstractmethod

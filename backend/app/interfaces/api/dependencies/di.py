@@ -25,7 +25,11 @@ from app.application.ports.repositories.program_repository import ProgramReposit
 from app.application.ports.repositories.student_repository import StudentRepository
 from app.application.ports.repositories.user_repository import UserRepository
 from app.application.ports.unit_of_work import UnitOfWork
+from app.application.use_cases.admin.activate_enrollment_period import (
+    ActivateEnrollmentPeriodUseCase,
+)
 from app.application.use_cases.admin.create_enrollment_period import CreateEnrollmentPeriodUseCase
+from app.application.use_cases.admin.list_enrollment_periods import ListEnrollmentPeriodsUseCase
 from app.application.use_cases.auth.authenticate_user import AuthenticateUserUseCase
 from app.application.use_cases.auth.refresh_token import RefreshTokenUseCase
 from app.application.use_cases.catalog.get_course_detail import GetCourseDetailUseCase
@@ -355,4 +359,27 @@ def get_create_enrollment_period_use_case(
 
 CreateEnrollmentPeriodUseCaseDep = Annotated[
     CreateEnrollmentPeriodUseCase, Depends(get_create_enrollment_period_use_case)
+]
+
+
+def get_activate_enrollment_period_use_case(
+    period_repository: PeriodRepositoryDep,
+    unit_of_work: UnitOfWorkDep,
+) -> ActivateEnrollmentPeriodUseCase:
+    """Construye el caso de uso de activación de ventanas."""
+    return ActivateEnrollmentPeriodUseCase(period_repository, unit_of_work)
+
+
+def get_list_enrollment_periods_use_case(
+    period_repository: PeriodRepositoryDep,
+) -> ListEnrollmentPeriodsUseCase:
+    """Construye el caso de uso del listado de ventanas."""
+    return ListEnrollmentPeriodsUseCase(period_repository)
+
+
+ActivateEnrollmentPeriodUseCaseDep = Annotated[
+    ActivateEnrollmentPeriodUseCase, Depends(get_activate_enrollment_period_use_case)
+]
+ListEnrollmentPeriodsUseCaseDep = Annotated[
+    ListEnrollmentPeriodsUseCase, Depends(get_list_enrollment_periods_use_case)
 ]

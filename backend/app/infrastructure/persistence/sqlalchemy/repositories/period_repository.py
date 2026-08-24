@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.application.dtos.pagination import Page
 from app.application.ports.repositories.period_repository import PeriodRepository
 from app.domain.entities.enrollment_period import EnrollmentPeriod
 from app.infrastructure.persistence.sqlalchemy.models.enrollment_period import EnrollmentPeriodModel
@@ -36,6 +37,21 @@ class SQLAlchemyPeriodRepository(PeriodRepository):
         sentencia = select(EnrollmentPeriodModel).where(EnrollmentPeriodModel.code == code)
         modelo = self._session.execute(sentencia).scalar_one_or_none()
         return self._a_entidad(modelo) if modelo is not None else None
+
+    def list_all(self, *, page: int, size: int) -> Page[EnrollmentPeriod]:
+        total = self._session.execute(
+            select(func.count()).select_from(EnrollmentPeriodModel)
+        ).scalar_one()
+
+        sentencia = (
+            select(EnrollmentPeriodModel)
+            .order_by(EnrollmentPeriodModel.starts_at.desc())
+            .offset((page - 1) * size)
+            .limit(size)
+        )
+        periodos = [self._a_entidad(m) for m in self._session.execute(sentencia).scalars()]
+
+        return Page(items=periodos, total=total, page=page, size=size)
 
     def save(self, period: EnrollmentPeriod) -> None:
         modelo = self._session.get(EnrollmentPeriodModel, period.id)

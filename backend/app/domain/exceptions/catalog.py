@@ -27,6 +27,22 @@ class OfferingNotFoundError(DomainError):
         )
 
 
+class PeriodNotFoundError(DomainError):
+    """La ventana de matrícula solicitada no existe.
+
+    Vive aquí y no en `admin.py`, junto a `CourseNotFoundError` y `OfferingNotFoundError`: es
+    el mismo tipo de fallo —un identificador que no corresponde a nada— y agruparlos hace que
+    se lean juntos. `admin.py` guarda las reglas propias de la administración, no sus búsquedas
+    fallidas.
+    """
+
+    def __init__(self, period_id: UUID) -> None:
+        super().__init__(
+            "El período de matrícula solicitado no existe",
+            details={"period_id": str(period_id)},
+        )
+
+
 class NoActivePeriodError(DomainError):
     """No hay ninguna ventana de matrícula abierta en este momento.
 

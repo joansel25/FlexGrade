@@ -311,6 +311,18 @@ class InMemoryPeriodRepository(PeriodRepository):
     def find_by_code(self, code: str) -> EnrollmentPeriod | None:
         return next((p for p in self._periods.values() if p.code == code), None)
 
+    def list_all(self, *, page: int, size: int) -> Page[EnrollmentPeriod]:
+        # Mismo orden que el adaptador SQL: de la mas reciente a la mas antigua.
+        ordenados = sorted(self._periods.values(), key=lambda p: p.starts_at, reverse=True)
+        desde = (page - 1) * size
+
+        return Page(
+            items=ordenados[desde : desde + size],
+            total=len(ordenados),
+            page=page,
+            size=size,
+        )
+
     def save(self, period: EnrollmentPeriod) -> None:
         self._periods[period.id] = period
 

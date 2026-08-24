@@ -27,6 +27,7 @@ from app.domain.exceptions.catalog import (
     CourseNotFoundError,
     NoActivePeriodError,
     OfferingNotFoundError,
+    PeriodNotFoundError,
 )
 from app.domain.exceptions.enrollment import (
     AlreadyEnrolledError,
@@ -95,6 +96,7 @@ _MAPEO_ERRORES: dict[type[DomainError], tuple[int, str]] = {
     CourseNotFoundError: (404, "COURSE_NOT_FOUND"),
     OfferingNotFoundError: (404, "OFFERING_NOT_FOUND"),
     NoActivePeriodError: (404, "NO_ACTIVE_PERIOD"),
+    PeriodNotFoundError: (404, "PERIOD_NOT_FOUND"),
     # Inscripción (Fase 3), con los códigos que fija `API.md` sección 4.
     #
     # Casi todos son 409 y no 400: la petición está bien formada y el cliente tiene permiso;
