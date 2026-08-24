@@ -246,7 +246,8 @@ CREATE TABLE enrollments (
 
 CREATE INDEX ix_enrollments_offering ON enrollments(course_offering_id);
 CREATE INDEX ix_enrollments_period ON enrollments(enrollment_period_id);
-CREATE INDEX ix_enrollments_active ON enrollments(status) WHERE status = 'ENROLLED';
+-- Parcial sobre student_id, NO sobre status: ver "Indices de las inscripciones" mas abajo.
+CREATE INDEX ix_enrollments_active ON enrollments(student_id) WHERE status = 'ENROLLED';
 
 -- =========================================================
 -- Historial académico (para validación de prerrequisitos)
@@ -263,7 +264,8 @@ CREATE TABLE academic_history (
     UNIQUE (student_id, course_id, academic_period)
 );
 
-CREATE INDEX ix_history_student ON academic_history(student_id);
+-- ix_history_student NO se crea: seria un duplicado exacto del prefijo del indice que
+-- PostgreSQL genera para uq_academic_history_student_course_period.
 CREATE INDEX ix_history_student_status ON academic_history(student_id, status);
 ```
 
@@ -271,12 +273,36 @@ CREATE INDEX ix_history_student_status ON academic_history(student_id, status);
 
 ### Concurrencia en el descuento de cupos
 
-El campo `course_offerings.enrolled_count` se actualiza durante la inscripción en un contexto de alta concurrencia. Para evitar sobrecupo se combinan dos mecanismos:
+El campo `course_offerings.enrolled_count` se actualiza durante la inscripción en un contexto de alta concurrencia. Para evitar sobrecupo se combinan **tres** defensas en capas, y ninguna sustituye a las otras:
 
-1. **Bloqueo optimista** mediante el campo `version`. Cada actualización incrementa `version` y el UPDATE usa `WHERE version = ?` para detectar conflictos.
-2. **Restricción CHECK** a nivel de base de datos (`enrolled_count <= total_capacity`) como red de seguridad final. Si por alguna razón el bloqueo optimista falla, PostgreSQL rechaza la operación.
+1. **La invariante en la entidad.** `CourseOffering.reserve_slot()` comprueba la capacidad sobre el grupo recién leído y lanza `CapacityExceededError` si está lleno. Es la regla del dominio, se prueba en milisegundos sin base de datos, y descarta el caso obvio sin gastar una escritura.
+2. **Escritura condicionada y atómica.** El descuento se hace en una sola sentencia:
+   ```sql
+   UPDATE course_offerings
+   SET enrolled_count = enrolled_count + 1, version = version + 1
+   WHERE id = :id AND enrolled_count < total_capacity
+   ```
+   No hay lectura previa, así que no existe ventana entre comprobar y escribir. PostgreSQL serializa el acceso a la fila, de modo que cada transacción evalúa la condición contra el valor que la anterior acaba de dejar. Si afecta a cero filas, el grupo se llenó: la aplicación responde `409` sin reintentar.
+3. **Restricción CHECK** (`enrolled_count <= total_capacity`) como red de seguridad final. Si las dos anteriores fallaran por un defecto de código, PostgreSQL rechaza la fila.
 
-En la capa de aplicación, la inscripción se ejecuta dentro de una transacción explícita con reintentos limitados ante conflictos de versión.
+#### Por qué no se usa `WHERE version = ?` con reintentos
+
+El diseño original de este documento proponía bloqueo optimista por versión con reintentos acotados. **Se implementó tal cual y se midió con hilos reales contra PostgreSQL, y no escala.**
+
+El motivo es estructural: con N transacciones compitiendo por la misma fila, PostgreSQL las serializa y solo una gana por ronda; las demás encuentran la versión cambiada y reintentan. Harían falta hasta N reintentos, es decir, trabajo cuadrático. Con un límite razonable de reintentos el efecto medido fue este:
+
+| Escenario | Con `WHERE version = ?` | Con `WHERE enrolled_count < total_capacity` |
+|---|---|---|
+| 100 concurrentes, último cupo | 1 entra ✓ | 1 entra ✓ |
+| 100 concurrentes, 50 cupos | menos de 50 entran ✗ | 50 entran ✓ |
+| 40 concurrentes, 100 cupos | **10 de 40 entran** ✗ | 40 entran ✓ |
+| 200 concurrentes, 100 cupos | — | 100 entran, en 1,7 s ✓ |
+
+La fila crítica es la tercera: a 30 personas se les rechazaba un cupo que existía. Condicionar por `enrolled_count < total_capacity` elimina el problema de raíz —cada transacción reevalúa la condición real— y hace innecesario reintentar.
+
+**`version` se conserva y se sigue incrementando** en esa misma sentencia. Mantiene su valor como marca de modificación y para el bloqueo optimista de otras operaciones sobre el grupo, como ajustar la capacidad desde administración (Fase 4), donde los conflictos sí son raros y el mecanismo por versión es el adecuado.
+
+La garantía la sostienen los tests de `backend/tests/integration/test_enrollment_concurrency.py`, que corren con hilos reales y una barrera de sincronización para provocar la contención en vez de suponerla.
 
 ### Caché de consultas frecuentes
 
@@ -293,6 +319,14 @@ Las consultas de catálogo (listado de materias, disponibilidad de grupos) son l
 2. **Corrección.** Impide que existan dos períodos activos simultáneos. Es lo que permite que `PeriodRepository.find_active()` devuelva un único período sin ambigüedad: con dos filas activas, la base devolvería una u otra de forma arbitraria y el catálogo mostraría la oferta del semestre equivocado. Dejar esa garantía en manos del endpoint de activación sería confiar en que ningún otro camino de escritura —un script de migración de datos, una corrección manual, un endpoint futuro— se equivoque nunca.
 
 Activar un período nuevo exige, por tanto, desactivar el anterior en la misma transacción. Es una restricción deseable: obliga a que el cambio de ventana sea una operación atómica y explícita, no un efecto colateral.
+
+### Índices de las inscripciones
+
+Dos decisiones sobre las tablas de la Fase 3 que se apartan de lo que parecería natural, y conviene dejar razonadas:
+
+**`ix_enrollments_active` va sobre `student_id`, no sobre `status`.** Un índice sobre `status` filtrado además por `WHERE status = 'ENROLLED'` contendría con el tiempo millones de filas **con la misma clave**: no discrimina nada y PostgreSQL apenas lo usaría. La columna que discrimina es `student_id`, porque la consulta que de verdad corre en cada intento de inscripción es «qué tiene inscrito ahora esta persona» —la que alimenta la detección de choque de horarios y de doble inscripción—. El filtro parcial sí se mantiene: las canceladas se acumulan semestre a semestre y nunca interesan para esa pregunta.
+
+**`ix_history_student` no se crea.** Es idéntico al prefijo del índice que PostgreSQL genera automáticamente para la restricción `uq_academic_history_student_course_period`, así que sería un duplicado exacto: coste de escritura y de espacio sin ninguna ganancia en lectura. Es el mismo defecto que corrigió la migración `0003` para `users` y `students`. `ix_history_student_status` sí se crea, porque esa restricción no puede resolver un filtro por `(student_id, status)` más allá del primer campo.
 
 ### Prerrequisitos
 

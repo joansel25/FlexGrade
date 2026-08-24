@@ -9,20 +9,26 @@ Permiten probar los casos de uso en milisegundos y sin base de datos.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import replace
 from uuid import UUID
 
 from app.application.dtos.auth_dto import TokenPayload, TokenType
 from app.application.dtos.pagination import Page
 from app.application.ports.auth_service import AuthService
 from app.application.ports.cache_service import CacheService
+from app.application.ports.repositories.academic_history_repository import AcademicHistoryReader
 from app.application.ports.repositories.course_repository import CourseRepository
+from app.application.ports.repositories.enrollment_repository import EnrollmentRepository
 from app.application.ports.repositories.offering_repository import OfferingRepository
 from app.application.ports.repositories.period_repository import PeriodRepository
 from app.application.ports.repositories.program_repository import ProgramRepository
 from app.application.ports.repositories.student_repository import StudentRepository
 from app.application.ports.repositories.user_repository import UserRepository
+from app.application.ports.unit_of_work import UnitOfWork
 from app.domain.entities.course import Course
 from app.domain.entities.course_offering import CourseOffering
+from app.domain.entities.enrollment import Enrollment
 from app.domain.entities.enrollment_period import EnrollmentPeriod
 from app.domain.entities.program import Program
 from app.domain.entities.student import Student
@@ -30,6 +36,7 @@ from app.domain.entities.user import User
 from app.domain.exceptions.authentication import InvalidTokenError
 from app.domain.value_objects.course_code import CourseCode
 from app.domain.value_objects.email import Email
+from app.domain.value_objects.enrollment_status import EnrollmentStatus
 from app.domain.value_objects.student_code import StudentCode
 from app.domain.value_objects.user_role import UserRole
 
@@ -155,8 +162,19 @@ class InMemoryCourseRepository(CourseRepository):
     def find_by_code(self, code: CourseCode) -> Course | None:
         return next((c for c in self._courses.values() if c.code == code), None)
 
+    def find_by_ids(self, course_ids: Sequence[UUID]) -> dict[UUID, Course]:
+        return {cid: self._courses[cid] for cid in course_ids if cid in self._courses}
+
     def find_prerequisites(self, course_id: UUID) -> list[Course]:
         return sorted(self._prerequisites.get(course_id, []), key=lambda c: c.code.value)
+
+    def belongs_to_program(self, course_id: UUID, program_id: UUID) -> bool:
+        # Si no se declaro plan de estudios, se acepta todo: la mayoria de los tests no van
+        # sobre esta regla y obligarles a declararlo seria ruido en su bloque de preparacion.
+        if not self._plan:
+            return True
+
+        return any(cid == course_id for cid, _ in self._plan.get(program_id, []))
 
     def search(
         self,
@@ -197,29 +215,85 @@ class InMemoryCourseRepository(CourseRepository):
 
 
 class InMemoryOfferingRepository(OfferingRepository):
-    """Repositorio de grupos respaldado por un diccionario."""
+    """Repositorio de grupos respaldado por un diccionario.
+
+    Las lecturas devuelven una COPIA, igual que hace el adaptador SQL: `_a_entidad` construye
+    una entidad nueva en cada consulta, asi que mutarla no toca la base de datos. Devolver el
+    objeto almacenado haria que este doble se comportara distinto del adaptador real —una
+    mutacion del dominio se persistiria sola— y por el principio de sustitucion de Liskov
+    deben ser intercambiables.
+    """
 
     def __init__(self, offerings: list[CourseOffering] | None = None) -> None:
         self._offerings: dict[UUID, CourseOffering] = {o.id: o for o in (offerings or [])}
 
+    @staticmethod
+    def _copia(offering: CourseOffering) -> CourseOffering:
+        return replace(offering)
+
     def find_by_id(self, offering_id: UUID) -> CourseOffering | None:
-        return self._offerings.get(offering_id)
+        guardado = self._offerings.get(offering_id)
+        return self._copia(guardado) if guardado is not None else None
 
     def find_by_course_and_period(
         self, course_id: UUID, enrollment_period_id: UUID
     ) -> list[CourseOffering]:
-        return sorted(
-            (
-                o
-                for o in self._offerings.values()
-                if o.course_id == course_id and o.enrollment_period_id == enrollment_period_id
-            ),
-            key=lambda o: o.group_number,
-        )
+        return [
+            self._copia(o)
+            for o in sorted(
+                (
+                    o
+                    for o in self._offerings.values()
+                    if o.course_id == course_id and o.enrollment_period_id == enrollment_period_id
+                ),
+                key=lambda o: o.group_number,
+            )
+        ]
+
+    def find_by_ids(self, offering_ids: Sequence[UUID]) -> list[CourseOffering]:
+        return [
+            self._copia(o)
+            for o in sorted(
+                (self._offerings[oid] for oid in offering_ids if oid in self._offerings),
+                key=lambda o: o.group_number,
+            )
+        ]
 
     def count_enrolled(self, offering_id: UUID) -> int | None:
         grupo = self._offerings.get(offering_id)
         return grupo.enrolled_count if grupo is not None else None
+
+    def try_reserve_slot(self, offering_id: UUID) -> bool:
+        """Reproduce el UPDATE condicionado del adaptador SQL.
+
+        En memoria no hay concurrencia real, asi que esto solo reproduce el COMPORTAMIENTO
+        observable: descuenta si queda sitio y devuelve `False` si no. Que sea atomico bajo
+        contencion es cosa de PostgreSQL, y se verifica con hilos reales en
+        `test_enrollment_concurrency.py`.
+        """
+        grupo = self._offerings.get(offering_id)
+
+        if grupo is None or grupo.enrolled_count >= grupo.total_capacity:
+            return False
+
+        grupo.enrolled_count += 1
+        grupo.version += 1
+        return True
+
+    def try_release_slot(self, offering_id: UUID) -> bool:
+        grupo = self._offerings.get(offering_id)
+
+        if grupo is None or grupo.enrolled_count <= 0:
+            return False
+
+        grupo.enrolled_count -= 1
+        grupo.version += 1
+        return True
+
+    def llenar(self, offering_id: UUID) -> None:
+        """Deja el grupo sin cupos, para simular que se lleno tras leerlo."""
+        grupo = self._offerings[offering_id]
+        grupo.enrolled_count = grupo.total_capacity
 
 
 class InMemoryPeriodRepository(PeriodRepository):
@@ -310,3 +384,97 @@ class ContadorDeConsultas(OfferingRepository):
     def count_enrolled(self, offering_id: UUID) -> int | None:
         self.llamadas_count_enrolled += 1
         return self._interno.count_enrolled(offering_id)
+
+    def find_by_ids(self, offering_ids: Sequence[UUID]) -> list[CourseOffering]:
+        return self._interno.find_by_ids(offering_ids)
+
+    def try_reserve_slot(self, offering_id: UUID) -> bool:
+        return self._interno.try_reserve_slot(offering_id)
+
+    def try_release_slot(self, offering_id: UUID) -> bool:
+        return self._interno.try_release_slot(offering_id)
+
+
+class InMemoryEnrollmentRepository(EnrollmentRepository):
+    """Repositorio de inscripciones respaldado por un diccionario."""
+
+    def __init__(self, enrollments: list[Enrollment] | None = None) -> None:
+        self._enrollments: dict[UUID, Enrollment] = {e.id: e for e in (enrollments or [])}
+        self.guardados: list[UUID] = []
+
+    def find_by_id(self, enrollment_id: UUID) -> Enrollment | None:
+        return self._enrollments.get(enrollment_id)
+
+    def find_active_by_student(
+        self, student_id: UUID, enrollment_period_id: UUID
+    ) -> list[Enrollment]:
+        return [
+            e
+            for e in self._enrollments.values()
+            if e.student_id == student_id
+            and e.enrollment_period_id == enrollment_period_id
+            and e.is_active()
+        ]
+
+    def find_by_student_and_offering(
+        self, student_id: UUID, course_offering_id: UUID, enrollment_period_id: UUID
+    ) -> Enrollment | None:
+        return next(
+            (
+                e
+                for e in self._enrollments.values()
+                if e.student_id == student_id
+                and e.course_offering_id == course_offering_id
+                and e.enrollment_period_id == enrollment_period_id
+            ),
+            None,
+        )
+
+    def save(self, enrollment: Enrollment) -> None:
+        self._enrollments[enrollment.id] = enrollment
+        self.guardados.append(enrollment.id)
+
+
+class FakeUnitOfWork(UnitOfWork):
+    """Frontera transaccional de mentira que registra lo que se le pidio.
+
+    Permite afirmar en un test que el caso de uso CONFIRMO la transaccion, o que salio sin
+    confirmarla cuando algo fallo. Sin ese registro, un caso de uso que se olvidara del
+    `commit` pasaria los tests unitarios y perderia todas las escrituras en produccion.
+    """
+
+    def __init__(self) -> None:
+        self.confirmadas = 0
+        self.revertidas = 0
+        self.entradas = 0
+
+    def __enter__(self) -> "FakeUnitOfWork":
+        self.entradas += 1
+        return self
+
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
+        self.revertidas += 1
+
+    def commit(self) -> None:
+        self.confirmadas += 1
+
+    def rollback(self) -> None:
+        self.revertidas += 1
+
+    def flush(self) -> None:
+        return None
+
+
+class InMemoryAcademicHistory(AcademicHistoryReader):
+    """Historial academico respaldado por un diccionario."""
+
+    def __init__(self, aprobadas: dict[UUID, set[UUID]] | None = None) -> None:
+        """Construye el doble.
+
+        Args:
+            aprobadas: identificadores de las materias aprobadas, por estudiante.
+        """
+        self._aprobadas = aprobadas or {}
+
+    def find_approved_course_ids(self, student_id: UUID) -> set[UUID]:
+        return self._aprobadas.get(student_id, set())

@@ -16,12 +16,15 @@ from sqlalchemy.orm import Session
 
 from app.application.ports.auth_service import AuthService
 from app.application.ports.cache_service import CacheService
+from app.application.ports.repositories.academic_history_repository import AcademicHistoryReader
 from app.application.ports.repositories.course_repository import CourseRepository
+from app.application.ports.repositories.enrollment_repository import EnrollmentRepository
 from app.application.ports.repositories.offering_repository import OfferingRepository
 from app.application.ports.repositories.period_repository import PeriodRepository
 from app.application.ports.repositories.program_repository import ProgramRepository
 from app.application.ports.repositories.student_repository import StudentRepository
 from app.application.ports.repositories.user_repository import UserRepository
+from app.application.ports.unit_of_work import UnitOfWork
 from app.application.use_cases.auth.authenticate_user import AuthenticateUserUseCase
 from app.application.use_cases.auth.refresh_token import RefreshTokenUseCase
 from app.application.use_cases.catalog.get_course_detail import GetCourseDetailUseCase
@@ -29,12 +32,21 @@ from app.application.use_cases.catalog.get_course_offerings import GetCourseOffe
 from app.application.use_cases.catalog.get_current_period import GetCurrentPeriodUseCase
 from app.application.use_cases.catalog.get_offering_detail import GetOfferingDetailUseCase
 from app.application.use_cases.catalog.list_courses import ListCoursesUseCase
+from app.application.use_cases.enrollment.cancel_enrollment import CancelEnrollmentUseCase
+from app.application.use_cases.enrollment.enroll_student import EnrollStudentUseCase
+from app.application.use_cases.enrollment.get_student_schedule import GetStudentScheduleUseCase
 from app.infrastructure.auth.jwt_auth_service import JWTAuthService
 from app.infrastructure.cache.client import get_redis_client
 from app.infrastructure.cache.redis_cache_service import RedisCacheService
 from app.infrastructure.config.settings import Settings, get_settings
+from app.infrastructure.persistence.sqlalchemy.repositories.academic_history_repository import (
+    SQLAlchemyAcademicHistoryRepository,
+)
 from app.infrastructure.persistence.sqlalchemy.repositories.course_repository import (
     SQLAlchemyCourseRepository,
+)
+from app.infrastructure.persistence.sqlalchemy.repositories.enrollment_repository import (
+    SQLAlchemyEnrollmentRepository,
 )
 from app.infrastructure.persistence.sqlalchemy.repositories.offering_repository import (
     SQLAlchemyOfferingRepository,
@@ -52,6 +64,7 @@ from app.infrastructure.persistence.sqlalchemy.repositories.user_repository impo
     SQLAlchemyUserRepository,
 )
 from app.infrastructure.persistence.sqlalchemy.session import get_session
+from app.infrastructure.persistence.sqlalchemy.unit_of_work import SQLAlchemyUnitOfWork
 
 SessionDep = Annotated[Session, Depends(get_session)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -113,6 +126,37 @@ def get_period_repository(session: SessionDep) -> PeriodRepository:
 PeriodRepositoryDep = Annotated[PeriodRepository, Depends(get_period_repository)]
 
 
+def get_enrollment_repository(session: SessionDep) -> EnrollmentRepository:
+    """Resuelve el puerto de inscripciones al adaptador de SQLAlchemy."""
+    return SQLAlchemyEnrollmentRepository(session)
+
+
+EnrollmentRepositoryDep = Annotated[EnrollmentRepository, Depends(get_enrollment_repository)]
+
+
+def get_academic_history_reader(session: SessionDep) -> AcademicHistoryReader:
+    """Resuelve el puerto del historial académico al adaptador de SQLAlchemy."""
+    return SQLAlchemyAcademicHistoryRepository(session)
+
+
+AcademicHistoryReaderDep = Annotated[AcademicHistoryReader, Depends(get_academic_history_reader)]
+
+
+def get_unit_of_work(session: SessionDep) -> UnitOfWork:
+    """Resuelve la frontera transaccional sobre la sesión de la petición.
+
+    Recibe la MISMA `SessionDep` que los repositorios, y de ahí depende que funcione: si
+    abriera una sesión propia, sus escrituras quedarían en otra transacción y el `commit` no
+    guardaría nada de lo que el caso de uso creyó escribir. FastAPI cachea el resultado de
+    `get_session` dentro de una misma petición, así que la sesión es una sola.
+    """
+    return SQLAlchemyUnitOfWork(session)
+
+
+UnitOfWorkDep = Annotated[UnitOfWork, Depends(get_unit_of_work)]
+
+
+@lru_cache
 @lru_cache
 def get_cache_service() -> CacheService:
     """Resuelve el puerto de caché al adaptador de Redis.
@@ -221,3 +265,75 @@ AuthenticateUserUseCaseDep = Annotated[
     AuthenticateUserUseCase, Depends(get_authenticate_user_use_case)
 ]
 RefreshTokenUseCaseDep = Annotated[RefreshTokenUseCase, Depends(get_refresh_token_use_case)]
+
+
+# ---------------------------------------------------------------------------
+# Casos de uso de inscripción
+# ---------------------------------------------------------------------------
+
+
+def get_enroll_student_use_case(
+    enrollment_repository: EnrollmentRepositoryDep,
+    offering_repository: OfferingRepositoryDep,
+    period_repository: PeriodRepositoryDep,
+    course_repository: CourseRepositoryDep,
+    student_repository: StudentRepositoryDep,
+    academic_history: AcademicHistoryReaderDep,
+    unit_of_work: UnitOfWorkDep,
+    cache: CacheServiceDep,
+) -> EnrollStudentUseCase:
+    """Construye el caso de uso de inscripción con sus dependencias.
+
+    Todas son abstracciones (`ARCHITECTURE.md` sección 5, principio D): el caso de uso no sabe
+    que detrás hay PostgreSQL ni Redis, y cambiar cualquiera de los dos se hace aquí.
+
+    Los dos servicios de dominio no se inyectan: no tienen estado ni dependencias, así que el
+    propio caso de uso los construye. Inyectarlos solo añadiría ruido al cableado.
+    """
+    return EnrollStudentUseCase(
+        enrollment_repository,
+        offering_repository,
+        period_repository,
+        course_repository,
+        student_repository,
+        academic_history,
+        unit_of_work,
+        cache,
+    )
+
+
+EnrollStudentUseCaseDep = Annotated[EnrollStudentUseCase, Depends(get_enroll_student_use_case)]
+
+
+def get_cancel_enrollment_use_case(
+    enrollment_repository: EnrollmentRepositoryDep,
+    offering_repository: OfferingRepositoryDep,
+    unit_of_work: UnitOfWorkDep,
+    cache: CacheServiceDep,
+) -> CancelEnrollmentUseCase:
+    """Construye el caso de uso de cancelación."""
+    return CancelEnrollmentUseCase(enrollment_repository, offering_repository, unit_of_work, cache)
+
+
+def get_student_schedule_use_case(
+    enrollment_repository: EnrollmentRepositoryDep,
+    offering_repository: OfferingRepositoryDep,
+    course_repository: CourseRepositoryDep,
+    period_repository: PeriodRepositoryDep,
+) -> GetStudentScheduleUseCase:
+    """Construye el caso de uso del horario.
+
+    Recibe el repositorio completo de inscripciones pero lo declara como `EnrollmentReader`:
+    es de solo lectura y así queda escrito en su firma.
+    """
+    return GetStudentScheduleUseCase(
+        enrollment_repository, offering_repository, course_repository, period_repository
+    )
+
+
+CancelEnrollmentUseCaseDep = Annotated[
+    CancelEnrollmentUseCase, Depends(get_cancel_enrollment_use_case)
+]
+GetStudentScheduleUseCaseDep = Annotated[
+    GetStudentScheduleUseCase, Depends(get_student_schedule_use_case)
+]

@@ -45,6 +45,8 @@ PASSWORD_DE_PRUEBA = "SecurePass123"
 # tabla olvidada deja filas que hacen fallar al test siguiente por una restricción UNIQUE.
 # No se toca `alembic_version`: perder el historial de migraciones dejaría la base inservible.
 TABLAS_A_LIMPIAR: tuple[str, ...] = (
+    "enrollments",
+    "academic_history",
     "schedule_blocks",
     "course_offerings",
     "course_prerequisites",

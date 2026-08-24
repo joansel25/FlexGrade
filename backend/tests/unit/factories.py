@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 
 from app.domain.entities.course import Course
 from app.domain.entities.course_offering import CourseOffering
+from app.domain.entities.enrollment import Enrollment
 from app.domain.entities.enrollment_period import EnrollmentPeriod
 from app.domain.entities.professor import Professor
 from app.domain.entities.program import Program
@@ -18,6 +19,7 @@ from app.domain.entities.student import Student
 from app.domain.entities.user import User
 from app.domain.value_objects.course_code import CourseCode
 from app.domain.value_objects.email import Email
+from app.domain.value_objects.enrollment_status import EnrollmentStatus
 from app.domain.value_objects.schedule_block import ScheduleBlock
 from app.domain.value_objects.student_code import StudentCode
 from app.domain.value_objects.user_role import UserRole
@@ -173,4 +175,25 @@ def crear_oferta(
         version=version,
         professor=professor,
         schedule=schedule,
+    )
+
+
+def crear_inscripcion(
+    *,
+    enrollment_id: UUID | None = None,
+    student_id: UUID | None = None,
+    course_offering_id: UUID | None = None,
+    enrollment_period_id: UUID | None = None,
+    status: EnrollmentStatus = EnrollmentStatus.ENROLLED,
+    cancelled_at: datetime | None = None,
+) -> Enrollment:
+    """Construye un `Enrollment`."""
+    return Enrollment(
+        id=enrollment_id or uuid4(),
+        student_id=student_id or uuid4(),
+        course_offering_id=course_offering_id or uuid4(),
+        enrollment_period_id=enrollment_period_id or uuid4(),
+        status=status,
+        enrolled_at=AHORA,
+        cancelled_at=cancelled_at,
     )

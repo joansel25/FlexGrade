@@ -6,7 +6,7 @@ from collections import defaultdict
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.application.ports.repositories.offering_repository import OfferingRepository
@@ -66,6 +66,62 @@ class SQLAlchemyOfferingRepository(OfferingRepository):
         horarios = self._horarios_de([m.id for m in modelos])
 
         return [self._a_entidad(m, docentes=docentes, horarios=horarios) for m in modelos]
+
+    def find_by_ids(self, offering_ids: Sequence[UUID]) -> list[CourseOffering]:
+        if not offering_ids:
+            return []
+
+        sentencia = (
+            select(CourseOfferingModel)
+            .where(CourseOfferingModel.id.in_(offering_ids))
+            .order_by(CourseOfferingModel.group_number)
+        )
+        modelos = list(self._session.execute(sentencia).scalars())
+
+        if not modelos:
+            return []
+
+        # Mismo patron que `find_by_course_and_period`: un numero fijo de consultas, sea cual
+        # sea la cantidad de grupos.
+        docentes = self._docentes_de([m.professor_id for m in modelos])
+        horarios = self._horarios_de([m.id for m in modelos])
+
+        return [self._a_entidad(m, docentes=docentes, horarios=horarios) for m in modelos]
+
+    def try_reserve_slot(self, offering_id: UUID) -> bool:
+        # UNA sola sentencia: comprueba la capacidad y descuenta el cupo a la vez. No hay
+        # lectura previa, asi que no existe ventana entre comprobar y escribir.
+        #
+        # `enrolled_count + 1` se calcula en SQL, no en Python: dos transacciones que lean 39
+        # y ambas escriban 40 produciran sobrecupo; dos que ordenen "incrementa en uno" no,
+        # porque PostgreSQL serializa el acceso a la fila y la segunda parte del valor que la
+        # primera dejo.
+        sentencia = (
+            update(CourseOfferingModel)
+            .where(CourseOfferingModel.id == offering_id)
+            .where(CourseOfferingModel.enrolled_count < CourseOfferingModel.total_capacity)
+            .values(
+                enrolled_count=CourseOfferingModel.enrolled_count + 1,
+                version=CourseOfferingModel.version + 1,
+            )
+        )
+
+        # `rowcount` es 1 si se aplico y 0 si el grupo estaba lleno o no existe. No hay tercer
+        # caso: `id` es clave primaria y el WHERE no puede afectar a mas de una fila.
+        return bool(self._session.execute(sentencia).rowcount == 1)
+
+    def try_release_slot(self, offering_id: UUID) -> bool:
+        sentencia = (
+            update(CourseOfferingModel)
+            .where(CourseOfferingModel.id == offering_id)
+            .where(CourseOfferingModel.enrolled_count > 0)
+            .values(
+                enrolled_count=CourseOfferingModel.enrolled_count - 1,
+                version=CourseOfferingModel.version + 1,
+            )
+        )
+
+        return bool(self._session.execute(sentencia).rowcount == 1)
 
     def count_enrolled(self, offering_id: UUID) -> int | None:
         # Lectura mínima y siempre contra PostgreSQL: es el dato que nunca se cachea. Trae una

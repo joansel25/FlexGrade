@@ -12,6 +12,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.infrastructure.persistence.sqlalchemy.models.academic_history import AcademicHistoryModel
 from app.infrastructure.persistence.sqlalchemy.models.administrator import AdministratorModel
 from app.infrastructure.persistence.sqlalchemy.models.course import CourseModel
 from app.infrastructure.persistence.sqlalchemy.models.course_offering import CourseOfferingModel
@@ -251,3 +252,59 @@ def test_seeded_offerings_never_exceed_their_capacity(db_session: Session) -> No
     ).scalar_one()
 
     assert invalidos == 0
+
+
+@pytest.mark.integration
+def test_seed_gives_academic_history_only_to_the_program_that_has_the_chain(
+    db_session: Session,
+) -> None:
+    """El historial sigue al plan de estudios.
+
+    La cadena MAT101 -> MAT102 -> MAT201 pertenece a Ingeniería. Dar Cálculo I a alguien de
+    Derecho produciría datos que se contradicen: tendría la materia aprobada y aun así no
+    podría inscribir Cálculo II, por no estar en su plan.
+    """
+    from app.infrastructure.persistence.sqlalchemy.models.program import ProgramModel
+    from app.infrastructure.seed import PROGRAMA_CON_CADENA
+
+    sembrar(db_session)
+    db_session.commit()
+
+    ingenieria = db_session.execute(
+        select(ProgramModel).where(ProgramModel.code == PROGRAMA_CON_CADENA)
+    ).scalar_one()
+
+    ajenos = db_session.execute(
+        select(func.count())
+        .select_from(AcademicHistoryModel)
+        .join(StudentModel, StudentModel.id == AcademicHistoryModel.student_id)
+        .where(StudentModel.program_id != ingenieria.id)
+    ).scalar_one()
+
+    assert ajenos == 0
+
+
+@pytest.mark.integration
+def test_seed_leaves_students_on_both_sides_of_the_prerequisite_rule(
+    db_session: Session,
+) -> None:
+    """Sin este reparto, probar los prerrequisitos a mano exigiría preparar datos antes.
+
+    Tiene que haber a la vez quien pueda inscribir MAT102 y quien no, y quien la tenga
+    PERDIDA en vez de aprobada —que es lo que comprueba que la validación distingue ambos
+    estados en vez de contar cualquier fila del historial—.
+    """
+    _recuento, reparto = sembrar(db_session)
+    db_session.commit()
+
+    assert reparto["sin_historial"]
+    assert reparto["mat101_aprobada"]
+    assert reparto["cadena_completa"]
+    assert reparto["mat101_perdida"]
+
+    perdidas = db_session.execute(
+        select(func.count())
+        .select_from(AcademicHistoryModel)
+        .where(AcademicHistoryModel.status == "FAILED")
+    ).scalar_one()
+    assert perdidas > 0

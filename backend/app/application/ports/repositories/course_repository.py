@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from uuid import UUID
 
 from app.application.dtos.pagination import Page
@@ -36,6 +37,24 @@ class CourseRepository(ABC):
         """
 
     @abstractmethod
+    def find_by_ids(self, course_ids: Sequence[UUID]) -> dict[UUID, Course]:
+        """Recupera varias materias de una vez, indexadas por identificador.
+
+        Existe para componer el horario del estudiante: se tienen los grupos y hace falta el
+        código y el nombre de cada materia. Pedirlas una a una sería un N+1 sobre una consulta
+        que el estudiante abre constantemente durante la matrícula.
+
+        Devuelve un diccionario y no una lista porque quien llama va a buscarlas por
+        identificador, no a recorrerlas.
+
+        Args:
+            course_ids: identificadores de las materias.
+
+        Returns:
+            Las materias encontradas. Los identificadores inexistentes se omiten.
+        """
+
+    @abstractmethod
     def find_prerequisites(self, course_id: UUID) -> list[Course]:
         """Recupera las materias que hay que haber aprobado antes de cursar esta.
 
@@ -49,6 +68,21 @@ class CourseRepository(ABC):
 
         Returns:
             Los prerrequisitos directos, o una lista vacía si no tiene.
+        """
+
+    @abstractmethod
+    def belongs_to_program(self, course_id: UUID, program_id: UUID) -> bool:
+        """Indica si la materia forma parte del plan de estudios de un programa.
+
+        Es lo que sostiene el `403 COURSE_NOT_IN_PROGRAM` de `API.md`: un estudiante de Derecho
+        no debe poder inscribir Programación II, aunque la materia exista y tenga cupo.
+
+        Args:
+            course_id: identificador de la materia.
+            program_id: programa contra el que comprobar.
+
+        Returns:
+            `True` si la materia está en ese plan de estudios.
         """
 
     @abstractmethod
