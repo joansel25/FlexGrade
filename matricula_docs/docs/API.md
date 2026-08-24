@@ -491,7 +491,12 @@ rechazar la segunda escritura que dejar que pise en silencio la decisión de la 
 
 ### GET /admin/reports/enrollments
 
-Retorna el reporte de inscripciones del período activo.
+Retorna el reporte de inscripciones del período activo. Las cifras se calculan **en vivo** en
+cada llamada: no se cachean ni se precalculan, porque se consultan mientras la matrícula está
+ocurriendo y una cifra de hace treinta segundos que parece actual es peor que no tener reporte.
+
+Cuenta solo inscripciones con estado `ENROLLED` del período activo. Las canceladas y las de
+períodos anteriores quedan fuera de todas las cifras.
 
 **Response 200**
 ```json
@@ -514,9 +519,56 @@ Retorna el reporte de inscripciones del período activo.
 }
 ```
 
+| Código HTTP | error.code | Situación |
+|---|---|---|
+| 404 | `NO_ACTIVE_PERIOD` | No hay ninguna ventana de matrícula activa |
+
+`total_enrollments` cuenta inscripciones; `unique_students`, personas. No coinciden porque cada
+estudiante matricula varias materias. `active_offerings` son los grupos con al menos una
+inscripción activa, no los grupos abiertos.
+
 ### GET /admin/reports/occupancy
 
-Retorna la ocupación por grupo (porcentaje de cupo utilizado).
+Retorna la ocupación por grupo (porcentaje de cupo utilizado), **de más lleno a más vacío**. El
+orden no es cosmético: la primera página trae justo los grupos sobre los que hay que decidir si
+se amplía el cupo o se abre otro grupo.
+
+**Query params:** `page` (por defecto 1) y `size` (por defecto 20, máximo 100).
+
+Va paginado aunque el resto de reportes no lo esté: los programas de la institución son decenas
+y no crecen, pero los grupos de un período son cientos y aumentan cada semestre.
+
+**Response 200**
+```json
+{
+  "period_code": "2025-2-V1",
+  "generated_at": "2025-11-15T14:30:00Z",
+  "offerings": [
+    {
+      "offering_id": "550e8400-e29b-41d4-a716-446655440000",
+      "course_code": "MAT101",
+      "course_name": "Cálculo I",
+      "group_number": "01",
+      "total_capacity": 40,
+      "enrolled_count": 37,
+      "available_slots": 3,
+      "occupancy_rate": 92.5
+    }
+  ],
+  "total": 87,
+  "page": 1,
+  "size": 20
+}
+```
+
+| Código HTTP | error.code | Situación |
+|---|---|---|
+| 404 | `NO_ACTIVE_PERIOD` | No hay ninguna ventana de matrícula activa |
+
+La ocupación se calcula sobre `course_offerings.enrolled_count` —el mismo contador que decide
+si queda cupo— y no con un `COUNT` sobre `enrollments`: así el reporte muestra exactamente el
+número contra el que se está compitiendo, sin tocar la tabla más caliente del sistema durante
+el pico.
 
 ## 7. Comprobantes
 

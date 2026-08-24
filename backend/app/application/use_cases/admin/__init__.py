@@ -13,10 +13,14 @@ Existentes:
   activo, con su horario.
 - `adjust_offering_capacity.py`: AdjustOfferingCapacityUseCase, ajuste de cupo con bloqueo
   optimista por `version` e invalidación de la caché del grupo.
+- `generate_enrollment_report.py`: GenerateEnrollmentReportUseCase, cifras de matrícula del
+  período activo y su desglose por programa.
+- `generate_occupancy_report.py`: GenerateOccupancyReportUseCase, ocupación por grupo, paginada
+  y ordenada del más lleno al más vacío.
 
-Pendientes:
-
-- `generate_enrollment_report.py` y el de ocupación.
+Con estos dos reportes la Fase 4 queda completa. Los dos se calculan en vivo: ninguno se
+cachea ni se precalcula, porque se consultan mientras la matrícula ocurre y una cifra vieja que
+parece actual es peor que no tener el reporte.
 
 Todos exigen rol ADMIN. La comprobación vive en la dependencia `AdminUserDep` y no en cada
 caso de uso: el permiso es una cuestión del borde de la aplicación, no de la regla de negocio.

@@ -15,6 +15,11 @@ from uuid import UUID
 
 from app.application.dtos.auth_dto import TokenPayload, TokenType
 from app.application.dtos.pagination import Page
+from app.application.dtos.report_dto import (
+    OfferingOccupancyDTO,
+    ProgramEnrollmentsDTO,
+    ReportTotalsDTO,
+)
 from app.application.ports.auth_service import AuthService
 from app.application.ports.cache_service import CacheService
 from app.application.ports.repositories.academic_history_repository import AcademicHistoryReader
@@ -24,6 +29,7 @@ from app.application.ports.repositories.offering_repository import OfferingRepos
 from app.application.ports.repositories.period_repository import PeriodRepository
 from app.application.ports.repositories.professor_repository import ProfessorReader
 from app.application.ports.repositories.program_repository import ProgramRepository
+from app.application.ports.repositories.report_repository import ReportReader
 from app.application.ports.repositories.student_repository import StudentRepository
 from app.application.ports.repositories.user_repository import UserRepository
 from app.application.ports.unit_of_work import UnitOfWork
@@ -365,6 +371,49 @@ class InMemoryProfessorReader(ProfessorReader):
 
     def exists(self, professor_id: UUID) -> bool:
         return professor_id in self._ids
+
+
+class FakeReportReader(ReportReader):
+    """Reportes de mentira, con las cifras que el test declare.
+
+    Los casos de uso de reporte no calculan nada: eligen el periodo, sellan la hora y componen
+    la respuesta. Lo que se prueba aqui es esa ORQUESTACION; que los `GROUP BY` cuenten bien se
+    verifica contra PostgreSQL, que es quien los ejecuta.
+    """
+
+    def __init__(
+        self,
+        totals: ReportTotalsDTO | None = None,
+        by_program: list[ProgramEnrollmentsDTO] | None = None,
+        occupancy: list[OfferingOccupancyDTO] | None = None,
+    ) -> None:
+        self._totals = totals or ReportTotalsDTO(
+            total_enrollments=0, unique_students=0, active_offerings=0
+        )
+        self._by_program = by_program or []
+        self._occupancy = occupancy or []
+        self.periodos_consultados: list[UUID] = []
+
+    def enrollment_totals(self, enrollment_period_id: UUID) -> ReportTotalsDTO:
+        self.periodos_consultados.append(enrollment_period_id)
+        return self._totals
+
+    def enrollments_by_program(self, enrollment_period_id: UUID) -> list[ProgramEnrollmentsDTO]:
+        self.periodos_consultados.append(enrollment_period_id)
+        return list(self._by_program)
+
+    def offering_occupancy(
+        self, enrollment_period_id: UUID, *, page: int, size: int
+    ) -> Page[OfferingOccupancyDTO]:
+        self.periodos_consultados.append(enrollment_period_id)
+        desde = (page - 1) * size
+
+        return Page(
+            items=self._occupancy[desde : desde + size],
+            total=len(self._occupancy),
+            page=page,
+            size=size,
+        )
 
 
 class InMemoryCacheService(CacheService):

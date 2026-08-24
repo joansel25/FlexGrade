@@ -25,6 +25,8 @@ from app.interfaces.api.dependencies.di import (
     CreateCourseOfferingUseCaseDep,
     CreateCourseUseCaseDep,
     CreateEnrollmentPeriodUseCaseDep,
+    GenerateEnrollmentReportUseCaseDep,
+    GenerateOccupancyReportUseCaseDep,
     ListEnrollmentPeriodsUseCaseDep,
 )
 from app.interfaces.api.routers.courses import a_schema_de_grupo
@@ -41,6 +43,13 @@ from app.interfaces.api.schemas.catalog_schemas import (
     PageSchema,
 )
 from app.interfaces.api.schemas.error_schemas import ErrorResponseSchema
+from app.interfaces.api.schemas.report_schemas import (
+    EnrollmentReportSchema,
+    OccupancyReportSchema,
+    OfferingOccupancySchema,
+    ProgramEnrollmentsSchema,
+    ReportTotalsSchema,
+)
 
 router = APIRouter(
     prefix="/admin",
@@ -270,4 +279,86 @@ def _a_schema_de_grupo(offering: CourseOffering) -> OfferingDetailSchema:
         **base.model_dump(),
         course_id=offering.course_id,
         enrollment_period_id=offering.enrollment_period_id,
+    )
+
+
+@router.get(
+    "/reports/enrollments",
+    response_model=EnrollmentReportSchema,
+    status_code=status.HTTP_200_OK,
+    summary="Reporte de inscripciones del período activo",
+    responses={
+        404: {"model": ErrorResponseSchema, "description": "No hay período activo"},
+    },
+)
+def enrollment_report(use_case: GenerateEnrollmentReportUseCaseDep) -> EnrollmentReportSchema:
+    """Devuelve las cifras de matrícula del período activo, calculadas en vivo.
+
+    No se cachea: es el reporte que se consulta MIENTRAS la matrícula ocurre, y una cifra de
+    hace treinta segundos que parece actual es peor que no tener reporte.
+    """
+    reporte = use_case.execute()
+
+    return EnrollmentReportSchema(
+        period_code=reporte.period_code,
+        generated_at=reporte.generated_at,
+        totals=ReportTotalsSchema(
+            total_enrollments=reporte.totals.total_enrollments,
+            unique_students=reporte.totals.unique_students,
+            active_offerings=reporte.totals.active_offerings,
+        ),
+        by_program=[
+            ProgramEnrollmentsSchema(
+                program_code=p.program_code,
+                program_name=p.program_name,
+                enrollments=p.enrollments,
+                students=p.students,
+            )
+            for p in reporte.by_program
+        ],
+    )
+
+
+@router.get(
+    "/reports/occupancy",
+    response_model=OccupancyReportSchema,
+    status_code=status.HTTP_200_OK,
+    summary="Reporte de ocupación por grupo",
+    responses={
+        404: {"model": ErrorResponseSchema, "description": "No hay período activo"},
+    },
+)
+def occupancy_report(
+    use_case: GenerateOccupancyReportUseCaseDep,
+    page: Annotated[int, Query(ge=1, description="Número de página")] = 1,
+    size: Annotated[
+        int, Query(ge=1, le=MAX_PAGE_SIZE, description="Grupos por página")
+    ] = DEFAULT_PAGE_SIZE,
+) -> OccupancyReportSchema:
+    """Devuelve la ocupación de los grupos del período, del más lleno al más vacío.
+
+    El orden no es cosmético: la primera página contiene los grupos a punto de llenarse, que
+    son sobre los que hay que decidir si se amplía el cupo o se abre otro grupo.
+    """
+    reporte = use_case.execute(page=page, size=size)
+
+    return OccupancyReportSchema(
+        period_code=reporte.period_code,
+        generated_at=reporte.generated_at,
+        offerings=[
+            OfferingOccupancySchema(
+                offering_id=o.offering_id,
+                course_code=o.course_code,
+                course_name=o.course_name,
+                group_number=o.group_number,
+                total_capacity=o.total_capacity,
+                enrolled_count=o.enrolled_count,
+                available_slots=o.available_slots,
+                occupancy_rate=o.occupancy_rate,
+            )
+            for o in reporte.offerings
+        ],
+        total=reporte.total,
+        page=reporte.page,
+        size=reporte.size,
     )

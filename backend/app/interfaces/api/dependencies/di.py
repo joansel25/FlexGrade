@@ -23,6 +23,7 @@ from app.application.ports.repositories.offering_repository import OfferingRepos
 from app.application.ports.repositories.period_repository import PeriodRepository
 from app.application.ports.repositories.professor_repository import ProfessorReader
 from app.application.ports.repositories.program_repository import ProgramRepository
+from app.application.ports.repositories.report_repository import ReportReader
 from app.application.ports.repositories.student_repository import StudentRepository
 from app.application.ports.repositories.user_repository import UserRepository
 from app.application.ports.unit_of_work import UnitOfWork
@@ -33,6 +34,10 @@ from app.application.use_cases.admin.adjust_offering_capacity import AdjustOffer
 from app.application.use_cases.admin.create_course import CreateCourseUseCase
 from app.application.use_cases.admin.create_course_offering import CreateCourseOfferingUseCase
 from app.application.use_cases.admin.create_enrollment_period import CreateEnrollmentPeriodUseCase
+from app.application.use_cases.admin.generate_enrollment_report import (
+    GenerateEnrollmentReportUseCase,
+)
+from app.application.use_cases.admin.generate_occupancy_report import GenerateOccupancyReportUseCase
 from app.application.use_cases.admin.list_enrollment_periods import ListEnrollmentPeriodsUseCase
 from app.application.use_cases.auth.authenticate_user import AuthenticateUserUseCase
 from app.application.use_cases.auth.refresh_token import RefreshTokenUseCase
@@ -68,6 +73,9 @@ from app.infrastructure.persistence.sqlalchemy.repositories.professor_repository
 )
 from app.infrastructure.persistence.sqlalchemy.repositories.program_repository import (
     SQLAlchemyProgramRepository,
+)
+from app.infrastructure.persistence.sqlalchemy.repositories.report_repository import (
+    SQLAlchemyReportRepository,
 )
 from app.infrastructure.persistence.sqlalchemy.repositories.student_repository import (
     SQLAlchemyStudentRepository,
@@ -146,6 +154,14 @@ def get_period_repository(session: SessionDep) -> PeriodRepository:
 PeriodRepositoryDep = Annotated[PeriodRepository, Depends(get_period_repository)]
 
 
+def get_report_reader(session: SessionDep) -> ReportReader:
+    """Resuelve el puerto de reportes al adaptador de SQLAlchemy."""
+    return SQLAlchemyReportRepository(session)
+
+
+ReportReaderDep = Annotated[ReportReader, Depends(get_report_reader)]
+
+
 def get_enrollment_repository(session: SessionDep) -> EnrollmentRepository:
     """Resuelve el puerto de inscripciones al adaptador de SQLAlchemy."""
     return SQLAlchemyEnrollmentRepository(session)
@@ -176,7 +192,6 @@ def get_unit_of_work(session: SessionDep) -> UnitOfWork:
 UnitOfWorkDep = Annotated[UnitOfWork, Depends(get_unit_of_work)]
 
 
-@lru_cache
 @lru_cache
 def get_cache_service() -> CacheService:
     """Resuelve el puerto de caché al adaptador de Redis.
@@ -445,4 +460,31 @@ CreateCourseOfferingUseCaseDep = Annotated[
 ]
 AdjustOfferingCapacityUseCaseDep = Annotated[
     AdjustOfferingCapacityUseCase, Depends(get_adjust_offering_capacity_use_case)
+]
+
+
+def get_enrollment_report_use_case(
+    reports: ReportReaderDep,
+    period_repository: PeriodRepositoryDep,
+) -> GenerateEnrollmentReportUseCase:
+    """Construye el caso de uso del reporte de inscripciones.
+
+    Sin caché y sin `UnitOfWork`: solo lee, y sus cifras tienen que ser las de este instante.
+    """
+    return GenerateEnrollmentReportUseCase(reports, period_repository)
+
+
+def get_occupancy_report_use_case(
+    reports: ReportReaderDep,
+    period_repository: PeriodRepositoryDep,
+) -> GenerateOccupancyReportUseCase:
+    """Construye el caso de uso del reporte de ocupación."""
+    return GenerateOccupancyReportUseCase(reports, period_repository)
+
+
+GenerateEnrollmentReportUseCaseDep = Annotated[
+    GenerateEnrollmentReportUseCase, Depends(get_enrollment_report_use_case)
+]
+GenerateOccupancyReportUseCaseDep = Annotated[
+    GenerateOccupancyReportUseCase, Depends(get_occupancy_report_use_case)
 ]
