@@ -13,10 +13,13 @@ from __future__ import annotations
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.domain.exceptions.admin import DuplicatePeriodCodeError, InvalidPeriodRangeError
 from app.domain.exceptions.authentication import (
+    AdminRequiredError,
     InactiveUserError,
     InvalidCredentialsError,
     InvalidTokenError,
+    MissingTokenError,
     StudentProfileNotFoundError,
 )
 from app.domain.exceptions.base import DomainError
@@ -37,6 +40,7 @@ from app.domain.exceptions.enrollment import (
 )
 from app.infrastructure.config.settings import get_settings
 from app.interfaces.api.routers import (
+    admin,
     auth,
     courses,
     enrollments,
@@ -65,6 +69,7 @@ app.include_router(courses.router, prefix=settings.api_v1_prefix)
 app.include_router(offerings.router, prefix=settings.api_v1_prefix)
 app.include_router(periods.router, prefix=settings.api_v1_prefix)
 app.include_router(enrollments.router, prefix=settings.api_v1_prefix)
+app.include_router(admin.router, prefix=settings.api_v1_prefix)
 
 
 # ---------------------------------------------------------------------------
@@ -78,8 +83,10 @@ app.include_router(enrollments.router, prefix=settings.api_v1_prefix)
 # Cada excepción del dominio, con su código HTTP y su `error.code` estable.
 _MAPEO_ERRORES: dict[type[DomainError], tuple[int, str]] = {
     InvalidCredentialsError: (401, "INVALID_CREDENTIALS"),
+    MissingTokenError: (401, "MISSING_TOKEN"),
     InvalidTokenError: (401, "INVALID_TOKEN"),
     InactiveUserError: (403, "USER_INACTIVE"),
+    AdminRequiredError: (403, "ADMIN_REQUIRED"),
     StudentProfileNotFoundError: (404, "STUDENT_PROFILE_NOT_FOUND"),
     # Catálogo académico (Fase 2). Se registran junto a las excepciones, no junto a los
     # endpoints que las lanzan: una excepción de dominio sin entrada aquí cae en el 400
@@ -103,13 +110,23 @@ _MAPEO_ERRORES: dict[type[DomainError], tuple[int, str]] = {
     # corresponde hacer.
     CourseNotInProgramError: (403, "COURSE_NOT_IN_PROGRAM"),
     EnrollmentNotFoundError: (404, "ENROLLMENT_NOT_FOUND"),
+    # Administración (Fase 4). Son 409 por la misma razón: la petición está bien formada y
+    # quien la envía tiene permiso; lo que impide la operación es el estado del sistema.
+    DuplicatePeriodCodeError: (409, "DUPLICATE_PERIOD_CODE"),
+    InvalidPeriodRangeError: (409, "INVALID_PERIOD_RANGE"),
 }
 
 
 def _respuesta_error(status_code: int, code: str, exc: DomainError) -> JSONResponse:
+    # `WWW-Authenticate` acompaña a todo 401: es lo que dice el estándar HTTP y lo que permite
+    # a un cliente saber CÓMO autenticarse. La ponía el guard cuando lanzaba `HTTPException`
+    # directamente; al centralizar el formato de error aquí, la cabecera se centraliza con él.
+    cabeceras = {"WWW-Authenticate": "Bearer"} if status_code == 401 else None
+
     return JSONResponse(
         status_code=status_code,
         content={"error": {"code": code, "message": exc.message, "details": exc.details}},
+        headers=cabeceras,
     )
 
 

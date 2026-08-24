@@ -25,6 +25,7 @@ from app.application.ports.repositories.program_repository import ProgramReposit
 from app.application.ports.repositories.student_repository import StudentRepository
 from app.application.ports.repositories.user_repository import UserRepository
 from app.application.ports.unit_of_work import UnitOfWork
+from app.application.use_cases.admin.create_enrollment_period import CreateEnrollmentPeriodUseCase
 from app.application.use_cases.auth.authenticate_user import AuthenticateUserUseCase
 from app.application.use_cases.auth.refresh_token import RefreshTokenUseCase
 from app.application.use_cases.catalog.get_course_detail import GetCourseDetailUseCase
@@ -336,4 +337,22 @@ CancelEnrollmentUseCaseDep = Annotated[
 ]
 GetStudentScheduleUseCaseDep = Annotated[
     GetStudentScheduleUseCase, Depends(get_student_schedule_use_case)
+]
+
+
+# ---------------------------------------------------------------------------
+# Casos de uso de administración
+# ---------------------------------------------------------------------------
+
+
+def get_create_enrollment_period_use_case(
+    period_repository: PeriodRepositoryDep,
+    unit_of_work: UnitOfWorkDep,
+) -> CreateEnrollmentPeriodUseCase:
+    """Construye el caso de uso de creación de ventanas de matrícula."""
+    return CreateEnrollmentPeriodUseCase(period_repository, unit_of_work)
+
+
+CreateEnrollmentPeriodUseCaseDep = Annotated[
+    CreateEnrollmentPeriodUseCase, Depends(get_create_enrollment_period_use_case)
 ]

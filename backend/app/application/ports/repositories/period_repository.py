@@ -9,7 +9,14 @@ from app.domain.entities.enrollment_period import EnrollmentPeriod
 
 
 class PeriodRepository(ABC):
-    """Contrato de acceso a las ventanas de matrícula."""
+    """Contrato de acceso a las ventanas de matrícula.
+
+    No se segrega en lector y escritor como `EnrollmentRepository`: solo hay un consumidor que
+    escribe —la administración— y separarlo daría dos interfaces de un método cada una sin que
+    nadie se beneficie. La segregación resuelve un problema real cuando existe un caso de uso
+    de solo lectura que se vería obligado a depender de operaciones de escritura; aquí no lo
+    hay.
+    """
 
     @abstractmethod
     def find_active(self) -> EnrollmentPeriod | None:
@@ -36,4 +43,31 @@ class PeriodRepository(ABC):
 
         Returns:
             El período, o `None` si no existe.
+        """
+
+    @abstractmethod
+    def find_by_code(self, code: str) -> EnrollmentPeriod | None:
+        """Recupera una ventana por su código.
+
+        Es la comprobación que evita chocar contra la restricción `UNIQUE` al crear: sin ella,
+        crear un período repetido devolvería un error de clave duplicada de PostgreSQL en vez
+        de un mensaje que diga qué pasó.
+
+        Args:
+            code: código de la ventana (por ejemplo `2026-1-V1`).
+
+        Returns:
+            El período, o `None` si no existe.
+        """
+
+    @abstractmethod
+    def save(self, period: EnrollmentPeriod) -> None:
+        """Persiste una ventana nueva o los cambios de una existente.
+
+        No confirma la transacción: eso lo decide el `UnitOfWork`. Activar un período implica
+        desactivar el anterior, y las dos escrituras tienen que ser atómicas —el índice único
+        parcial rechazaría el estado intermedio con dos activos—.
+
+        Args:
+            period: la entidad a persistir.
         """

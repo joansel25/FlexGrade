@@ -35,3 +35,27 @@ class StudentProfileNotFoundError(DomainError):
 
     def __init__(self, message: str = "El usuario no tiene un perfil de estudiante") -> None:
         super().__init__(message)
+
+
+class MissingTokenError(DomainError):
+    """La petición no trae la cabecera `Authorization`.
+
+    Se distingue de `InvalidTokenError` a propósito: para el cliente son situaciones distintas
+    —una se resuelve iniciando sesión, la otra renovando el token— y sin códigos separados
+    tendría que decidirlo interpretando el mensaje en español.
+    """
+
+    def __init__(self, message: str = "Falta la cabecera Authorization") -> None:
+        super().__init__(message)
+
+
+class AdminRequiredError(DomainError):
+    """La cuenta está autenticada pero no tiene rol de administrador.
+
+    Es 403 y no 401 porque el problema no es la identidad, que quedó probada, sino el permiso.
+    Devolver 401 haría que el cliente intentara volver a autenticarse, lo que no arreglaría
+    nada.
+    """
+
+    def __init__(self, message: str = "Se requiere rol de administrador") -> None:
+        super().__init__(message)

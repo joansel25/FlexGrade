@@ -1,13 +1,18 @@
-"""Casos de uso administrativos (Fase 4).
+"""Casos de uso de administración académica (Fase 4).
 
-Contendrá:
+Existentes:
 
-- `create_enrollment_period.py`: CreateEnrollmentPeriodUseCase, abre una ventana de matrícula.
-- `create_course_offering.py`: CreateCourseOfferingUseCase, crea un grupo con su cupo, profesor
-  y bloques de horario.
-- `generate_enrollment_report.py`: GenerateEnrollmentReportUseCase, reportes de inscripciones
-  por programa y de ocupación por grupo.
+- `create_enrollment_period.py`: CreateEnrollmentPeriodUseCase, registra una ventana de
+  matrícula, siempre desactivada.
 
-La autorización por rol (solo ADMIN) se resuelve en las dependencias de la capa de interfaces;
-estos casos de uso asumen que quien los invoca ya fue autorizado.
+Pendientes:
+
+- `activate_enrollment_period.py`: activa una ventana y desactiva la anterior en la misma
+  transacción, porque el índice único parcial rechazaría el estado intermedio con dos activas.
+- `create_course.py` y `create_course_offering.py`: alta de materias y de grupos.
+- `adjust_offering_capacity.py`: ajuste de cupo con bloqueo optimista.
+- `generate_enrollment_report.py` y el de ocupación.
+
+Todos exigen rol ADMIN. La comprobación vive en la dependencia `AdminUserDep` y no en cada
+caso de uso: el permiso es una cuestión del borde de la aplicación, no de la regla de negocio.
 """

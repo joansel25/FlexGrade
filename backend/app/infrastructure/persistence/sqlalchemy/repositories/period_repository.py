@@ -32,6 +32,41 @@ class SQLAlchemyPeriodRepository(PeriodRepository):
         modelo = self._session.get(EnrollmentPeriodModel, period_id)
         return self._a_entidad(modelo) if modelo is not None else None
 
+    def find_by_code(self, code: str) -> EnrollmentPeriod | None:
+        sentencia = select(EnrollmentPeriodModel).where(EnrollmentPeriodModel.code == code)
+        modelo = self._session.execute(sentencia).scalar_one_or_none()
+        return self._a_entidad(modelo) if modelo is not None else None
+
+    def save(self, period: EnrollmentPeriod) -> None:
+        modelo = self._session.get(EnrollmentPeriodModel, period.id)
+
+        if modelo is None:
+            self._session.add(self._a_modelo(period))
+            return
+
+        modelo.code = period.code
+        modelo.academic_period = period.academic_period
+        modelo.name = period.name
+        modelo.starts_at = period.starts_at
+        modelo.ends_at = period.ends_at
+        modelo.is_active = period.is_active
+
+    @staticmethod
+    def _a_modelo(period: EnrollmentPeriod) -> EnrollmentPeriodModel:
+        """Convierte la entidad del dominio en el modelo ORM.
+
+        `created_at` no se asigna: lo gestiona la base con su `DEFAULT NOW()`.
+        """
+        return EnrollmentPeriodModel(
+            id=period.id,
+            code=period.code,
+            academic_period=period.academic_period,
+            name=period.name,
+            starts_at=period.starts_at,
+            ends_at=period.ends_at,
+            is_active=period.is_active,
+        )
+
     @staticmethod
     def _a_entidad(modelo: EnrollmentPeriodModel) -> EnrollmentPeriod:
         """Convierte el modelo ORM en la entidad del dominio."""

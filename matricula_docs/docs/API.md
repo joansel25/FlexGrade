@@ -42,6 +42,22 @@ Este documento describe los endpoints del Sistema de Matrícula Académica. La A
 }
 ```
 
+**Este formato es universal.** Lo usan por igual los errores de negocio, los de autenticación y los de autorización: un cliente lleva un único analizador de errores y siempre encuentra un `error.code` estable con el que decidir qué hacer. El `message` está pensado para mostrarse a una persona y puede cambiar de redacción; el `code` no cambia y es el que debe consultar el código.
+
+Las respuestas `401` incluyen además la cabecera `WWW-Authenticate: Bearer`, como manda el estándar HTTP.
+
+| error.code | HTTP | Cuándo |
+|---|---|---|
+| `MISSING_TOKEN` | 401 | La petición no trae la cabecera `Authorization` |
+| `INVALID_TOKEN` | 401 | Token ilegible, con firma inválida, caducado o de tipo equivocado |
+| `INVALID_CREDENTIALS` | 401 | Correo o contraseña incorrectos |
+| `USER_INACTIVE` | 403 | Credenciales correctas, cuenta desactivada |
+| `ADMIN_REQUIRED` | 403 | Autenticado, pero sin rol de administrador |
+
+`MISSING_TOKEN` e `INVALID_TOKEN` se distinguen a propósito: para el cliente son situaciones distintas —una se resuelve iniciando sesión, la otra renovando el token— y sin códigos separados tendría que decidirlo interpretando el mensaje.
+
+La única excepción a este formato son los `422`, que genera FastAPI al validar el esquema de la petición y llevan su estructura propia con la lista de campos que fallaron.
+
 ## 1. Autenticación
 
 ### POST /auth/login
@@ -354,9 +370,16 @@ Lista todos los períodos de matrícula (paginado).
 
 ## 6. Administración (requiere rol ADMIN)
 
+Todos los endpoints de esta sección exigen `Authorization: Bearer <access_token>` de una cuenta con rol `ADMIN`. La exigencia se declara una sola vez, en el router, y no endpoint por endpoint: así proteger es el comportamiento por defecto y no algo que haya que recordar al añadir uno nuevo.
+
+- Sin token → `401 MISSING_TOKEN`
+- Con token de estudiante → `403 ADMIN_REQUIRED`
+
 ### POST /admin/enrollment-periods
 
-Crea un nuevo período de matrícula.
+Crea un nuevo período de matrícula, **siempre desactivado**. Abrir la ventana es una operación aparte (`PUT .../activate`).
+
+Separarlas permite preparar el período con semanas de antelación —revisando fechas, creando sus grupos— sin que se abra solo al llegar la fecha, y permite cerrarlo de inmediato ante un incidente sin tener que tocar el calendario.
 
 **Request**
 ```json
@@ -369,9 +392,18 @@ Crea un nuevo período de matrícula.
 }
 ```
 
+**Response 201** — el período creado, con `is_active: false`.
+
+| Código HTTP | error.code | Situación |
+|---|---|---|
+| 409 | `DUPLICATE_PERIOD_CODE` | Ya existe una ventana con ese código |
+| 409 | `INVALID_PERIOD_RANGE` | El cierre no es posterior a la apertura |
+
+Ambas condiciones las impondría igualmente la base de datos —la restricción `UNIQUE` y el `CHECK (ends_at > starts_at)`—, pero devolverían un error de restricción opaco. Comprobarlas antes permite responder con un mensaje que dice qué corregir.
+
 ### PUT /admin/enrollment-periods/{id}/activate
 
-Activa un período. Solo puede haber un período activo a la vez; activar uno nuevo desactiva el anterior.
+Activa un período. Solo puede haber un período activo a la vez; activar uno nuevo desactiva el anterior **en la misma transacción**, porque el índice único parcial `ix_enrollment_periods_active` rechazaría el estado intermedio con dos activos.
 
 ### POST /admin/courses
 

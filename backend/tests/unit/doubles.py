@@ -308,6 +308,12 @@ class InMemoryPeriodRepository(PeriodRepository):
     def find_by_id(self, period_id: UUID) -> EnrollmentPeriod | None:
         return self._periods.get(period_id)
 
+    def find_by_code(self, code: str) -> EnrollmentPeriod | None:
+        return next((p for p in self._periods.values() if p.code == code), None)
+
+    def save(self, period: EnrollmentPeriod) -> None:
+        self._periods[period.id] = period
+
 
 class InMemoryCacheService(CacheService):
     """Caché en memoria que registra cuántas veces se la consulta.

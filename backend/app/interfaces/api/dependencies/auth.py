@@ -4,24 +4,36 @@ Aquí vive el guard que protege los endpoints. La identidad del usuario sale
 SIEMPRE del token, nunca del cuerpo ni de la query de la petición: aceptar un
 `user_id` enviado por el cliente permitiría a cualquiera actuar en nombre de
 otro (IDOR).
+
+Los fallos se comunican con **excepciones de dominio**, no con `HTTPException`. El manejador
+central de `main.py` las traduce al sobre `{"error": {code, message, details}}` que `API.md`
+documenta como formato estándar. Lanzarlas aquí como `HTTPException` produciría
+`{"detail": ...}` y la API tendría dos formas de error distintas según de dónde viniera el
+fallo, obligando al cliente a llevar dos analizadores y dejando la autenticación sin un
+`error.code` estable.
 """
 
 from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.application.dtos.auth_dto import TokenPayload, TokenType
 from app.domain.entities.student import Student
-from app.domain.exceptions.authentication import InvalidTokenError, StudentProfileNotFoundError
+from app.domain.exceptions.authentication import (
+    AdminRequiredError,
+    MissingTokenError,
+    StudentProfileNotFoundError,
+)
 from app.domain.value_objects.user_role import UserRole
 from app.interfaces.api.dependencies.di import AuthServiceDep, StudentRepositoryDep
 
-# `auto_error=False` para construir nosotros la respuesta 401: el 403 que
-# devuelve HTTPBearer por defecto ante un header ausente no distingue "no te has
-# autenticado" de "no tienes permiso", que son cosas distintas para el cliente.
+# `auto_error=False` para decidir nosotros la respuesta ante un header ausente: el 403 que
+# devuelve HTTPBearer por defecto no distingue "no te has autenticado" de "no tienes permiso",
+# que son cosas distintas para el cliente. Con esto, lo primero es 401 MISSING_TOKEN y lo
+# segundo 403 ADMIN_REQUIRED.
 _esquema_bearer = HTTPBearer(auto_error=False, description="Token JWT de acceso")
 
 
@@ -39,23 +51,17 @@ def get_current_user(
         El contenido verificado del token.
 
     Raises:
-        HTTPException: 401 si no hay token o si no es válido.
+        MissingTokenError: si la petición no trae la cabecera.
+        InvalidTokenError: si el token es ilegible, tiene firma inválida o ha expirado.
     """
     if credenciales is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Falta la cabecera Authorization",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise MissingTokenError()
 
-    try:
-        return auth_service.decode_token(credenciales.credentials, TokenType.ACCESS)
-    except InvalidTokenError as error:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=error.message,
-            headers={"WWW-Authenticate": "Bearer"},
-        ) from error
+    # `decode_token` ya lanza `InvalidTokenError`, que el manejador central traduce a 401.
+    # No se envuelve en `HTTPException`: eso produciría `{"detail": ...}` en vez del sobre
+    # `{"error": {...}}` que `API.md` documenta como formato estándar, y obligaría al cliente
+    # a distinguir dos formas de error según de dónde viniera el fallo.
+    return auth_service.decode_token(credenciales.credentials, TokenType.ACCESS)
 
 
 CurrentUserDep = Annotated[TokenPayload, Depends(get_current_user)]
@@ -74,14 +80,12 @@ def require_admin(current_user: CurrentUserDep) -> TokenPayload:
         La misma identidad, si tiene permiso.
 
     Raises:
-        HTTPException: 403 si el rol no es ADMIN. Es 403 y no 401 porque el
-            usuario sí está autenticado; lo que falta es autorización.
+        AdminRequiredError: si el rol no es ADMIN. Es 403 y no 401 porque el usuario sí está
+            autenticado; lo que falta es el permiso.
     """
     if current_user.role is not UserRole.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Se requiere rol de administrador",
-        )
+        raise AdminRequiredError()
+
     return current_user
 
 
