@@ -1,0 +1,14 @@
+{
+  "AWSEBDockerrunVersion": "1",
+  "Image": {
+    "Name": "REEMPLAZAR_ECR_REPOSITORY:REEMPLAZAR_IMAGE_TAG",
+    "Update": "true"
+  },
+  "Ports": [
+    {
+      "ContainerPort": 8000,
+      "HostPort": 80
+    }
+  ],
+  "Logging": "/var/log/nginx"
+}

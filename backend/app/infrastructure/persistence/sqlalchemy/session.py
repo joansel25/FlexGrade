@@ -26,15 +26,27 @@ def get_engine() -> Engine:
     conexiones que RDS haya cerrado por inactividad, que de otro modo fallarían
     en la primera consulta tras un periodo de calma.
 
+    Los dos tamaños llegan por variable de entorno, y no son un detalle de
+    ajuste fino: el límite real lo pone RDS, cuyo `max_connections` se reparte
+    entre TODAS las instancias que levante el autoescalado. Con los valores por
+    defecto (10 + 20), cuatro instancias agotan una `db.t3.micro`; la quinta
+    empieza a recibir «too many connections» justo en el pico. Poder bajarlos
+    desde Elastic Beanstalk evita tener que reconstruir y redesplegar la imagen
+    en mitad de una matrícula.
+
     Returns:
         El engine compartido por toda la aplicación.
     """
     settings = get_settings()
     return create_engine(
         settings.database_url,
-        pool_size=10,
-        max_overflow=20,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
         pool_pre_ping=True,
+        # Recicla las conexiones cada media hora. RDS y el balanceador cortan las
+        # conexiones inactivas por su cuenta; renovarlas antes evita que la
+        # aplicación descubra el corte a mitad de una transacción.
+        pool_recycle=1800,
         future=True,
     )
 

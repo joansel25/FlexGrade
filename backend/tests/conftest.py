@@ -57,6 +57,10 @@ os.environ.setdefault(
 )
 os.environ.setdefault("REDIS_URL", "redis://redis:6379/0")
 os.environ.setdefault("JWT_SECRET", "jwt-secret-solo-para-pruebas")
+# El origen del frontend en desarrollo. Se fija aquí y no solo en `docker-compose.yml`
+# para que la suite compruebe CORS aunque corra en un contenedor levantado antes de que
+# la variable existiera, o en el runner del CI, que no usa `docker-compose`.
+os.environ.setdefault("CORS_ALLOWED_ORIGINS", "http://localhost:5173")
 
 os.environ["DATABASE_URL"] = _url_de_pruebas(os.environ["DATABASE_URL"])
 os.environ["REDIS_URL"] = _redis_de_pruebas(os.environ["REDIS_URL"])

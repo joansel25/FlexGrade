@@ -64,6 +64,10 @@ services:
       ENVIRONMENT: ${ENVIRONMENT:-dev}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       API_V1_PREFIX: ${API_V1_PREFIX:-/api/v1}
+      # Origen del frontend en desarrollo (Vite). En la nube este valor es el dominio de
+      # CloudFront, y lo inyecta Elastic Beanstalk: frontend y API viven en dominios
+      # distintos, asi que sin esta lista el navegador bloquea todas las llamadas.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
       APP_VERSION: ${APP_VERSION:-0.1.0}
     ports:
       - "${BACKEND_PORT:-8000}:8000"

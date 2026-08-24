@@ -11,6 +11,7 @@ y la aplicación no.
 from __future__ import annotations
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.domain.exceptions.admin import (
@@ -49,6 +50,8 @@ from app.domain.exceptions.enrollment import (
     ScheduleConflictError,
 )
 from app.infrastructure.config.settings import get_settings
+from app.infrastructure.logging.setup import configurar_logging
+from app.interfaces.api.middleware.request_logging import RequestLoggingMiddleware
 from app.interfaces.api.routers import (
     admin,
     auth,
@@ -62,11 +65,47 @@ from app.interfaces.api.routers import (
 
 settings = get_settings()
 
+# Antes de construir la aplicación: uvicorn instala sus manejadores al arrancar y hay que
+# reemplazarlos, no sumarse a ellos. En la nube el formato es JSON porque quien lee estas
+# líneas es CloudWatch Logs Insights, no una persona con la terminal abierta.
+configurar_logging(level=settings.log_level, json_format=settings.environment != "dev")
+
 app = FastAPI(
     title="Sistema de Matrícula Académica",
     description="API de inscripción y gestión académica.",
     version=settings.app_version,
+    # La documentación interactiva se puede apagar por variable de entorno, sin reconstruir la
+    # imagen. Expone el mapa completo de la API, incluidos los endpoints de administración.
+    docs_url="/docs" if settings.docs_enabled else None,
+    redoc_url="/redoc" if settings.docs_enabled else None,
+    openapi_url="/openapi.json" if settings.docs_enabled else None,
 )
+
+# ---------------------------------------------------------------------------
+# Middleware. El orden de registro es el inverso al de ejecución: lo último que se añade es lo
+# primero que ve la petición. El registro va el último a propósito, para que su medición de
+# duración incluya el trabajo de todo lo demás.
+# ---------------------------------------------------------------------------
+
+# CORS. En local el frontend y la API comparten `localhost`; en la nube NO: el frontend se
+# sirve desde CloudFront y la API desde el balanceador, que son dominios distintos. Sin esta
+# lista el navegador bloquea cada llamada del estudiante y la API parece caída aunque responda.
+#
+# Se declaran los orígenes exactos, nunca `*`: con `allow_credentials=True` el comodín ni
+# siquiera es válido, y una API de matrícula no debe aceptar peticiones desde cualquier sitio.
+if settings.cors_allowed_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_allowed_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
+        # El navegador guarda la respuesta del `preflight` diez minutos en vez de preguntar
+        # antes de cada llamada: durante la matrícula eso es la mitad de las peticiones.
+        max_age=600,
+    )
+
+app.add_middleware(RequestLoggingMiddleware)
 
 # `/health` va en la raíz, fuera de `settings.api_v1_prefix`: lo consumen Docker
 # y el ALB, no los clientes de la API.

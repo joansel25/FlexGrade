@@ -282,3 +282,25 @@ El `Makefile` en la raíz del repo unifica estos comandos para evitar recordar l
 - La estructura de tests que el pipeline ejecuta está definida en `docs/BEST_PRACTICES.md` sección Testing.
 - El proceso de desarrollo iterativo que alimenta el pipeline está en `docs/DEVELOPMENT_WORKFLOW.md`.
 - El subagente responsable de mantener este pipeline es `@devops-engineer`, definido en `docs/CLAUDE_CODE_AGENTS.md`.
+
+## 13. Lo que el backend espera encontrar en AWS
+
+El repositorio no aprovisiona infraestructura, pero sí trae lo que Elastic Beanstalk necesita
+para arrancar la imagen y la lista de comprobaciones para verificar que quedó bien:
+**`deploy/aws/`**.
+
+- `deploy/aws/Dockerrun.aws.json` — el archivo que lee Elastic Beanstalk para saber qué imagen
+  descargar de ECR y en qué puerto escucha (contenedor 8000, host 80). Sus dos marcadores en
+  mayúsculas los sustituye el pipeline con `ECR_REPOSITORY` e `IMAGE_TAG`.
+- `deploy/aws/README.md` — variables de entorno por ambiente, qué ruta debe usar el health check
+  del balanceador y por qué, la cuenta de conexiones contra RDS, los grupos de seguridad y las
+  consultas de CloudWatch Logs Insights.
+
+Dos reglas de esa carpeta que conviene no olvidar aquí:
+
+- El health check del ALB apunta a **`/health`**, nunca a `/health/ready`. El segundo comprueba
+  PostgreSQL y Redis, y usarlo en el balanceador convertiría una caída momentánea de RDS en la
+  retirada de instancias sanas.
+- El contenedor **no** ejecuta migraciones al arrancar. Alembic corre como paso del pipeline,
+  una vez por despliegue: si lo hiciera el contenedor, cinco instancias arrancando a la vez
+  lanzarían cinco migraciones simultáneas sobre la misma base.

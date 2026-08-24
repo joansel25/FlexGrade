@@ -5,8 +5,9 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al cerrar la iteración 4.4 (Fase 4 completa).** Última verificación real:
-> `pytest` completo en verde con 439 tests y `mypy --strict` sin incidencias sobre 137 archivos.
+> **Actualizada al cerrar la preparación para la nube, tras la Fase 4.** Última verificación
+> real: `pytest` completo en verde con 454 tests y `mypy --strict` sin incidencias sobre 141
+> archivos.
 
 Este archivo es la memoria del proyecto entre sesiones. `CLAUDE.md` dice cómo se trabaja; esto
 dice **en qué punto está el software y por qué está hecho así**. Si los dos se contradicen,
@@ -24,6 +25,7 @@ la raíz). Nada se ejecuta en el host: los comandos van por `docker-compose exec
 | Redis | contenedor `matricula-redis-1`, `localhost:6379` | Imagen `redis:7`, base lógica **0** en desarrollo y **1** en los tests (`tests/conftest.py` reescribe la URL) |
 | Migraciones | Alembic, dentro del backend | Los tests corren `alembic upgrade head`, nunca `create_all`: así prueban el esquema real, con triggers, índices parciales y `CHECK` |
 | Configuración | `app/infrastructure/config/settings.py` (Pydantic Settings) | `DATABASE_URL`, `REDIS_URL` y `JWT_SECRET` son obligatorios; sin ellos la app no arranca. En AWS los inyecta Elastic Beanstalk desde Secrets Manager |
+| Despliegue en AWS | `deploy/aws/` | `Dockerrun.aws.json` (lo que lee Elastic Beanstalk) y el README con variables por ambiente, health checks, cuenta de conexiones a RDS y grupos de seguridad |
 
 Comandos que se usan de verdad (equivalentes en el `Makefile`):
 
@@ -82,6 +84,16 @@ donde importa.
 8. **Un grupo se abre siempre en el período activo**, que no viaja en la petición.
 9. **Los códigos de materia se normalizan** en el value object `CourseCode` antes de comprobar
    duplicados; si no, `mat101` y `MAT101` convivirían.
+10. **`/health` es liveness y `/health/ready` es readiness.** El ALB mira la primera; la segunda
+    comprueba PostgreSQL y Redis y solo se consulta tras un despliegue. Poner dependencias en la
+    del balanceador convierte una caída de RDS en una caída total.
+11. **Los logs son JSON de una línea a stdout** en todo lo que no sea `dev`, porque los lee
+    CloudWatch Logs Insights. Cada respuesta lleva `X-Request-ID`, que reutiliza el
+    `X-Amzn-Trace-Id` del ALB cuando existe.
+12. **El tamaño del pool de PostgreSQL es configurable por entorno.** El límite real es
+    `max_connections` de RDS repartido entre todas las instancias del autoescalado.
+13. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
+    la API acepta credenciales y con ellas el comodín ni siquiera es válido.
 
 ## 4. Qué está construido
 
@@ -92,6 +104,7 @@ donde importa.
 | 2 — Catálogo | ✅ | `GET /courses`, `/courses/{id}`, `/courses/{id}/offerings`, `/offerings/{id}`, `/enrollment-periods/current` |
 | 3 — Inscripción | ✅ | `POST /enrollments`, `DELETE /enrollments/{id}`, `GET /students/me/schedule` |
 | 4 — Admin y reportes | ✅ | ver desglose abajo |
+| Preparación para la nube | ✅ | `/health/ready`, CORS, logs JSON, `X-Request-ID`, pool configurable, `deploy/aws/` |
 | 5 — Frontend y comprobante | ⬜ pendiente | SPA React + `GET /students/me/receipt` (PDF) |
 
 Desglose de la Fase 4 por iteraciones (la numeración es nuestra; los documentos solo describen
@@ -110,7 +123,12 @@ de espera automática — `WAITLISTED` existe en el enum pero ninguna operación
 Ausencias que sí son deuda, pendientes de decidir cuándo se pagan:
 
 - **Rate limiting.** `API.md` fija límites por endpoint (login 5/min por IP, inscripción 30/min,
-  catálogo 120/min, admin 60/min) y no hay nada implementado.
+  catálogo 120/min, admin 60/min) y no hay nada implementado. Con varias instancias detrás del
+  ALB, un contador en memoria no sirve: o AWS WAF con reglas por IP, o un contador en Redis para
+  los límites por usuario.
+- **Autenticación propia frente a Cognito.** El documento del proyecto nombra Cognito; el código
+  emite y valida sus propios JWT con bcrypt. `AuthService` es un puerto, así que cambiarlo sería
+  escribir un adaptador nuevo y tocar `di.py`, sin rozar el dominio. Decisión pendiente.
 - **`GET /enrollment-periods` público.** `API.md` sección 5 lo documenta como listado paginado
   de períodos; el único listado que existe es `GET /admin/enrollment-periods`, que exige rol
   ADMIN.
