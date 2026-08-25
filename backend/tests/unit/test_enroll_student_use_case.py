@@ -22,6 +22,7 @@ from app.domain.exceptions.catalog import OfferingNotFoundError
 from app.domain.exceptions.enrollment import (
     AlreadyEnrolledError,
     CapacityExceededError,
+    CorequisitesNotMetError,
     CourseNotInProgramError,
     EnrollmentPeriodInactiveError,
     PrerequisitesNotMetError,
@@ -378,6 +379,86 @@ def test_enroll_with_the_prerequisite_approved_succeeds() -> None:
     escenario.materias = InMemoryCourseRepository(
         [escenario.materia, calculo_i],
         prerequisites={escenario.materia.id: [calculo_i]},
+        plan={escenario.programa.id: [(escenario.materia.id, 1)]},
+    )
+    escenario._montar()
+
+    assert escenario.inscribir().status is EnrollmentStatus.ENROLLED
+
+
+@pytest.mark.unit
+def test_enroll_without_the_required_corequisite_is_rejected() -> None:
+    """El correquisito se comprueba contra la matrícula del período, no contra el historial."""
+    escenario = Escenario()
+    taller = crear_materia(code="TAL101")
+    escenario.materias = InMemoryCourseRepository(
+        [escenario.materia, taller],
+        corequisites={escenario.materia.id: [taller]},
+        plan={escenario.programa.id: [(escenario.materia.id, 1)]},
+    )
+    escenario._montar()
+
+    with pytest.raises(CorequisitesNotMetError) as error:
+        escenario.inscribir()
+
+    assert error.value.details["missing_corequisites"] == ["TAL101"]
+
+
+@pytest.mark.unit
+def test_enroll_with_the_corequisite_already_enrolled_succeeds() -> None:
+    escenario = Escenario()
+    taller = crear_materia(code="TAL101")
+    grupo_del_taller = crear_oferta(
+        course_id=taller.id,
+        enrollment_period_id=escenario.periodo.id,
+        group_number="09",
+    )
+    escenario.materias = InMemoryCourseRepository(
+        [escenario.materia, taller],
+        corequisites={escenario.materia.id: [taller]},
+        plan={escenario.programa.id: [(escenario.materia.id, 1)]},
+    )
+    escenario.ofertas = InMemoryOfferingRepository([escenario.grupo, grupo_del_taller])
+    escenario.inscripciones = InMemoryEnrollmentRepository(
+        [
+            crear_inscripcion(
+                student_id=escenario.estudiante_id,
+                course_offering_id=grupo_del_taller.id,
+                enrollment_period_id=escenario.periodo.id,
+            )
+        ]
+    )
+    escenario._montar()
+
+    assert escenario.inscribir().status is EnrollmentStatus.ENROLLED
+
+
+@pytest.mark.unit
+def test_enroll_into_a_mutual_corequisite_block_does_not_deadlock() -> None:
+    """Dos materias que se exigen la una a la otra tienen que poder entrar de una en una.
+
+    El doble deduce la reciprocidad de las dos declaraciones, igual que el adaptador SQL la
+    deduce del autojoin, así que este test comprueba la regla y no una bandera puesta a mano.
+    """
+    escenario = Escenario()
+    taller = crear_materia(code="TAL101")
+    escenario.materias = InMemoryCourseRepository(
+        [escenario.materia, taller],
+        corequisites={escenario.materia.id: [taller], taller.id: [escenario.materia]},
+        plan={escenario.programa.id: [(escenario.materia.id, 1)]},
+    )
+    escenario._montar()
+
+    assert escenario.inscribir().status is EnrollmentStatus.ENROLLED
+
+
+@pytest.mark.unit
+def test_a_corequisite_already_approved_does_not_have_to_be_enrolled_again() -> None:
+    taller = crear_materia(code="TAL101")
+    escenario = Escenario(aprobadas={taller.id})
+    escenario.materias = InMemoryCourseRepository(
+        [escenario.materia, taller],
+        corequisites={escenario.materia.id: [taller]},
         plan={escenario.programa.id: [(escenario.materia.id, 1)]},
     )
     escenario._montar()

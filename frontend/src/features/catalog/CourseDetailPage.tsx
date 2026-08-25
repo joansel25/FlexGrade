@@ -1,5 +1,9 @@
 /**
- * Detalle de una materia: sus prerrequisitos y sus grupos con cupos.
+ * Detalle de una materia: lo que exige y sus grupos con cupos.
+ *
+ * Los requisitos se resuelven dentro del plan de estudios del estudiante, no en abstracto: la
+ * misma materia puede exigir cosas distintas en dos carreras, así que la ficha pide los del
+ * programa de quien la mira.
  *
  * Es la pantalla desde la que se inscribe, así que los cupos se refrescan solos cada quince
  * segundos: el número que se ve al pulsar «Inscribir» tiene que ser el de ahora, no el de
@@ -99,7 +103,17 @@ export function CourseDetailPage() {
         </Alert>
       )}
 
-      <Prerequisitos materias={materia.data.prerequisites} />
+      <Requisitos
+        titulo="Prerrequisitos"
+        explicacion="Debes haber aprobado estas materias antes de inscribir esta."
+        materias={materia.data.prerequisites}
+      />
+
+      <Requisitos
+        titulo="Correquisitos"
+        explicacion="Debes cursar estas materias en el mismo período que esta. Si ya las aprobaste, no tienes que repetirlas."
+        materias={materia.data.corequisites}
+      />
 
       <section aria-labelledby="grupos-titulo" className="space-y-3">
         <div className="flex items-center justify-between gap-4">
@@ -192,7 +206,24 @@ function TarjetaDeGrupo({
   );
 }
 
-function Prerequisitos({ materias }: { materias: Course[] }) {
+/**
+ * Lista de materias exigidas, con su explicación.
+ *
+ * Un solo componente para prerrequisitos y correquisitos, y dos invocaciones distintas: lo que
+ * cambia entre los dos es el TEXTO —«apruébalas antes» frente a «cúrsalas a la vez»—, no la
+ * forma de pintarlas. Esa diferencia es justamente la que no se puede perder: son dos reglas
+ * que se cumplen de maneras distintas, y una sección común titulada «requisitos» obligaría al
+ * estudiante a adivinar cuál de las dos le aplica.
+ */
+function Requisitos({
+  titulo,
+  explicacion,
+  materias,
+}: {
+  titulo: string;
+  explicacion: string;
+  materias: Course[];
+}) {
   if (materias.length === 0) {
     return null;
   }
@@ -200,23 +231,21 @@ function Prerequisitos({ materias }: { materias: Course[] }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Prerrequisitos</CardTitle>
+        <CardTitle>{titulo}</CardTitle>
       </CardHeader>
       <CardBody className="space-y-2">
-        <p className="text-ink-600 text-sm">
-          Debes haber aprobado estas materias antes de inscribir esta.
-        </p>
+        <p className="text-ink-600 text-sm">{explicacion}</p>
         <ul className="flex flex-wrap gap-2">
-          {materias.map((prerequisito) => (
-            <li key={prerequisito.id}>
+          {materias.map((exigida) => (
+            <li key={exigida.id}>
               <Link
-                to={`/catalogo/${prerequisito.id}`}
+                to={`/catalogo/${exigida.id}`}
                 className="border-ink-200 hover:border-brand-300 hover:bg-brand-50 inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-colors"
               >
                 <span className="text-brand-700 font-mono text-xs font-semibold">
-                  {prerequisito.code}
+                  {exigida.code}
                 </span>
-                <span className="text-ink-700">{prerequisito.name}</span>
+                <span className="text-ink-700">{exigida.name}</span>
               </Link>
             </li>
           ))}

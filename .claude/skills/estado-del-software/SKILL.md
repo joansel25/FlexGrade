@@ -5,10 +5,12 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al cerrar la iteración 6.1 (catálogo acotado a la carrera).** Última
-> verificación real: backend con `pytest` en verde (485 tests) y `mypy --strict` limpio sobre
-> 149 archivos; frontend con `npm run lint`, `type-check`, `test` (76 tests) y `build` en verde.
-> Plan de estudios comprobado además contra el backend real.
+> **Actualizada al cerrar la iteración 6.2 (prerrequisitos y correquisitos por plan).** Última
+> verificación real: backend con `pytest` en verde (506 tests) y `mypy --strict` limpio sobre
+> 152 archivos; frontend con `npm run lint`, `type-check`, `test` (79 tests) y `build` en verde.
+> Migración `0007` aplicada sobre la base de desarrollo y las tres reglas comprobadas contra la
+> API real: el correquisito mutuo entra solo, el simple se rechaza con `COREQUISITES_NOT_MET`, y
+> tras inscribir la materia que faltaba pasa.
 
 Este archivo es la memoria del proyecto entre sesiones. `CLAUDE.md` dice cómo se trabaja; esto
 dice **en qué punto está el software y por qué está hecho así**. Si los dos se contradicen,
@@ -144,7 +146,28 @@ donde importa.
 26. **`suggested_semester` e `is_mandatory` viven en `program_courses`, no en `Course`.** La
     misma materia puede ser de primer semestre y obligatoria en una carrera, y de tercero y
     electiva en otra. Por eso `GET /courses` no puede devolverlos y el plan de estudios sí.
-27. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
+27. **Un requisito académico pertenece al PLAN DE ESTUDIOS, no al catálogo.**
+    `program_course_requirements` sustituyó a `course_prerequisites` (migración `0007`). La
+    tabla anterior afirmaba que MAT102 exige MAT101 en toda la institución, y eso deja de ser
+    cierto en cuanto una materia entra en dos planes. Sus claves foráneas son COMPUESTAS
+    contra `program_courses`, así que declarar un requisito sobre una materia ajena a la
+    carrera es imposible por construcción.
+28. **El correquisito se valida contra las inscripciones vivas, el prerrequisito contra el
+    historial.** Son dos servicios de dominio distintos porque son dos reglas distintas: una
+    mira un hecho cerrado y la otra, la matrícula que la persona está armando ahora.
+29. **Un correquisito MUTUO no exige estar ya inscrito.** Si A exige B y B exige A, pedir que
+    la otra esté dentro antes hace que la primera falle siempre y el bloque quede fuera de la
+    matrícula por cualquier camino. Se valida el conjunto: las materias unidas por
+    correquisitos recíprocos forman un bloque y cualquiera entra primero. El precio, asumido:
+    entre la primera y la segunda inscripción la matrícula queda incompleta, y hacerlo visible
+    le toca a la 6.3. El endpoint de inscripción múltiple se descartó por cambiar el contrato
+    de la operación más crítica del sistema.
+30. **`GET /courses/{id}` no responde requisitos sin `program_id`.** Devuelve las dos listas
+    vacías y `program_id: null`. Devolver la unión de todos los planes no es cierta en ninguna
+    carrera concreta y le mostraría a un estudiante de Derecho los requisitos de Ingeniería.
+    Por eso `GET /students/me/study-plan` empezó a devolver `program_id`: es lo que el
+    frontend envía.
+31. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
     la API acepta credenciales y con ellas el comodín ni siquiera es válido.
 
 ## 4. Qué está construido
@@ -159,8 +182,8 @@ donde importa.
 | Preparación para la nube | ✅ | `/health/ready`, CORS, logs JSON, `X-Request-ID`, pool configurable, `deploy/aws/` |
 | 5 — Frontend y comprobante | ✅ | 5.1 fundación · 5.2 autenticación · 5.3 catálogo · 5.4 inscripción y horario · 5.5 comprobante PDF |
 
-**Fase 6 — Reglas académicas por carrera** (en curso): 6.1 catálogo acotado ✅ ·
-6.2 prerrequisitos y correquisitos por plan · 6.3 semáforo del plan · 6.4 limpieza de la
+**Fase 6 — Reglas académicas por carrera** (en curso): 6.1 catálogo acotado ✅ (`c6782c0`) ·
+6.2 prerrequisitos y correquisitos por plan ✅ (`225a811`) · 6.3 semáforo del plan · 6.4 limpieza de la
 interfaz del estudiante.
 
 El plan completo de las fases 6 a 10 está en el artefacto «Hoja de ruta FlexGrade».
@@ -195,7 +218,12 @@ Ausencias que sí son deuda, pendientes de decidir cuándo se pagan:
   necesita ninguna pantalla todavía.
 - **El seed no comparte ninguna materia entre programas.** El esquema sí lo admite
   (`program_courses` tiene clave primaria compuesta), pero los datos de ejemplo dan a cada
-  programa materias propias, así que ese camino no se ejercita nunca.
+  programa materias propias, así que ese camino no se ejercita nunca. La fixture `catalogo`
+  de los tests de integración SÍ lo hace desde la 6.2 —dos planes que comparten MAT101 y
+  MAT102 con reglas distintas—, que es donde se comprueba que los requisitos dependen del
+  plan.
+- **No hay endpoint de administración para los requisitos.** Se cargan por el seed o a mano.
+  `POST /admin/courses` crea la materia y nada más.
 
 ## 5. Mapa rápido del código
 

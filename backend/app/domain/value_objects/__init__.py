@@ -10,6 +10,8 @@ Existentes:
   capaz de responder si se solapa con otro. Es la pieza que sostiene la detección de choque de
   horarios.
 - `enrollment_status.py`: EnrollmentStatus, el conjunto cerrado de estados de una inscripción.
+- `requirement_type.py`: RequirementType, cómo una materia exige a otra dentro de un plan
+  de estudios (`PREREQUISITE`, `COREQUISITE`).
 
 Se implementan como dataclasses congeladas (`frozen=True`) que validan sus invariantes en la
 construcción: un value object inválido nunca debe llegar a existir.

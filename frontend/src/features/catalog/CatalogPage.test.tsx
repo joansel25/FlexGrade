@@ -228,6 +228,26 @@ describe("detalle de una materia", () => {
     expect(enlace).toHaveAttribute("href", "/catalogo/c1");
   });
 
+  it("separa los correquisitos de los prerrequisitos", async () => {
+    // Son dos reglas que se cumplen de maneras distintas —aprobar antes frente a cursar a la
+    // vez—, así que una sección común titulada «requisitos» obligaría a adivinar cuál aplica.
+    montarConSesion("/catalogo/c2");
+
+    expect(
+      await screen.findByRole("heading", { name: "Correquisitos" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Prerrequisitos" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /TAL101/ })).toHaveAttribute("href", "/catalogo/c4");
+  });
+
+  it("no muestra secciones de requisitos cuando la materia no exige nada", async () => {
+    montarConSesion("/catalogo/c1");
+
+    await screen.findByText("Grupo 01");
+    expect(screen.queryByRole("heading", { name: "Prerrequisitos" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Correquisitos" })).not.toBeInTheDocument();
+  });
+
   it("bloquea la inscripción de una materia ajena al plan de estudios", async () => {
     // Se llega aquí por un enlace directo o desde «todo el catálogo». Ofrecer el botón sería
     // empujar hacia un 403 que ya se sabe que va a ocurrir.

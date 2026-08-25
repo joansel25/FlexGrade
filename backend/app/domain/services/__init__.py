@@ -4,6 +4,10 @@ Existentes:
 
 - `prerequisite_validator.py`: PrerequisiteValidator, verifica contra el historial académico
   que el estudiante haya aprobado todos los prerrequisitos directos de la materia.
+- `corequisite_validator.py`: CorequisiteValidator, verifica contra las inscripciones activas
+  del período vigente que el estudiante curse a la vez las materias correquisito. Trata
+  aparte el bloque de materias unidas por correquisitos mutuos, que de otro modo sería
+  imposible de inscribir.
 - `schedule_conflict_detector.py`: ScheduleConflictDetector, determina si los bloques de
   horario de un grupo se solapan con los de las inscripciones activas del estudiante.
 

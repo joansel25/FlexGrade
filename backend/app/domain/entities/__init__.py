@@ -16,6 +16,8 @@ Existentes:
   `release_slot`, `can_accept_enrollment`).
 - `enrollment.py`: Enrollment, la inscripción de un estudiante en un grupo (`create`, `cancel`,
   `reactivate`, `is_active`).
+- `course_requirement.py`: CourseRequirement, una materia exigida por otra dentro de un plan
+  de estudios, junto con la forma en que la exige.
 
 Las entidades **no** heredan de `Base` de SQLAlchemy: el mapeo a la base de datos vive en
 `app.infrastructure.persistence.sqlalchemy` y los repositorios traducen entre ambos mundos.

@@ -147,6 +147,28 @@ describe("conflictos al inscribir", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("MAT101, FIS101");
   });
 
+  it("dice qué materias hay que inscribir a la vez cuando falta un correquisito", async () => {
+    // El correquisito se distingue del prerrequisito precisamente porque SÍ tiene arreglo
+    // ahora mismo: el mensaje tiene que decir cuáles inscribir, no solo que falta algo.
+    server.use(
+      http.post(`${API_URL}/api/v1/enrollments`, () =>
+        respuestaDeError(409, "COREQUISITES_NOT_MET", "Faltan correquisitos", {
+          missing_corequisites: ["TAL101"],
+        }),
+      ),
+    );
+
+    const usuario = userEvent.setup();
+    montarConSesion("/catalogo/c1");
+    await screen.findByText("Grupo 01");
+
+    await usuario.click(screen.getByRole("button", { name: "Inscribir grupo 01" }));
+
+    const aviso = await screen.findByRole("alert");
+    expect(aviso).toHaveTextContent("Falta inscribir una materia que va junto a esta");
+    expect(aviso).toHaveTextContent("TAL101");
+  });
+
   it("explica que la materia no es del programa del estudiante", async () => {
     server.use(
       http.post(`${API_URL}/api/v1/enrollments`, () =>

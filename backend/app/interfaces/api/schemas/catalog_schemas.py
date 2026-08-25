@@ -42,9 +42,24 @@ class CourseSchema(BaseModel):
 
 
 class CourseDetailSchema(CourseSchema):
-    """Detalle de una materia, con sus prerrequisitos directos."""
+    """Detalle de una materia, con lo que exige dentro de un plan de estudios.
 
-    prerequisites: list[CourseSchema] = Field(default_factory=list)
+    Las dos listas solo se llenan cuando la petición indica `program_id`. Un requisito
+    académico pertenece al plan, no al catálogo: la misma materia puede exigir `MAT101` en
+    Ingeniería y nada en un plan donde entra como electiva, así que sin programa no hay una
+    respuesta correcta que dar. `program_id` vuelve en la respuesta para que dos listas vacías
+    no sean ambiguas: dicen «no exige nada EN ESTE PLAN», o «nadie preguntó por un plan».
+    """
+
+    program_id: UUID | None = Field(
+        default=None, description="Plan sobre el que se resolvieron los requisitos"
+    )
+    prerequisites: list[CourseSchema] = Field(
+        default_factory=list, description="Materias que hay que haber APROBADO antes"
+    )
+    corequisites: list[CourseSchema] = Field(
+        default_factory=list, description="Materias que hay que cursar EN EL MISMO período"
+    )
 
 
 class ScheduleBlockSchema(BaseModel):
@@ -131,6 +146,7 @@ class StudyPlanSchema(BaseModel):
     esa no se contesta de veinte en veinte.
     """
 
+    program_id: UUID
     program_code: str
     program_name: str
     total_semesters: int

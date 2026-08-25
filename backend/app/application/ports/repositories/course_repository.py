@@ -8,6 +8,7 @@ from uuid import UUID
 
 from app.application.dtos.pagination import Page
 from app.domain.entities.course import Course
+from app.domain.entities.course_requirement import CourseRequirement
 from app.domain.value_objects.course_code import CourseCode
 
 
@@ -55,19 +56,54 @@ class CourseRepository(ABC):
         """
 
     @abstractmethod
-    def find_prerequisites(self, course_id: UUID) -> list[Course]:
-        """Recupera las materias que hay que haber aprobado antes de cursar esta.
+    def find_requirements(self, course_id: UUID, program_id: UUID) -> list[CourseRequirement]:
+        """Recupera lo que una materia exige DENTRO de un plan de estudios concreto.
 
-        Devuelve solo los prerrequisitos **directos**, no el cierre transitivo: si B exige A
-        y C exige B, consultar los de C devuelve solo B. Es lo que pide el contrato de
-        `GET /courses/{id}` y lo que necesita la validación de la Fase 3, que comprueba nivel
-        a nivel.
+        El programa no es un filtro opcional, es parte de la pregunta. Un requisito académico
+        no une dos materias, une dos materias **dentro de una carrera**: la misma `FIS101`
+        puede exigir `MAT101` en Ingeniería y no exigir nada en un plan donde entra como
+        electiva. Preguntar «qué exige FIS101» sin decir en qué plan no tiene una única
+        respuesta correcta.
+
+        Devuelve prerrequisitos y correquisitos juntos, en una sola consulta, porque quien
+        valida una inscripción necesita los dos y separarlos en dos métodos duplicaría el
+        viaje a la base de datos dentro de la transacción más disputada del sistema. Quien
+        solo quiera unos filtra por `requirement_type`.
+
+        Son solo los requisitos **directos**, no el cierre transitivo: si B exige A y C exige
+        B, consultar los de C devuelve solo B. Es lo que valida `PrerequisiteValidator`, y su
+        docstring explica por qué recorrer la cadena entera sería incorrecto.
 
         Args:
             course_id: identificador de la materia.
+            program_id: plan de estudios sobre el que se pregunta.
 
         Returns:
-            Los prerrequisitos directos, o una lista vacía si no tiene.
+            Los requisitos directos ordenados por código, o una lista vacía si no tiene.
+        """
+
+    @abstractmethod
+    def find_mutual_corequisites(self, course_id: UUID, program_id: UUID) -> set[UUID]:
+        """Recupera las materias con las que esta forma bloque de correquisitos mutuos.
+
+        Una materia devuelta aquí cumple las dos direcciones a la vez: `course_id` la exige
+        como correquisito y ella exige a `course_id`. Es el caso de la teoría y su
+        laboratorio, que se cursan juntos.
+
+        Existe como consulta propia y no se resuelve pidiendo los requisitos de cada
+        correquisito porque eso sería una consulta por materia exigida —un N+1— dentro de la
+        transacción de inscripción. Aquí es una sola sentencia con un autojoin.
+
+        Lo usa `CorequisiteValidator`: a estas materias no se les exige estar ya inscritas,
+        porque son exactamente las que producirían un bloqueo circular en el que ninguna de
+        las dos podría entrar nunca.
+
+        Args:
+            course_id: identificador de la materia.
+            program_id: plan de estudios sobre el que se pregunta.
+
+        Returns:
+            Los identificadores de las materias del bloque, o un conjunto vacío.
         """
 
     @abstractmethod

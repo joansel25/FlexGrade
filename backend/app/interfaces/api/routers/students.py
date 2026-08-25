@@ -255,6 +255,7 @@ def get_my_study_plan(
     plan = use_case.execute(estudiante.id)
 
     return StudyPlanSchema(
+        program_id=plan.program_id,
         program_code=plan.program_code,
         program_name=plan.program_name,
         total_semesters=plan.total_semesters,

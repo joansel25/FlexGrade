@@ -6,18 +6,20 @@ import uuid as uuid_module
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, Select, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy import ColumnElement, Select, and_, func, or_, select
+from sqlalchemy.orm import Session, aliased
 
 from app.application.dtos.pagination import Page
 from app.application.ports.repositories.course_repository import CourseRepository
 from app.domain.entities.course import Course
+from app.domain.entities.course_requirement import CourseRequirement
 from app.domain.value_objects.course_code import CourseCode
+from app.domain.value_objects.requirement_type import RequirementType
 from app.infrastructure.persistence.sqlalchemy.models.course import CourseModel
-from app.infrastructure.persistence.sqlalchemy.models.course_prerequisite import (
-    CoursePrerequisiteModel,
-)
 from app.infrastructure.persistence.sqlalchemy.models.program_course import ProgramCourseModel
+from app.infrastructure.persistence.sqlalchemy.models.program_course_requirement import (
+    ProgramCourseRequirementModel,
+)
 
 
 class SQLAlchemyCourseRepository(CourseRepository):
@@ -44,17 +46,51 @@ class SQLAlchemyCourseRepository(CourseRepository):
         sentencia = select(CourseModel).where(CourseModel.id.in_(course_ids))
         return {m.id: self._a_entidad(m) for m in self._session.execute(sentencia).scalars()}
 
-    def find_prerequisites(self, course_id: UUID) -> list[Course]:
+    def find_requirements(self, course_id: UUID, program_id: UUID) -> list[CourseRequirement]:
         sentencia = (
-            select(CourseModel)
+            select(CourseModel, ProgramCourseRequirementModel.requirement_type)
             .join(
-                CoursePrerequisiteModel,
-                CoursePrerequisiteModel.required_course_id == CourseModel.id,
+                ProgramCourseRequirementModel,
+                ProgramCourseRequirementModel.required_course_id == CourseModel.id,
             )
-            .where(CoursePrerequisiteModel.course_id == course_id)
+            .where(ProgramCourseRequirementModel.program_id == program_id)
+            .where(ProgramCourseRequirementModel.course_id == course_id)
             .order_by(CourseModel.code)
         )
-        return [self._a_entidad(m) for m in self._session.execute(sentencia).scalars()]
+
+        return [
+            CourseRequirement(
+                course=self._a_entidad(modelo),
+                requirement_type=RequirementType(tipo),
+            )
+            for modelo, tipo in self._session.execute(sentencia).all()
+        ]
+
+    def find_mutual_corequisites(self, course_id: UUID, program_id: UUID) -> set[UUID]:
+        # Autojoin: `ida` son los correquisitos de la materia y `vuelta` comprueba que cada uno
+        # de ellos la exija a su vez. Solo sobreviven los pares recíprocos, que son los que
+        # forman bloque. Una consulta, no una por correquisito: esto corre dentro de la
+        # transacción de inscripción.
+        ida = ProgramCourseRequirementModel
+        vuelta = aliased(ProgramCourseRequirementModel)
+
+        sentencia = (
+            select(ida.required_course_id)
+            .join(
+                vuelta,
+                and_(
+                    vuelta.program_id == ida.program_id,
+                    vuelta.course_id == ida.required_course_id,
+                    vuelta.required_course_id == ida.course_id,
+                    vuelta.requirement_type == RequirementType.COREQUISITE.value,
+                ),
+            )
+            .where(ida.program_id == program_id)
+            .where(ida.course_id == course_id)
+            .where(ida.requirement_type == RequirementType.COREQUISITE.value)
+        )
+
+        return set(self._session.execute(sentencia).scalars())
 
     def belongs_to_program(self, course_id: UUID, program_id: UUID) -> bool:
         # `exists()` y no un `count`: PostgreSQL se detiene en la primera coincidencia en vez

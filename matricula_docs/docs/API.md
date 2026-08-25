@@ -231,6 +231,7 @@ regla del servidor era correcta; el problema era que la interfaz ofrecía algo q
 **Response 200**
 ```json
 {
+  "program_id": "uuid",
   "program_code": "ISIS",
   "program_name": "Ingeniería de Sistemas",
   "total_semesters": 10,
@@ -301,7 +302,15 @@ Lista materias del catálogo con filtros opcionales.
 
 ### GET /courses/{course_id}
 
-Retorna el detalle de una materia incluyendo sus prerrequisitos.
+Retorna el detalle de una materia y, si se indica un plan de estudios, lo que exige dentro de él.
+
+**Query params**
+
+| Param | Tipo | Descripción |
+|---|---|---|
+| `program_id` | UUID | Plan sobre el que resolver prerrequisitos y correquisitos |
+
+`program_id` es opcional pero no accesorio: **sin él las dos listas de requisitos vuelven vacías** y `program_id` vuelve como `null`. Un requisito no une dos materias sino dos materias dentro de una carrera, así que «qué exige MAT102» no tiene una respuesta única. Devolver la unión de todos los planes sería peor que no devolver nada: no es cierta en ninguna carrera concreta, y a un estudiante de Derecho le mostraría los requisitos de Ingeniería como si fueran suyos. El frontend envía siempre el programa del estudiante, que obtiene de `GET /students/me/study-plan`.
 
 **Response 200**
 ```json
@@ -311,15 +320,25 @@ Retorna el detalle de una materia incluyendo sus prerrequisitos.
   "name": "Cálculo II",
   "credits": 4,
   "description": "Cálculo integral y series",
+  "program_id": "uuid",
   "prerequisites": [
     {
       "id": "uuid",
       "code": "MAT101",
       "name": "Cálculo I"
     }
+  ],
+  "corequisites": [
+    {
+      "id": "uuid",
+      "code": "TAL101",
+      "name": "Taller de Cálculo I"
+    }
   ]
 }
 ```
+
+`prerequisites` son las materias que hay que **haber aprobado antes**; `corequisites`, las que hay que **cursar en el mismo período**. Se devuelven en dos listas y no en una con el tipo dentro porque lo que la interfaz hace con cada una es distinto, y una lista mezclada obligaría a repartirla en cada pantalla.
 
 ### GET /courses/{course_id}/offerings
 
@@ -406,7 +425,8 @@ Inscribe al estudiante autenticado en un grupo. Es la operación más sensible d
 | 409 | `COURSE_CAPACITY_EXCEEDED` | El grupo llegó a su cupo máximo |
 | 409 | `ALREADY_ENROLLED` | El estudiante ya está inscrito en este grupo |
 | 409 | `SCHEDULE_CONFLICT` | Choca con otra inscripción activa |
-| 409 | `PREREQUISITES_NOT_MET` | Faltan materias prerrequisito |
+| 409 | `PREREQUISITES_NOT_MET` | Faltan materias prerrequisito por aprobar |
+| 409 | `COREQUISITES_NOT_MET` | Faltan correquisitos por inscribir en este mismo período |
 | 403 | `COURSE_NOT_IN_PROGRAM` | La materia no pertenece al programa del estudiante |
 
 **Notas de implementación**
@@ -417,7 +437,11 @@ Inscribe al estudiante autenticado en un grupo. Es la operación más sensible d
 - Reinscribirse en un grupo que se canceló antes **reactiva la fila existente** en vez de crear otra. La restricción `UNIQUE (student_id, course_offering_id, enrollment_period_id)` lo impediría, y borrar la anterior perdería el rastro de que hubo una cancelación.
 - El descuento del cupo y la creación de la inscripción ocurren en **una sola transacción**. Ver `DATA_MODEL.md`, «Concurrencia en el descuento de cupos», para el mecanismo que impide el sobrecupo.
 
-Los `details` del error llevan lo que el cliente necesita para explicarlo sin interpretar el mensaje: `COURSE_CAPACITY_EXCEEDED` incluye `capacity` y `enrolled`; `PREREQUISITES_NOT_MET`, la lista `missing_prerequisites` con los códigos que faltan; y `SCHEDULE_CONFLICT`, el `conflicting_offering_id` con el día y la hora del cruce.
+Los `details` del error llevan lo que el cliente necesita para explicarlo sin interpretar el mensaje: `COURSE_CAPACITY_EXCEEDED` incluye `capacity` y `enrolled`; `PREREQUISITES_NOT_MET`, la lista `missing_prerequisites` con los códigos que faltan; `COREQUISITES_NOT_MET`, la lista `missing_corequisites`; y `SCHEDULE_CONFLICT`, el `conflicting_offering_id` con el día y la hora del cruce.
+
+`PREREQUISITES_NOT_MET` y `COREQUISITES_NOT_MET` son códigos distintos a propósito, aunque los dos digan «te falta una materia». Lo que se puede hacer al recibirlos no es lo mismo: ante un prerrequisito que falta no hay nada que hacer hoy —hay que aprobarlo en otro semestre—, mientras que un correquisito que falta se resuelve inscribiendo la otra materia a continuación. Un solo código obligaría a la interfaz a adivinar cuál de las dos cosas decir.
+
+**Los requisitos se evalúan en el plan de estudios del ESTUDIANTE**, no en un plan cualquiera: la misma materia puede exigir cosas distintas en dos carreras, y lo que obliga a esta persona es lo que diga su plan. Los correquisitos **mutuos** —el bloque teoría + laboratorio— no exigen estar ya inscritos; el porqué está en `DATA_MODEL.md`, sección «Requisitos académicos».
 
 ### DELETE /enrollments/{enrollment_id}
 

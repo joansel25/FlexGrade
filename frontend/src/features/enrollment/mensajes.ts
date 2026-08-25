@@ -83,6 +83,16 @@ export function mensajeDeInscripcion(error: unknown): MensajeDeInscripcion {
     };
   }
 
+  if (error.is("COREQUISITES_NOT_MET")) {
+    return {
+      titulo: "Falta inscribir una materia que va junto a esta",
+      // A diferencia del prerrequisito, esto SÍ se puede resolver ahora mismo: el detalle
+      // tiene que decirlo, o la persona lee «te falta algo» y se queda igual de bloqueada.
+      detalle: describirCorequisitos(error.details),
+      refrescarCupos: false,
+    };
+  }
+
   if (error.is("COURSE_NOT_IN_PROGRAM")) {
     return {
       titulo: "Esta materia no es de tu programa",
@@ -159,6 +169,31 @@ function describirChoque(details: Record<string, unknown>): string {
   }
 
   return "Elige otro grupo con un horario distinto o cancela la materia que choca.";
+}
+
+/**
+ * Enumera los correquisitos que faltan y dice qué hacer con ellos.
+ *
+ * El correquisito y el prerrequisito se cuentan distinto a propósito. El prerrequisito no
+ * tiene solución hoy —hay que aprobarlo en otro semestre—, mientras que el correquisito se
+ * arregla inscribiendo la otra materia a continuación. Un mensaje común para los dos tendría
+ * que ser vago en los dos casos.
+ */
+function describirCorequisitos(details: Record<string, unknown>): string {
+  const faltantes = details.missing_corequisites;
+
+  if (Array.isArray(faltantes) && faltantes.length > 0) {
+    const codigos = faltantes.filter((c): c is string => typeof c === "string");
+
+    if (codigos.length > 0) {
+      return (
+        `Inscribe también, en este mismo período: ${codigos.join(", ")}. ` +
+        "Puedes hacerlo ahora y volver a intentarlo."
+      );
+    }
+  }
+
+  return "Consulta la ficha de la materia para ver qué debes inscribir al mismo tiempo.";
 }
 
 /** Enumera los prerrequisitos que faltan, si el error los trae. */

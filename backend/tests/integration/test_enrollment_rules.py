@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.application.use_cases.enrollment.enroll_student import EnrollStudentUseCase
 from app.domain.exceptions.enrollment import (
+    CorequisitesNotMetError,
     CourseNotInProgramError,
     PrerequisitesNotMetError,
     ScheduleConflictError,
@@ -24,8 +25,8 @@ from app.domain.exceptions.enrollment import (
 from app.infrastructure.persistence.sqlalchemy.models.academic_history import AcademicHistoryModel
 from app.infrastructure.persistence.sqlalchemy.models.course import CourseModel
 from app.infrastructure.persistence.sqlalchemy.models.course_offering import CourseOfferingModel
-from app.infrastructure.persistence.sqlalchemy.models.course_prerequisite import (
-    CoursePrerequisiteModel,
+from app.infrastructure.persistence.sqlalchemy.models.program_course_requirement import (
+    ProgramCourseRequirementModel,
 )
 from app.infrastructure.persistence.sqlalchemy.models.schedule_block import ScheduleBlockModel
 from app.infrastructure.persistence.sqlalchemy.models.student import StudentModel
@@ -138,7 +139,7 @@ def _ofrecer_calculo_ii(db_session: Session, catalogo: CatalogoDePrueba) -> UUID
     """Abre un grupo de MAT102 y devuelve su identificador.
 
     La fixture `catalogo` ya deja MAT102 en el plan de estudios del programa y enlazada a
-    MAT101 en `course_prerequisites`; lo único que falta es que se ofrezca este semestre.
+    MAT101 en `program_course_requirements`; lo único que falta es que se ofrezca este semestre.
     """
     grupo = CourseOfferingModel(
         id=uuid4(),
@@ -157,7 +158,7 @@ def _ofrecer_calculo_ii(db_session: Session, catalogo: CatalogoDePrueba) -> UUID
 def test_enroll_without_having_approved_the_prerequisite_is_rejected(
     db_session: Session, catalogo: CatalogoDePrueba
 ) -> None:
-    # La fixture ya enlaza MAT102 -> MAT101 en `course_prerequisites`.
+    # La fixture ya enlaza MAT102 -> MAT101 como PRERREQUISITO en el plan de Ingeniería.
     grupo_id = _ofrecer_calculo_ii(db_session, catalogo)
     estudiante_id = _crear_estudiante(db_session, catalogo.program_id)
 
@@ -282,7 +283,9 @@ def test_enrolling_in_two_groups_at_the_same_time_is_rejected(
         )
     )
     # Se le quita el prerrequisito para que el rechazo sea por horario y no por MAT101.
-    db_session.query(CoursePrerequisiteModel).filter_by(course_id=catalogo.calculo_ii_id).delete()
+    db_session.query(ProgramCourseRequirementModel).filter_by(
+        course_id=catalogo.calculo_ii_id
+    ).delete()
     db_session.commit()
 
     estudiante_id = _crear_estudiante(db_session, catalogo.program_id)
@@ -317,7 +320,9 @@ def test_enrolling_in_two_groups_at_different_times_is_allowed(
             end_time=time(16, 0),
         )
     )
-    db_session.query(CoursePrerequisiteModel).filter_by(course_id=catalogo.calculo_ii_id).delete()
+    db_session.query(ProgramCourseRequirementModel).filter_by(
+        course_id=catalogo.calculo_ii_id
+    ).delete()
     db_session.commit()
 
     estudiante_id = _crear_estudiante(db_session, catalogo.program_id)
@@ -346,3 +351,130 @@ def test_a_group_without_a_schedule_never_clashes(
     )
 
     assert resultado.group_number == "02"
+
+
+# ---------------------------------------------------------------------------
+# Correquisitos, contra las inscripciones vivas del período (iteración 6.2)
+# ---------------------------------------------------------------------------
+
+
+def _ofrecer(
+    db_session: Session, catalogo: CatalogoDePrueba, course_id: UUID, grupo: str = "01"
+) -> UUID:
+    """Abre un grupo sin horario de la materia indicada y devuelve su identificador.
+
+    Sin franjas a propósito: estos tests van sobre correquisitos, y un choque de horario
+    accidental los haría fallar por un motivo que no es el que están comprobando.
+    """
+    oferta = CourseOfferingModel(
+        id=uuid4(),
+        enrollment_period_id=catalogo.period_id,
+        course_id=course_id,
+        group_number=grupo,
+        total_capacity=40,
+        enrolled_count=0,
+    )
+    db_session.add(oferta)
+    db_session.commit()
+    return oferta.id
+
+
+@pytest.mark.integration
+def test_a_simple_corequisite_must_be_enrolled_in_the_same_period(
+    db_session: Session, catalogo: CatalogoDePrueba
+) -> None:
+    """Un correquisito NO mutuo sí tiene que estar ya inscrito.
+
+    La fixture declara el par mutuo MAT101 <-> TAL101; aquí se añade una tercera regla en un
+    solo sentido —MAT102 exige cursar el taller a la vez— para comprobar que la exención del
+    bloqueo circular se aplica SOLO a los pares recíprocos y no a cualquier correquisito.
+    """
+    db_session.query(ProgramCourseRequirementModel).filter_by(
+        course_id=catalogo.calculo_ii_id
+    ).delete()
+    db_session.add(
+        ProgramCourseRequirementModel(
+            program_id=catalogo.program_id,
+            course_id=catalogo.calculo_ii_id,
+            required_course_id=catalogo.taller_id,
+            requirement_type="COREQUISITE",
+        )
+    )
+    db_session.commit()
+
+    grupo_id = _ofrecer(db_session, catalogo, catalogo.calculo_ii_id)
+    estudiante_id = _crear_estudiante(db_session, catalogo.program_id)
+
+    with pytest.raises(CorequisitesNotMetError) as error:
+        _caso(db_session).execute(student_id=estudiante_id, course_offering_id=grupo_id)
+
+    assert error.value.details["missing_corequisites"] == ["TAL101"]
+
+
+@pytest.mark.integration
+def test_a_simple_corequisite_already_enrolled_lets_the_enrollment_through(
+    db_session: Session, catalogo: CatalogoDePrueba
+) -> None:
+    db_session.query(ProgramCourseRequirementModel).filter_by(
+        course_id=catalogo.calculo_ii_id
+    ).delete()
+    db_session.add(
+        ProgramCourseRequirementModel(
+            program_id=catalogo.program_id,
+            course_id=catalogo.calculo_ii_id,
+            required_course_id=catalogo.taller_id,
+            requirement_type="COREQUISITE",
+        )
+    )
+    db_session.commit()
+
+    taller_grupo = _ofrecer(db_session, catalogo, catalogo.taller_id)
+    calculo_ii_grupo = _ofrecer(db_session, catalogo, catalogo.calculo_ii_id, grupo="02")
+    estudiante_id = _crear_estudiante(db_session, catalogo.program_id)
+    caso = _caso(db_session)
+
+    caso.execute(student_id=estudiante_id, course_offering_id=taller_grupo)
+    resultado = caso.execute(student_id=estudiante_id, course_offering_id=calculo_ii_grupo)
+
+    assert resultado.course_code == "MAT102"
+
+
+@pytest.mark.integration
+def test_a_mutual_corequisite_block_can_be_enrolled_one_course_at_a_time(
+    db_session: Session, catalogo: CatalogoDePrueba
+) -> None:
+    """El caso que da sentido a la iteración: MAT101 y TAL101 se exigen la una a la otra.
+
+    Si el validador exigiera que la otra estuviera inscrita ANTES, la primera de las dos
+    fallaría siempre y el bloque sería imposible de matricular por cualquier camino. Validando
+    el conjunto, cualquiera de ellas puede entrar primero.
+    """
+    taller_grupo = _ofrecer(db_session, catalogo, catalogo.taller_id)
+    estudiante_id = _crear_estudiante(db_session, catalogo.program_id)
+    caso = _caso(db_session)
+
+    primera = caso.execute(
+        student_id=estudiante_id, course_offering_id=catalogo.offering_grupo_02_id
+    )
+    segunda = caso.execute(student_id=estudiante_id, course_offering_id=taller_grupo)
+
+    assert primera.course_code == "MAT101"
+    assert segunda.course_code == "TAL101"
+
+
+@pytest.mark.integration
+def test_a_corequisite_declared_in_another_program_does_not_apply(
+    db_session: Session, catalogo: CatalogoDePrueba
+) -> None:
+    """La regla que rige es la del plan del ESTUDIANTE, no la de cualquier plan.
+
+    Cálculo I exige el taller en Ingeniería y no exige nada en Administración. Un estudiante de
+    Administración se inscribe sin encontrarse una regla que no es suya, que era imposible de
+    expresar con la tabla anterior.
+    """
+    grupo_id = _ofrecer(db_session, catalogo, catalogo.calculo_i_id, grupo="07")
+    estudiante_id = _crear_estudiante(db_session, catalogo.otro_program_id, sufijo="99")
+
+    resultado = _caso(db_session).execute(student_id=estudiante_id, course_offering_id=grupo_id)
+
+    assert resultado.course_code == "MAT101"

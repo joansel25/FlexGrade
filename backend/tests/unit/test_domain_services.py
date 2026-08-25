@@ -12,7 +12,12 @@ from uuid import uuid4
 
 import pytest
 
-from app.domain.exceptions.enrollment import PrerequisitesNotMetError, ScheduleConflictError
+from app.domain.exceptions.enrollment import (
+    CorequisitesNotMetError,
+    PrerequisitesNotMetError,
+    ScheduleConflictError,
+)
+from app.domain.services.corequisite_validator import CorequisiteValidator
 from app.domain.services.prerequisite_validator import PrerequisiteValidator
 from app.domain.services.schedule_conflict_detector import ScheduleConflictDetector
 from tests.unit.factories import crear_franja, crear_materia, crear_oferta
@@ -106,6 +111,104 @@ def test_only_direct_prerequisites_are_checked() -> None:
         required=[calculo_ii],
         approved_course_ids={calculo_ii.id},
     )
+
+
+# ---------------------------------------------------------------------------
+# CorequisiteValidator
+# ---------------------------------------------------------------------------
+
+
+def _validar(
+    *,
+    required,
+    inscritas=frozenset(),
+    aprobadas=frozenset(),
+    mutuas=frozenset(),
+) -> None:
+    """Invoca al validador con los conjuntos vacíos por defecto.
+
+    Los cuatro conjuntos hacen que cada llamada ocupe seis líneas, y en estos tests lo que
+    importa es cuál de ellos contiene la materia exigida. Nombrar solo ese es lo que deja la
+    diferencia entre un caso y otro a la vista.
+    """
+    CorequisiteValidator().validate(
+        course_id=uuid4(),
+        required=required,
+        enrolled_course_ids=set(inscritas),
+        approved_course_ids=set(aprobadas),
+        mutual_course_ids=set(mutuas),
+    )
+
+
+@pytest.mark.unit
+def test_a_course_without_corequisites_is_always_allowed() -> None:
+    _validar(required=[])
+
+
+@pytest.mark.unit
+def test_a_corequisite_enrolled_in_this_period_satisfies_the_rule() -> None:
+    calculo_i = crear_materia(code="MAT101")
+
+    _validar(required=[calculo_i], inscritas={calculo_i.id})
+
+
+@pytest.mark.unit
+def test_a_corequisite_already_approved_also_satisfies_the_rule() -> None:
+    """Quien ya la aprobó tiene con más motivo lo que el correquisito busca garantizar.
+
+    Exigirle cursarla otra vez convertiría la regla en un castigo por ir adelantado.
+    """
+    calculo_i = crear_materia(code="MAT101")
+
+    _validar(required=[calculo_i], aprobadas={calculo_i.id})
+
+
+@pytest.mark.unit
+def test_a_corequisite_neither_enrolled_nor_approved_is_rejected() -> None:
+    calculo_i = crear_materia(code="MAT101")
+
+    with pytest.raises(CorequisitesNotMetError) as error:
+        _validar(required=[calculo_i])
+
+    assert error.value.details["missing_corequisites"] == ["MAT101"]
+
+
+@pytest.mark.unit
+def test_a_mutual_corequisite_does_not_have_to_be_enrolled_yet() -> None:
+    """Es la salida al bloqueo circular, y la razón de que exista `mutual_course_ids`.
+
+    Si A exige B y B exige A, exigir que la otra esté inscrita ANTES hace que la primera de
+    las dos falle siempre: el bloque entero queda fuera de la matrícula por cualquier camino
+    que se intente.
+    """
+    laboratorio = crear_materia(code="TAL101")
+
+    _validar(required=[laboratorio], mutuas={laboratorio.id})
+
+
+@pytest.mark.unit
+def test_the_exemption_applies_only_to_the_mutual_ones() -> None:
+    """Un correquisito en un solo sentido sigue teniendo que estar inscrito.
+
+    Sin esta distinción, declarar cualquier correquisito equivaldría a no declarar ninguno.
+    """
+    laboratorio = crear_materia(code="TAL101")
+    calculo_i = crear_materia(code="MAT101")
+
+    with pytest.raises(CorequisitesNotMetError) as error:
+        _validar(required=[laboratorio, calculo_i], mutuas={laboratorio.id})
+
+    assert error.value.details["missing_corequisites"] == ["MAT101"]
+
+
+@pytest.mark.unit
+def test_the_missing_corequisites_come_sorted() -> None:
+    materias = [crear_materia(code=c) for c in ("PRG101", "FIS101", "MAT101")]
+
+    with pytest.raises(CorequisitesNotMetError) as error:
+        _validar(required=materias)
+
+    assert error.value.details["missing_corequisites"] == ["FIS101", "MAT101", "PRG101"]
 
 
 # ---------------------------------------------------------------------------

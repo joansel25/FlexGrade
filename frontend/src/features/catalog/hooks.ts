@@ -43,12 +43,27 @@ export function useCourses(filtros: FiltrosCatalogo) {
   });
 }
 
-/** Detalle de una materia con sus prerrequisitos. */
+/**
+ * Detalle de una materia con lo que exige dentro del plan del estudiante.
+ *
+ * Espera al plan de estudios antes de consultar. Podría lanzarse en paralelo y pedir después
+ * los requisitos, pero eso pintaría la ficha un instante sin ellos y los añadiría de golpe:
+ * en una pantalla desde la que se decide qué inscribir, «no exige nada» y «todavía no lo sé»
+ * no se pueden ver igual.
+ *
+ * Si el plan FALLA, la ficha se pide igualmente y sin programa. Es una degradación
+ * deliberada: se pierde la lista de requisitos, pero se conservan los grupos y sus cupos, que
+ * es a lo que se venía. Esperar indefinidamente a un plan que no va a llegar dejaría la
+ * pantalla en el esqueleto de carga para siempre.
+ */
 export function useCourseDetail(courseId: string | undefined) {
+  const plan = useStudyPlan();
+  const programId = plan.data?.program_id ?? null;
+
   return useQuery({
-    queryKey: clavesCatalogo.materia(courseId ?? ""),
-    queryFn: ({ signal }) => obtenerMateria(courseId ?? "", signal),
-    enabled: Boolean(courseId),
+    queryKey: clavesCatalogo.materia(courseId ?? "", programId ?? ""),
+    queryFn: ({ signal }) => obtenerMateria(courseId ?? "", programId, signal),
+    enabled: Boolean(courseId) && (programId !== null || plan.isError),
     staleTime: TIEMPO_FRESCO_CATALOGO_MS,
   });
 }

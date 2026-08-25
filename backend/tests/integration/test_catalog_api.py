@@ -43,7 +43,7 @@ def test_list_courses_returns_the_paginated_envelope(
     assert respuesta.status_code == 200
     cuerpo = respuesta.json()
     assert set(cuerpo) == {"items", "total", "page", "size"}
-    assert cuerpo["total"] == 3
+    assert cuerpo["total"] == 4
 
 
 @pytest.mark.integration
@@ -59,8 +59,9 @@ def test_list_courses_items_follow_the_documented_shape(
 def test_list_courses_filters_by_program(client: TestClient, catalogo: CatalogoDePrueba) -> None:
     cuerpo = client.get(RUTA_COURSES, params={"program_id": str(catalogo.program_id)}).json()
 
-    # Física no está en ningún plan de estudios.
-    assert cuerpo["total"] == 2
+    # Física no está en ningún plan de estudios; el plan de Ingeniería son las dos de Cálculo
+    # más el taller.
+    assert cuerpo["total"] == 3
     assert str(catalogo.fisica_id) not in {m["id"] for m in cuerpo["items"]}
 
 
@@ -80,7 +81,7 @@ def test_list_courses_respects_the_page_size(
     cuerpo = client.get(RUTA_COURSES, params={"page": 1, "size": 2}).json()
 
     assert len(cuerpo["items"]) == 2
-    assert cuerpo["total"] == 3
+    assert cuerpo["total"] == 4
 
 
 @pytest.mark.integration
@@ -101,20 +102,59 @@ def test_list_courses_rejects_a_non_positive_page(client: TestClient) -> None:
 
 
 @pytest.mark.integration
-def test_course_detail_includes_its_prerequisites(
+def test_course_detail_includes_its_requirements_for_the_requested_program(
+    client: TestClient, catalogo: CatalogoDePrueba
+) -> None:
+    cuerpo = client.get(
+        f"{RUTA_COURSES}/{catalogo.calculo_ii_id}",
+        params={"program_id": str(catalogo.program_id)},
+    ).json()
+
+    assert cuerpo["code"] == "MAT102"
+    assert cuerpo["program_id"] == str(catalogo.program_id)
+    assert [p["code"] for p in cuerpo["prerequisites"]] == ["MAT101"]
+    assert cuerpo["corequisites"] == []
+
+
+@pytest.mark.integration
+def test_course_detail_requirements_change_with_the_program(
+    client: TestClient, catalogo: CatalogoDePrueba
+) -> None:
+    """La misma materia, otro plan, otra respuesta.
+
+    En Administración, Cálculo II está en el plan y no exige nada. Es la afirmación que la
+    tabla anterior no podía sostener a la vez que la de Ingeniería.
+    """
+    cuerpo = client.get(
+        f"{RUTA_COURSES}/{catalogo.calculo_ii_id}",
+        params={"program_id": str(catalogo.otro_program_id)},
+    ).json()
+
+    assert cuerpo["prerequisites"] == []
+
+
+@pytest.mark.integration
+def test_course_detail_without_a_program_returns_no_requirements(
     client: TestClient, catalogo: CatalogoDePrueba
 ) -> None:
     cuerpo = client.get(f"{RUTA_COURSES}/{catalogo.calculo_ii_id}").json()
 
-    assert cuerpo["code"] == "MAT102"
-    assert [p["code"] for p in cuerpo["prerequisites"]] == ["MAT101"]
+    assert cuerpo["program_id"] is None
+    assert cuerpo["prerequisites"] == []
+    assert cuerpo["corequisites"] == []
 
 
 @pytest.mark.integration
-def test_course_detail_without_prerequisites_returns_an_empty_list(
+def test_course_detail_includes_the_mutual_corequisite(
     client: TestClient, catalogo: CatalogoDePrueba
 ) -> None:
-    assert client.get(f"{RUTA_COURSES}/{catalogo.calculo_i_id}").json()["prerequisites"] == []
+    cuerpo = client.get(
+        f"{RUTA_COURSES}/{catalogo.calculo_i_id}",
+        params={"program_id": str(catalogo.program_id)},
+    ).json()
+
+    assert cuerpo["prerequisites"] == []
+    assert [c["code"] for c in cuerpo["corequisites"]] == ["TAL101"]
 
 
 @pytest.mark.integration
@@ -364,16 +404,17 @@ def test_el_plan_de_estudios_trae_el_semestre_y_la_obligatoriedad(
     assert cuerpo["program_code"] == "ISIS"
 
     codigos = [c["code"] for c in cuerpo["courses"]]
-    # La fixture `catalogo` pone Cálculo I y Cálculo II en el plan; Física queda FUERA a
-    # propósito, y es justo lo que este endpoint no debe devolver.
-    assert codigos == ["MAT101", "MAT102"]
+    # La fixture `catalogo` pone en el plan las dos de Cálculo y el taller, ordenados por
+    # semestre; Física queda FUERA a propósito, y es justo lo que este endpoint no debe
+    # devolver.
+    assert codigos == ["MAT101", "MAT102", "TAL101"]
     assert "FIS101" not in codigos
 
     calculo_i = cuerpo["courses"][0]
     assert calculo_i["suggested_semester"] == 1
     assert calculo_i["is_mandatory"] is True
-    # Los créditos se suman en el servidor: 4 + 4.
-    assert cuerpo["total_credits"] == 8
+    # Los créditos se suman en el servidor: 4 + 4 + 1.
+    assert cuerpo["total_credits"] == 9
 
 
 @pytest.mark.integration

@@ -11,9 +11,23 @@ export interface Course {
   description: string | null;
 }
 
-/** Detalle de una materia, con sus prerrequisitos DIRECTOS (no el cierre transitivo). */
+/**
+ * Detalle de una materia, con lo que exige DENTRO de un plan de estudios.
+ *
+ * Los requisitos son DIRECTOS, no el cierre transitivo: si `MAT201` exige `MAT102` y esta
+ * exige `MAT101`, la ficha de `MAT201` muestra solo `MAT102`.
+ *
+ * Las dos listas solo llegan llenas si la petición indicó `program_id`. Un requisito no une
+ * dos materias sino dos materias dentro de una carrera, así que sin plan el servidor no tiene
+ * una respuesta correcta que dar y devuelve `program_id: null` para decirlo.
+ */
 export interface CourseDetail extends Course {
+  /** Plan sobre el que se resolvieron los requisitos; `null` si no se preguntó por ninguno. */
+  program_id: string | null;
+  /** Materias que hay que haber APROBADO antes. */
   prerequisites: Course[];
+  /** Materias que hay que cursar EN EL MISMO período. */
+  corequisites: Course[];
 }
 
 /** Envoltorio de las respuestas paginadas. */
@@ -97,6 +111,8 @@ export interface StudyPlanEntry extends Course {
 
 /** Respuesta de `GET /students/me/study-plan`. */
 export interface StudyPlan {
+  /** Identificador del programa. Es lo que la ficha de una materia envía para saber qué exige. */
+  program_id: string;
   program_code: string;
   program_name: string;
   total_semesters: number;

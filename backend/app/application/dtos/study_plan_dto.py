@@ -10,6 +10,7 @@ la materia y el programa. Por eso la entidad `Course` no los lleva y aquí sí.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from uuid import UUID
 
 from app.domain.entities.course import Course
 
@@ -38,6 +39,10 @@ class StudyPlanDTO:
     me falta para graduarme», y esa no se contesta de veinte en veinte.
 
     Attributes:
+        program_id: identificador del programa. Viaja a la respuesta porque el frontend lo
+            necesita para preguntar por los requisitos de una materia: desde la iteración 6.2
+            `GET /courses/{id}` los resuelve dentro de un plan, y sin este dato la ficha de la
+            materia no podría decir qué exige.
         program_code: código del programa (por ejemplo `ISIS`).
         program_name: nombre del programa.
         total_semesters: duración del programa, para poder mostrar los semestres vacíos.
@@ -45,6 +50,7 @@ class StudyPlanDTO:
         total_credits: créditos que suma el plan completo.
     """
 
+    program_id: UUID
     program_code: str
     program_name: str
     total_semesters: int

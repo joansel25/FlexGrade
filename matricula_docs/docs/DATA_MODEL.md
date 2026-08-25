@@ -9,7 +9,7 @@ Este documento describe el modelo de datos del Sistema de Matrícula Académica:
 El dominio de matrícula académica gira alrededor de tres ideas centrales:
 
 1. Un **estudiante** pertenece a un **programa** académico.
-2. Un **programa** tiene un plan de estudios compuesto por **materias** con prerrequisitos entre sí.
+2. Un **programa** tiene un plan de estudios compuesto por **materias**, y los requisitos entre ellas —prerrequisitos y correquisitos— pertenecen a ese plan, no al catálogo.
 3. Cada semestre, una materia se ofrece en uno o más **grupos** (con un profesor, un horario y un cupo), y los estudiantes se **inscriben** a esos grupos durante una ventana de tiempo llamada **período de matrícula**.
 
 ### Diagrama de entidades (texto)
@@ -74,7 +74,7 @@ El dominio de matrícula académica gira alrededor de tres ideas centrales:
 | **Administrator** | Perfil administrativo | Vincula a un User con permisos de gestión |
 | **Program** | Programa académico ofrecido por la institución | Ej: "Ingeniería de Sistemas", "Derecho" |
 | **Course** | Materia del plan de estudios | Independiente del semestre y del grupo |
-| **Prerequisite** | Relación de prerrequisitos entre materias | Un Course puede requerir haber aprobado otros Courses |
+| **CourseRequirement** | Requisito entre dos materias DENTRO de un plan de estudios | Un Course puede exigir aprobar otro antes (`PREREQUISITE`) o cursarlo a la vez (`COREQUISITE`) |
 | **Professor** | Profesor que dicta grupos | Puede dictar múltiples grupos por semestre |
 | **CourseOffering** | Oferta concreta de una materia en un semestre | "Cálculo I - Grupo 01 - Semestre 2025-2" |
 | **ScheduleBlock** | Bloque de horario de un grupo | Un grupo puede tener varios bloques (Lun 8-10 y Mié 8-10) |
@@ -171,11 +171,24 @@ CREATE TABLE program_courses (
     PRIMARY KEY (program_id, course_id)
 );
 
-CREATE TABLE course_prerequisites (
-    course_id UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
-    required_course_id UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
-    PRIMARY KEY (course_id, required_course_id),
-    CHECK (course_id <> required_course_id)
+-- Los requisitos pertenecen al PLAN DE ESTUDIOS, no al catálogo. Sustituyó a
+-- `course_prerequisites` en la migración `0007`; la razón está en la sección «Requisitos
+-- académicos» de este documento.
+CREATE TABLE program_course_requirements (
+    program_id UUID NOT NULL,
+    course_id UUID NOT NULL,
+    required_course_id UUID NOT NULL,
+    requirement_type VARCHAR(20) NOT NULL
+        CHECK (requirement_type IN ('PREREQUISITE', 'COREQUISITE')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (program_id, course_id, required_course_id),
+    CHECK (course_id <> required_course_id),
+    -- Claves foráneas COMPUESTAS contra el plan: hacen imposible declarar un requisito sobre
+    -- una materia que no pertenece a esa carrera.
+    CONSTRAINT fk_pcr_course_in_plan FOREIGN KEY (program_id, course_id)
+        REFERENCES program_courses(program_id, course_id) ON DELETE CASCADE,
+    CONSTRAINT fk_pcr_required_course_in_plan FOREIGN KEY (program_id, required_course_id)
+        REFERENCES program_courses(program_id, course_id) ON DELETE CASCADE
 );
 
 -- =========================================================
@@ -328,9 +341,20 @@ Dos decisiones sobre las tablas de la Fase 3 que se apartan de lo que parecería
 
 **`ix_history_student` no se crea.** Es idéntico al prefijo del índice que PostgreSQL genera automáticamente para la restricción `uq_academic_history_student_course_period`, así que sería un duplicado exacto: coste de escritura y de espacio sin ninguna ganancia en lectura. Es el mismo defecto que corrigió la migración `0003` para `users` y `students`. `ix_history_student_status` sí se crea, porque esa restricción no puede resolver un filtro por `(student_id, status)` más allá del primer campo.
 
-### Prerrequisitos
+### Requisitos académicos
 
-Se modelan como una relación autoreferente sobre `courses`. Al inscribir un estudiante, la validación consulta `academic_history` filtrando por `status = 'APPROVED'` para verificar que todos los prerrequisitos estén cumplidos.
+**Un requisito no une dos materias: une dos materias dentro de un plan de estudios.** El modelo original lo trataba como una relación autoreferente sobre `courses`, y esa forma afirmaba que `MAT102` exige `MAT101` en toda la institución. Deja de ser cierto en cuanto una materia entra en dos planes: la misma materia puede ser obligatoria con prerrequisito en Ingeniería y electiva libre en Administración, y en una tabla sin programa una de las dos verdades tenía que estar mal. Es el mismo motivo por el que `suggested_semester` e `is_mandatory` viven en `program_courses` y no en `courses`.
+
+Los dos tipos se validan contra fuentes distintas, y de ahí que sean un tipo y no un booleano:
+
+| Tipo | Contra qué se valida | Cuándo puede cumplirse |
+|---|---|---|
+| `PREREQUISITE` | `academic_history` con `status = 'APPROVED'` | En un semestre anterior; hoy no hay nada que hacer |
+| `COREQUISITE` | Las inscripciones ACTIVAS del período vigente, o el historial aprobado | Ahora mismo, inscribiendo la otra materia |
+
+**El correquisito mutuo y el bloqueo circular.** Un prerrequisito circular es un error de datos; un correquisito circular es lo normal —la teoría y su laboratorio se cursan juntos— y tiene que funcionar. Si `A` exige `B` y `B` exige `A`, y cada una exigiera que la otra estuviera inscrita *antes*, la primera de las dos fallaría siempre y el bloque quedaría fuera de la matrícula por cualquier camino. La salida es validar el **conjunto**: las materias unidas por correquisitos recíprocos forman un bloque que se cursa entero y cualquiera de ellas puede entrar primero. El repositorio identifica esos pares con un autojoin (`find_mutual_corequisites`) y el validador no les exige estar ya inscritas.
+
+La contrapartida está asumida: entre la primera inscripción del bloque y la segunda, la matrícula queda incompleta. La alternativa era un endpoint de inscripción múltiple que aceptara el bloque en una transacción, y se descartó porque cambia el contrato de la operación más crítica del sistema. Hacer visible esa matrícula incompleta le corresponde a la semaforización del plan (iteración 6.3).
 
 ### Auditoría temporal
 
@@ -405,9 +429,9 @@ Al arrancar el sistema por primera vez se cargan datos mínimos mediante un seed
 
 - 3 programas académicos de ejemplo
 - 10 profesores
-- 15 materias con sus prerrequisitos
+- 16 materias con sus requisitos
 - 1 período de matrícula activo
-- 20 grupos de oferta con horarios y cupos
+- 21 grupos de oferta con horarios y cupos
 - 50 estudiantes de prueba
 
 El seed es idempotente: puede ejecutarse múltiples veces sin duplicar datos.
@@ -420,5 +444,6 @@ Detalles de la implementación (`backend/app/infrastructure/seed.py`):
 
 - El período de matrícula se crea **abierto alrededor del instante actual**, no con fechas fijas: un período que naciera cerrado obligaría a tocar la base a mano antes de poder probar nada.
 - Las materias de Ingeniería forman una cadena de prerrequisitos de tres niveles (`MAT101` → `MAT102` → `MAT201`), pensada para ejercitar la validación de la Fase 3 en más de un salto.
+- Los correquisitos cubren los dos casos que se validan distinto: `FIS101` exige cursar `MAT101` a la vez (simple, en un solo sentido), y `FIS101` y `FIS102` se exigen mutuamente (el bloque teoría + laboratorio). Sus grupos van en franjas que no chocan entre sí: sin eso el bloque sería inscribible en teoría e imposible en la práctica.
 - Los grupos reciben ocupaciones variadas pero **deterministas**, de forma que el catálogo muestre grupos con holgura, casi llenos y llenos del todo sin depender del azar.
 - Todas las cuentas comparten la contraseña `SecurePass123`. Es un dato de desarrollo: el seed no se ejecuta en DEV, STAGING ni PROD, donde las cuentas reales se crean por los endpoints de administración.

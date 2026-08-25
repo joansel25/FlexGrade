@@ -73,6 +73,23 @@ class PrerequisitesNotMetError(DomainError):
         )
 
 
+class CorequisitesNotMetError(DomainError):
+    """Faltan materias correquisito por inscribir en este mismo período.
+
+    Se distingue de `PrerequisitesNotMetError` con un código propio y no comparte el suyo
+    porque lo que hay que hacer al recibirlos es distinto: ante un prerrequisito que falta no
+    se puede hacer nada hoy —hay que aprobarlo en otro semestre—, mientras que un correquisito
+    que falta se resuelve inscribiendo la otra materia a continuación. Un solo código
+    obligaría a la interfaz a adivinar cuál de las dos cosas decir.
+    """
+
+    def __init__(self, course_id: UUID, missing: list[str]) -> None:
+        super().__init__(
+            "Debes inscribir al mismo tiempo las materias correquisito",
+            details={"course_id": str(course_id), "missing_corequisites": missing},
+        )
+
+
 class ScheduleConflictError(DomainError):
     """El horario del grupo choca con otra inscripción activa.
 

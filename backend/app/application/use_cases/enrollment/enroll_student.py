@@ -41,6 +41,7 @@ from app.application.ports.repositories.student_repository import StudentReposit
 from app.application.ports.unit_of_work import UnitOfWork
 from app.application.use_cases.catalog import catalog_cache
 from app.domain.entities.course_offering import CourseOffering
+from app.domain.entities.course_requirement import CourseRequirement
 from app.domain.entities.enrollment import Enrollment
 from app.domain.entities.enrollment_period import EnrollmentPeriod
 from app.domain.exceptions.authentication import StudentProfileNotFoundError
@@ -51,6 +52,7 @@ from app.domain.exceptions.enrollment import (
     CourseNotInProgramError,
     EnrollmentPeriodInactiveError,
 )
+from app.domain.services.corequisite_validator import CorequisiteValidator
 from app.domain.services.prerequisite_validator import PrerequisiteValidator
 from app.domain.services.schedule_conflict_detector import ScheduleConflictDetector
 
@@ -64,6 +66,7 @@ class EnrollStudentUseCase:
     - `EnrollmentPeriod` sabe si la ventana está abierta.
     - `CourseOffering` encapsula la invariante de cupo.
     - `PrerequisiteValidator` decide si faltan materias por aprobar.
+    - `CorequisiteValidator` decide si faltan materias por inscribir a la vez.
     - `ScheduleConflictDetector` decide si el horario choca.
 
     Así, este caso de uso tiene una única razón para cambiar: que cambie el flujo. Si mañana se
@@ -81,6 +84,7 @@ class EnrollStudentUseCase:
         unit_of_work: UnitOfWork,
         cache: CacheService,
         prerequisite_validator: PrerequisiteValidator | None = None,
+        corequisite_validator: CorequisiteValidator | None = None,
         schedule_conflict_detector: ScheduleConflictDetector | None = None,
     ) -> None:
         self._enrollment_repository = enrollment_repository
@@ -95,6 +99,7 @@ class EnrollStudentUseCase:
         # aquí por defecto. Se admiten por parámetro para poder sustituirlos en un test que
         # quiera aislar el flujo de las reglas.
         self._prerequisites = prerequisite_validator or PrerequisiteValidator()
+        self._corequisites = corequisite_validator or CorequisiteValidator()
         self._schedule = schedule_conflict_detector or ScheduleConflictDetector()
 
     def execute(self, *, student_id: UUID, course_offering_id: UUID) -> EnrollmentDTO:
@@ -115,6 +120,7 @@ class EnrollStudentUseCase:
             AlreadyEnrolledError: si el estudiante ya está inscrito en ese grupo.
             CourseNotInProgramError: si la materia no está en su plan de estudios.
             PrerequisitesNotMetError: si le faltan materias por aprobar.
+            CorequisitesNotMetError: si le faltan correquisitos por inscribir en este período.
             ScheduleConflictError: si el horario choca con otra inscripción activa.
             CapacityExceededError: si el grupo se llenó.
         """
@@ -198,12 +204,21 @@ class EnrollStudentUseCase:
     def _validar_reglas_academicas(
         self, *, student_id: UUID, grupo: CourseOffering, periodo_id: UUID
     ) -> None:
-        """Comprueba plan de estudios, prerrequisitos y choque de horario.
+        """Comprueba plan de estudios, prerrequisitos, correquisitos y choque de horario.
 
         Se validan en ese orden, de más barato a más caro: la pertenencia al plan es una
-        consulta de existencia, los prerrequisitos leen el historial, y el choque de horario
-        exige traer los grupos ya inscritos con sus franjas. Rechazar en el primer paso ahorra
-        los dos siguientes.
+        consulta de existencia, los prerrequisitos leen el historial, y los correquisitos y el
+        choque de horario exigen traer los grupos ya inscritos con sus franjas. Rechazar en el
+        primer paso ahorra los siguientes.
+
+        Los requisitos se piden UNA sola vez y se reparten aquí por tipo. Prerrequisitos y
+        correquisitos viven en la misma tabla y salen de la misma consulta; pedirlos por
+        separado sería un viaje de más a la base de datos dentro de la transacción más
+        disputada del sistema.
+
+        El plan del que salen los requisitos es el del ESTUDIANTE, no uno de la materia: desde
+        la iteración 6.2 la misma materia puede exigir cosas distintas en dos carreras, y lo
+        que obliga a esta persona es lo que diga su plan.
         """
         estudiante = self._student_repository.find_by_id(student_id)
 
@@ -213,15 +228,62 @@ class EnrollStudentUseCase:
         if not self._course_repository.belongs_to_program(grupo.course_id, estudiante.program_id):
             raise CourseNotInProgramError(grupo.course_id, estudiante.program_id)
 
+        requisitos = self._course_repository.find_requirements(
+            grupo.course_id, estudiante.program_id
+        )
+        aprobadas = self._academic_history.find_approved_course_ids(student_id)
+
         self._prerequisites.validate(
             course_id=grupo.course_id,
-            required=self._course_repository.find_prerequisites(grupo.course_id),
-            approved_course_ids=self._academic_history.find_approved_course_ids(student_id),
+            required=[r.course for r in requisitos if r.is_prerequisite()],
+            approved_course_ids=aprobadas,
         )
 
-        self._schedule.ensure_no_conflict(
-            candidate=grupo,
-            enrolled=self._grupos_ya_inscritos(student_id, periodo_id),
+        # Los grupos ya inscritos sirven para las dos comprobaciones que quedan, así que se
+        # traen una sola vez: los correquisitos preguntan por sus materias, y el detector de
+        # choques, por sus franjas horarias.
+        inscritos = self._grupos_ya_inscritos(student_id, periodo_id)
+
+        self._validar_correquisitos(
+            grupo=grupo,
+            program_id=estudiante.program_id,
+            requisitos=requisitos,
+            inscritos=inscritos,
+            aprobadas=aprobadas,
+        )
+
+        self._schedule.ensure_no_conflict(candidate=grupo, enrolled=inscritos)
+
+    def _validar_correquisitos(
+        self,
+        *,
+        grupo: CourseOffering,
+        program_id: UUID,
+        requisitos: list[CourseRequirement],
+        inscritos: list[CourseOffering],
+        aprobadas: set[UUID],
+    ) -> None:
+        """Comprueba que se cursen a la vez las materias que esta exige cursar a la vez.
+
+        Si la materia no tiene correquisitos se sale sin consultar nada. Es el caso de la
+        inmensa mayoría, y `find_mutual_corequisites` solo tiene sentido cuando hay algo que
+        comprobar: lanzarla siempre añadiría una consulta a cada inscripción del sistema para
+        no responder nada.
+        """
+        correquisitos = [r.course for r in requisitos if r.is_corequisite()]
+
+        if not correquisitos:
+            return
+
+        self._corequisites.validate(
+            course_id=grupo.course_id,
+            required=correquisitos,
+            # Materias, no grupos: da igual en qué grupo se curse el correquisito.
+            enrolled_course_ids={g.course_id for g in inscritos},
+            approved_course_ids=aprobadas,
+            mutual_course_ids=self._course_repository.find_mutual_corequisites(
+                grupo.course_id, program_id
+            ),
         )
 
     def _grupos_ya_inscritos(self, student_id: UUID, periodo_id: UUID) -> list[CourseOffering]:

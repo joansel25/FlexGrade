@@ -64,6 +64,15 @@ export const MATERIAS = [
   },
   { id: "c2", code: "MAT102", name: "Cálculo II", credits: 4, description: "Cálculo integral" },
   { id: "c3", code: "FIS101", name: "Física", credits: 3, description: null },
+  // El taller es el correquisito de Cálculo II: existe para que la ficha tenga qué pintar en
+  // esa sección, que es la que estrena la iteración 6.2.
+  {
+    id: "c4",
+    code: "TAL101",
+    name: "Taller de Cálculo I",
+    credits: 1,
+    description: "Prácticas dirigidas",
+  },
 ];
 
 /** Grupos de Cálculo I: uno con holgura, otro a punto de llenarse y otro lleno. */
@@ -164,22 +173,23 @@ export function sembrarInscripcion(offeringId = "g1") {
 /**
  * Plan de estudios de prueba.
  *
- * Solo Cálculo I y Cálculo II pertenecen al programa del estudiante. Física queda FUERA a
- * propósito: es la materia con la que se comprueba que el catálogo ya no la ofrece por defecto
- * y que su ficha bloquea la inscripción.
+ * Contiene todo el catálogo MENOS Física, que queda fuera a propósito: es la materia con la que
+ * se comprueba que el catálogo ya no la ofrece por defecto y que su ficha bloquea la
+ * inscripción.
  */
 export const PLAN_DE_ESTUDIOS = {
+  program_id: "p1",
   program_code: "ISIS",
   program_name: "Ingeniería de Sistemas",
   total_semesters: 10,
   // Se derivan de `MATERIAS` en vez de escribirse a mano: así el plan y el catálogo no
   // pueden divergir si alguien cambia un código o unos créditos.
-  courses: MATERIAS.filter((m) => m.id === "c1" || m.id === "c2").map((m, indice) => ({
+  courses: MATERIAS.filter((m) => m.id !== "c3").map((m, indice) => ({
     ...m,
     suggested_semester: indice + 1,
     is_mandatory: true,
   })),
-  total_credits: 8,
+  total_credits: 9,
 };
 
 /** Identificadores de las materias del plan, para filtrar como lo hace el backend. */
@@ -244,17 +254,32 @@ export const handlers = [
     return HttpResponse.json(GRUPOS);
   }),
 
-  http.get(`${API_URL}/api/v1/courses/:courseId`, ({ params }) => {
+  http.get(`${API_URL}/api/v1/courses/:courseId`, ({ params, request }) => {
     const materia = MATERIAS.find((m) => m.id === params.courseId);
 
     if (!materia) {
       return respuestaDeError(404, "COURSE_NOT_FOUND", "La materia solicitada no existe");
     }
 
-    // Cálculo II exige Cálculo I; el resto no tiene prerrequisitos.
-    const prerequisites = materia.id === "c2" ? [MATERIAS[0]] : [];
+    // Los requisitos pertenecen a un plan de estudios: sin `program_id` el backend devuelve
+    // las dos listas vacías, y el doble hace exactamente lo mismo. Reproducirlo importa
+    // porque es lo que obliga a la interfaz a enviar el programa.
+    const programId = new URL(request.url).searchParams.get("program_id");
 
-    return HttpResponse.json({ ...materia, prerequisites });
+    if (!programId) {
+      return HttpResponse.json({
+        ...materia,
+        program_id: null,
+        prerequisites: [],
+        corequisites: [],
+      });
+    }
+
+    // Cálculo II exige aprobar Cálculo I antes y cursar el taller a la vez.
+    const prerequisites = materia.id === "c2" ? [MATERIAS[0]] : [];
+    const corequisites = materia.id === "c2" ? [MATERIAS[3]] : [];
+
+    return HttpResponse.json({ ...materia, program_id: programId, prerequisites, corequisites });
   }),
 
   http.get(`${API_URL}/api/v1/enrollment-periods/current`, () =>

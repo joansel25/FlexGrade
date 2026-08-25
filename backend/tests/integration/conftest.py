@@ -26,13 +26,13 @@ from app.infrastructure.cache.client import get_redis_client
 from app.infrastructure.config.settings import get_settings
 from app.infrastructure.persistence.sqlalchemy.models.course import CourseModel
 from app.infrastructure.persistence.sqlalchemy.models.course_offering import CourseOfferingModel
-from app.infrastructure.persistence.sqlalchemy.models.course_prerequisite import (
-    CoursePrerequisiteModel,
-)
 from app.infrastructure.persistence.sqlalchemy.models.enrollment_period import EnrollmentPeriodModel
 from app.infrastructure.persistence.sqlalchemy.models.professor import ProfessorModel
 from app.infrastructure.persistence.sqlalchemy.models.program import ProgramModel
 from app.infrastructure.persistence.sqlalchemy.models.program_course import ProgramCourseModel
+from app.infrastructure.persistence.sqlalchemy.models.program_course_requirement import (
+    ProgramCourseRequirementModel,
+)
 from app.infrastructure.persistence.sqlalchemy.models.schedule_block import ScheduleBlockModel
 from app.infrastructure.persistence.sqlalchemy.models.student import StudentModel
 from app.infrastructure.persistence.sqlalchemy.models.user import UserModel
@@ -49,7 +49,7 @@ TABLAS_A_LIMPIAR: tuple[str, ...] = (
     "academic_history",
     "schedule_blocks",
     "course_offerings",
-    "course_prerequisites",
+    "program_course_requirements",
     "program_courses",
     "courses",
     "professors",
@@ -209,11 +209,17 @@ class CatalogoDePrueba:
     """
 
     program_id: UUID
+    #: Segundo programa, con SU PROPIO plan. Existe para que los tests puedan comprobar que un
+    #: requisito declarado en una carrera no rige en la otra, que es la razón de ser de la
+    #: iteración 6.2. Comparte `calculo_i` y `calculo_ii` con el primero.
+    otro_program_id: UUID
     period_id: UUID
     professor_id: UUID
     calculo_i_id: UUID
     calculo_ii_id: UUID
     fisica_id: UUID
+    #: Taller de Matemáticas. Con `calculo_i_id` forman el par de correquisitos MUTUOS.
+    taller_id: UUID
     offering_grupo_01_id: UUID
     offering_grupo_02_id: UUID
 
@@ -222,17 +228,33 @@ class CatalogoDePrueba:
 def catalogo(db_session: Session) -> CatalogoDePrueba:
     """Crea un catálogo pequeño pero completo, con todas las relaciones cableadas.
 
-    Contiene lo justo para ejercitar cada camino de los repositorios: tres materias, una de
-    ellas con prerrequisito, un plan de estudios que deja fuera una materia (para comprobar
-    que el filtro por programa la excluye de verdad), un período activo, dos grupos —uno con
-    docente y horario, otro sin docente ni horario— y un grupo de un período inactivo que
-    nunca debe aparecer en las consultas del período vigente.
+    Contiene lo justo para ejercitar cada camino de los repositorios: cuatro materias, dos
+    planes de estudio que comparten dos de ellas, un
+    plan de estudios que deja fuera una de ellas (para comprobar que el filtro por programa la
+    excluye de verdad), un período activo, dos grupos —uno con docente y horario, otro sin
+    docente ni horario— y un grupo de un período inactivo que nunca debe aparecer en las
+    consultas del período vigente.
+
+    Los requisitos cubren los tres casos que la iteración 6.2 distingue:
+
+    - `MAT102` exige `MAT101` como PRERREQUISITO en el plan de Ingeniería.
+    - `MAT101` y `TAL101` se exigen MUTUAMENTE como correquisitos —la asignatura y su taller,
+      que se cursan juntos—, que es el par capaz de producir un bloqueo circular.
+    - `ADMI` incluye las mismas `MAT101` y `MAT102` SIN ningún requisito entre ellas. Es la
+      comprobación que da sentido a toda la iteración: el mismo par de materias, dos planes,
+      dos reglas distintas. Con la tabla anterior esas dos verdades no cabían a la vez.
+
+    `FIS101` sigue fuera de TODOS los planes, como antes de la 6.2: es lo que comprueba que el
+    catálogo completo no se une a `program_courses` y no la hace desaparecer.
     """
     # Códigos fijos y reconocibles, no generados: `db_session` vacía todas las tablas del
     # catálogo al terminar cada test, así que no hay riesgo de colisión entre ejecuciones y
     # las aserciones pueden hablar de "MAT101" en vez de una cadena impredecible.
     programa = ProgramModel(
         id=uuid4(), code="ISIS", name="Ingeniería de Sistemas", total_semesters=10
+    )
+    otro_programa = ProgramModel(
+        id=uuid4(), code="ADMI", name="Administración de Empresas", total_semesters=8
     )
     profesor = ProfessorModel(id=uuid4(), full_name="Ana Pérez", email="ana.perez@tdea.edu.co")
 
@@ -243,6 +265,10 @@ def catalogo(db_session: Session) -> CatalogoDePrueba:
         id=uuid4(), code="MAT102", name="Cálculo II", credits=4, description="Integral"
     )
     fisica = CourseModel(id=uuid4(), code="FIS101", name="Física", credits=3)
+    # El nombre evita a propósito la palabra «Cálculo» y su semestre sugerido es el 4: así no
+    # se cuela en las búsquedas por texto ni en los filtros por semestre de los otros tests,
+    # que hablan de las dos materias de Cálculo.
+    taller = CourseModel(id=uuid4(), code="TAL101", name="Taller de Matemáticas", credits=1)
 
     activo = EnrollmentPeriodModel(
         id=uuid4(),
@@ -263,10 +289,23 @@ def catalogo(db_session: Session) -> CatalogoDePrueba:
         is_active=False,
     )
 
-    db_session.add_all([programa, profesor, calculo_i, calculo_ii, fisica, activo, inactivo])
+    db_session.add_all(
+        [
+            programa,
+            otro_programa,
+            profesor,
+            calculo_i,
+            calculo_ii,
+            fisica,
+            taller,
+            activo,
+            inactivo,
+        ]
+    )
     db_session.flush()
 
-    # Plan de estudios: Cálculo I en 1.º y Cálculo II en 2.º. Física queda FUERA a propósito.
+    # Plan de Ingeniería: Cálculo I en 1.º, Cálculo II en 2.º y el par Física/Laboratorio en
+    # 2.º. El plan de Administración repite las dos de Cálculo y nada más.
     db_session.add_all(
         [
             ProgramCourseModel(
@@ -275,7 +314,39 @@ def catalogo(db_session: Session) -> CatalogoDePrueba:
             ProgramCourseModel(
                 program_id=programa.id, course_id=calculo_ii.id, suggested_semester=2
             ),
-            CoursePrerequisiteModel(course_id=calculo_ii.id, required_course_id=calculo_i.id),
+            ProgramCourseModel(program_id=programa.id, course_id=taller.id, suggested_semester=4),
+            ProgramCourseModel(
+                program_id=otro_programa.id, course_id=calculo_i.id, suggested_semester=1
+            ),
+            ProgramCourseModel(
+                program_id=otro_programa.id, course_id=calculo_ii.id, suggested_semester=3
+            ),
+        ]
+    )
+    # Los requisitos van DESPUÉS de los planes, y no por orden estético: sus claves foráneas
+    # son compuestas contra `program_courses`, así que una materia que no esté ya en el plan
+    # hace fallar la inserción.
+    db_session.flush()
+    db_session.add_all(
+        [
+            ProgramCourseRequirementModel(
+                program_id=programa.id,
+                course_id=calculo_ii.id,
+                required_course_id=calculo_i.id,
+                requirement_type="PREREQUISITE",
+            ),
+            ProgramCourseRequirementModel(
+                program_id=programa.id,
+                course_id=calculo_i.id,
+                required_course_id=taller.id,
+                requirement_type="COREQUISITE",
+            ),
+            ProgramCourseRequirementModel(
+                program_id=programa.id,
+                course_id=taller.id,
+                required_course_id=calculo_i.id,
+                requirement_type="COREQUISITE",
+            ),
         ]
     )
 
@@ -331,11 +402,13 @@ def catalogo(db_session: Session) -> CatalogoDePrueba:
 
     return CatalogoDePrueba(
         program_id=programa.id,
+        otro_program_id=otro_programa.id,
         period_id=activo.id,
         professor_id=profesor.id,
         calculo_i_id=calculo_i.id,
         calculo_ii_id=calculo_ii.id,
         fisica_id=fisica.id,
+        taller_id=taller.id,
         offering_grupo_01_id=grupo_01.id,
         offering_grupo_02_id=grupo_02.id,
     )

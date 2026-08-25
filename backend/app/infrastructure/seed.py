@@ -2,9 +2,16 @@
 
     python -m app.infrastructure.seed        (o `make seed`)
 
-Siembra lo que describe `docs/DATA_MODEL.md` sección 4: 3 programas, 10 profesores, 15
-materias con sus prerrequisitos, 1 período de matrícula activo, 20 grupos con horario y cupos,
-y 50 estudiantes de prueba.
+Siembra lo que describe `docs/DATA_MODEL.md` sección 4: 3 programas, 10 profesores, 16
+materias con sus requisitos, 1 período de matrícula activo, 21 grupos con horario y cupos, y 50
+estudiantes de prueba.
+
+La materia número 16 y su grupo llegaron con la iteración 6.2: el laboratorio de Física existe
+para que haya en la base un par de CORREQUISITOS MUTUOS de verdad. Sin él, el único camino del
+validador que quedaría sin poder probarse a mano es justo el que resuelve el bloqueo circular,
+que es el más difícil de razonar sobre el papel. Las materias de ese bloque llevan horario
+escrito a mano (`HORARIOS_DEL_BLOQUE`) en vez de la rotación general: sin eso el bloque sería
+inscribible en teoría e imposible en la práctica, porque la rotación choca antes.
 
 Siembra además **historial académico** para una parte de los estudiantes. No lo pedía el
 documento, pero sin él la validación de prerrequisitos de la Fase 3 no se puede probar a mano:
@@ -32,10 +39,12 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from typing import TypeVar
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.domain.value_objects.requirement_type import RequirementType
 from app.infrastructure.auth.jwt_auth_service import JWTAuthService
 from app.infrastructure.config.settings import get_settings
 from app.infrastructure.persistence.sqlalchemy.models.academic_history import AcademicHistoryModel
@@ -43,13 +52,13 @@ from app.infrastructure.persistence.sqlalchemy.models.administrator import Admin
 from app.infrastructure.persistence.sqlalchemy.models.base import Base
 from app.infrastructure.persistence.sqlalchemy.models.course import CourseModel
 from app.infrastructure.persistence.sqlalchemy.models.course_offering import CourseOfferingModel
-from app.infrastructure.persistence.sqlalchemy.models.course_prerequisite import (
-    CoursePrerequisiteModel,
-)
 from app.infrastructure.persistence.sqlalchemy.models.enrollment_period import EnrollmentPeriodModel
 from app.infrastructure.persistence.sqlalchemy.models.professor import ProfessorModel
 from app.infrastructure.persistence.sqlalchemy.models.program import ProgramModel
 from app.infrastructure.persistence.sqlalchemy.models.program_course import ProgramCourseModel
+from app.infrastructure.persistence.sqlalchemy.models.program_course_requirement import (
+    ProgramCourseRequirementModel,
+)
 from app.infrastructure.persistence.sqlalchemy.models.schedule_block import ScheduleBlockModel
 from app.infrastructure.persistence.sqlalchemy.models.student import StudentModel
 from app.infrastructure.persistence.sqlalchemy.models.user import UserModel
@@ -90,7 +99,12 @@ T = TypeVar("T", bound=Base)
 
 @dataclass(frozen=True)
 class MateriaSembrada:
-    """Una materia del catálogo, con su lugar en el plan de estudios."""
+    """Una materia del catálogo, con su lugar en el plan de estudios y lo que exige en él.
+
+    Los requisitos se declaran con el CÓDIGO de la otra materia y no con su identificador
+    porque los UUID los genera PostgreSQL: son distintos en cada base y no se pueden escribir
+    aquí. El código es la clave natural y se resuelve al sembrar.
+    """
 
     code: str
     name: str
@@ -98,7 +112,13 @@ class MateriaSembrada:
     description: str
     programa: str
     semestre: int
+    #: Materia que hay que haber APROBADO antes.
     requiere: str | None = None
+    #: Materias que hay que cursar EN EL MISMO período. Es una tupla y no un solo código
+    #: porque una materia puede exigir varias a la vez, y porque el correquisito mutuo obliga
+    #: a declarar la vuelta: `FIS101` exige `MAT101` y además `FIS102`, que a su vez la exige
+    #: a ella.
+    junto_a: tuple[str, ...] = ()
 
 
 PROGRAMAS: tuple[tuple[str, str, int], ...] = (
@@ -120,8 +140,18 @@ PROFESORES: tuple[str, ...] = (
     "Kevin Álvarez Pineda",
 )
 
-# 15 materias repartidas entre los tres programas, con una cadena de prerrequisitos en
+# 16 materias repartidas entre los tres programas, con una cadena de prerrequisitos en
 # Ingeniería (MAT101 -> MAT102 -> MAT201) que permite probar la validación de la Fase 3.
+#
+# Los correquisitos de la iteración 6.2 cubren los dos casos que se validan distinto:
+#
+#   FIS101 -> MAT101   correquisito SIMPLE: para ver Física I hay que estar cursando Cálculo I,
+#                      o haberlo aprobado ya. MAT101 no exige nada a cambio, así que a quien no
+#                      lo tenga aprobado se le pedirá inscribirlo también.
+#   FIS101 <-> FIS102  correquisito MUTUO: la teoría y su laboratorio se cursan juntos. Es el
+#                      caso que produciría un bloqueo circular si cada una exigiera que la otra
+#                      estuviera inscrita ANTES, y el que obliga a validar el bloque entero en
+#                      vez de la materia suelta.
 MATERIAS: tuple[MateriaSembrada, ...] = (
     MateriaSembrada("MAT101", "Cálculo I", 4, "Cálculo diferencial de una variable", "ISIS", 1),
     MateriaSembrada(
@@ -144,7 +174,24 @@ MATERIAS: tuple[MateriaSembrada, ...] = (
         "BDD201", "Bases de Datos", 3, "Modelo relacional y SQL", "ISIS", 3, requiere="PRG102"
     ),
     MateriaSembrada("RED301", "Redes de Computadores", 3, "Modelo OSI y TCP/IP", "ISIS", 4),
-    MateriaSembrada("FIS101", "Física I", 3, "Mecánica clásica", "ISIS", 2),
+    MateriaSembrada(
+        "FIS101",
+        "Física I",
+        3,
+        "Mecánica clásica",
+        "ISIS",
+        2,
+        junto_a=("MAT101", "FIS102"),
+    ),
+    MateriaSembrada(
+        "FIS102",
+        "Laboratorio de Física I",
+        1,
+        "Prácticas de mecánica",
+        "ISIS",
+        2,
+        junto_a=("FIS101",),
+    ),
     MateriaSembrada(
         "ADM101", "Fundamentos de Administración", 3, "Teoría administrativa", "ADMI", 1
     ),
@@ -184,7 +231,8 @@ MATERIAS: tuple[MateriaSembrada, ...] = (
 MATERIAS_SIN_GRUPO = ("RED301",)
 
 # Las materias de primeros semestres, que son las de mayor demanda, tienen dos grupos.
-# 14 materias con oferta + 6 grupos adicionales = los 20 que fija DATA_MODEL.md.
+# 15 materias con oferta + 6 grupos adicionales = 21. Eran 20 hasta la iteración 6.2, que
+# añadió el laboratorio de Física para poder probar los correquisitos mutuos.
 MATERIAS_CON_DOS_GRUPOS = (
     "MAT101",
     "MAT102",
@@ -202,6 +250,27 @@ FRANJAS: tuple[tuple[int, time, time], ...] = (
     (4, time(14, 0), time(16, 0)),
     (5, time(16, 0), time(18, 0)),
 )
+
+# Horarios ESCRITOS A MANO para las materias del bloque de correquisitos.
+#
+# La rotación de arriba está pensada para producir choques, y con cinco franjas lo consigue
+# demasiado bien: cada grupo ocupa las posiciones `i` e `i+2`, y con esa regla NO EXISTEN tres
+# grupos compatibles entre sí, se coloquen donde se coloquen las materias en la lista. Da igual
+# el orden: es una propiedad de la fórmula, no de los datos.
+#
+# Eso convertiría los correquisitos en una regla imposible de probar a mano. Para inscribir
+# `FIS101` hay que cursar `MAT101` a la vez y además `FIS102`, que son tres materias, y la
+# rotación garantiza que al menos dos de las tres se solapen. La persona recibiría un choque de
+# horario justo al intentar cumplir el correquisito que el sistema le acaba de exigir.
+#
+# Estas tres franjas se eligieron para no cruzarse entre sí ni con el grupo 01 de `MAT101`
+# —lunes 6-8 y miércoles 10-12, que la rotación le asigna por ser la primera materia—. El grupo
+# 02 de `MAT101` sí choca con `FIS101`, y se deja así a propósito: que UNA de las dos
+# combinaciones falle es información útil, que fallen las dos sería un dato roto.
+HORARIOS_DEL_BLOQUE: dict[str, tuple[tuple[int, time, time], ...]] = {
+    "FIS101": ((2, time(8, 0), time(10, 0)), (4, time(14, 0), time(16, 0))),
+    "FIS102": ((5, time(16, 0), time(18, 0)),),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -295,17 +364,30 @@ def sembrar(session: Session) -> tuple[dict[str, int], dict[str, list[str]]]:
             is_mandatory=True,
         )
 
-    # Los prerrequisitos van después de crear TODAS las materias: una materia no puede exigir
-    # otra que aún no existe.
+    # Los requisitos van después de crear TODAS las materias Y TODOS los planes de estudio.
+    # Antes bastaba con que las materias existieran; desde la iteración 6.2 la clave foránea es
+    # compuesta contra `program_courses`, así que las dos materias tienen que estar ya en el
+    # plan o PostgreSQL rechaza la fila. Esa restricción es justamente lo que impide declarar
+    # un requisito sobre una materia ajena a la carrera.
     for definicion in MATERIAS:
+        programa_id = programas[definicion.programa].id
+
         if definicion.requiere is not None:
-            _obtener_o_crear(
+            _sembrar_requisito(
                 session,
-                CoursePrerequisiteModel,
-                {
-                    "course_id": materias[definicion.code].id,
-                    "required_course_id": materias[definicion.requiere].id,
-                },
+                program_id=programa_id,
+                course_id=materias[definicion.code].id,
+                required_course_id=materias[definicion.requiere].id,
+                tipo=RequirementType.PREREQUISITE,
+            )
+
+        for codigo in definicion.junto_a:
+            _sembrar_requisito(
+                session,
+                program_id=programa_id,
+                course_id=materias[definicion.code].id,
+                required_course_id=materias[codigo].id,
+                tipo=RequirementType.COREQUISITE,
             )
 
     periodo = _sembrar_periodo(session)
@@ -321,6 +403,34 @@ def sembrar(session: Session) -> tuple[dict[str, int], dict[str, list[str]]]:
         "estudiantes": session.query(StudentModel).count(),
         "historial": session.query(AcademicHistoryModel).count(),
     }, reparto
+
+
+def _sembrar_requisito(
+    session: Session,
+    *,
+    program_id: UUID,
+    course_id: UUID,
+    required_course_id: UUID,
+    tipo: RequirementType,
+) -> None:
+    """Declara un requisito dentro de un plan de estudios, si no estaba ya.
+
+    El tipo NO forma parte de la clave que se busca, igual que no forma parte de la clave
+    primaria de la tabla: la misma pareja no puede ser prerrequisito y correquisito a la vez
+    sin contradecirse. Buscando solo por la pareja, volver a ejecutar el seed después de
+    cambiar un tipo conserva el valor antiguo en vez de fallar por clave duplicada, que es lo
+    que promete el resto del script: lo que ya existe no se pisa.
+    """
+    _obtener_o_crear(
+        session,
+        ProgramCourseRequirementModel,
+        {
+            "program_id": program_id,
+            "course_id": course_id,
+            "required_course_id": required_course_id,
+        },
+        requirement_type=tipo.value,
+    )
 
 
 def _sembrar_periodo(session: Session) -> EnrollmentPeriodModel:
@@ -390,8 +500,14 @@ def _sembrar_grupos(
             grupos.append(grupo)
 
             # Dos franjas por grupo, en días distintos, rotando para generar solapamientos.
-            for desplazamiento in (0, 2):
-                dia, inicio, fin = FRANJAS[(indice + desplazamiento) % len(FRANJAS)]
+            # Las materias del bloque de correquisitos llevan horario propio, porque la
+            # rotación no puede dejar tres grupos compatibles entre sí.
+            franjas = HORARIOS_DEL_BLOQUE.get(
+                definicion.code,
+                tuple(FRANJAS[(indice + d) % len(FRANJAS)] for d in (0, 2)),
+            )
+
+            for dia, inicio, fin in franjas:
                 _obtener_o_crear(
                     session,
                     ScheduleBlockModel,

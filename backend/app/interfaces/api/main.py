@@ -43,6 +43,7 @@ from app.domain.exceptions.catalog import (
 from app.domain.exceptions.enrollment import (
     AlreadyEnrolledError,
     CapacityExceededError,
+    CorequisitesNotMetError,
     CourseNotInProgramError,
     EnrollmentAlreadyCancelledError,
     EnrollmentNotFoundError,
@@ -157,6 +158,7 @@ _MAPEO_ERRORES: dict[type[DomainError], tuple[int, str]] = {
     CapacityExceededError: (409, "COURSE_CAPACITY_EXCEEDED"),
     AlreadyEnrolledError: (409, "ALREADY_ENROLLED"),
     PrerequisitesNotMetError: (409, "PREREQUISITES_NOT_MET"),
+    CorequisitesNotMetError: (409, "COREQUISITES_NOT_MET"),
     ScheduleConflictError: (409, "SCHEDULE_CONFLICT"),
     EnrollmentAlreadyCancelledError: (409, "ENROLLMENT_ALREADY_CANCELLED"),
     # La excepción: no es un conflicto de estado sino una operación que a esta persona no le

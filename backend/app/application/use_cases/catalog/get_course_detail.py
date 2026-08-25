@@ -12,13 +12,24 @@ from app.domain.exceptions.catalog import CourseNotFoundError
 
 
 class GetCourseDetailUseCase:
-    """Devuelve una materia junto con las que hay que haber aprobado antes.
+    """Devuelve una materia junto con lo que exige dentro de un plan de estudios.
 
-    Se cachea solo la materia, no sus prerrequisitos. Podrían cachearse juntos, pero eso
-    obligaría a un segundo formato de serialización para ahorrar una consulta a una tabla
-    diminuta que se lee por clave primaria. La materia sí se reutiliza: la misma entrada de
-    caché sirve a este endpoint y a cualquier otro que necesite la materia por su
-    identificador.
+    EL PLAN ES OBLIGATORIO PARA RESPONDER LOS REQUISITOS, y por eso `program_id` es un
+    parámetro y no un filtro. Desde la iteración 6.2 un prerrequisito no une dos materias sino
+    dos materias dentro de una carrera, así que «qué exige MAT102» no tiene una respuesta
+    única: puede exigir MAT101 en Ingeniería y nada en otro plan donde entre como electiva.
+    Sin programa se devuelve la materia con las dos listas vacías, y `program_id` vuelve en
+    `None` para que quede claro que nadie preguntó, en vez de afirmar que no exige nada.
+
+    Se decidió eso y no devolver la unión de todos los planes: esa unión no es cierta en
+    ninguna carrera concreta, y a un estudiante de Derecho le mostraría los requisitos de
+    Ingeniería como si fueran suyos.
+
+    Se cachea solo la materia, no sus requisitos. Podrían cachearse juntos, pero eso obligaría
+    a una clave por programa y a un segundo formato de serialización para ahorrar una consulta
+    a una tabla diminuta que se lee por el prefijo de su clave primaria. La materia sí se
+    reutiliza: la misma entrada de caché sirve a este endpoint y a cualquier otro que necesite
+    la materia por su identificador.
     """
 
     def __init__(
@@ -31,14 +42,16 @@ class GetCourseDetailUseCase:
         self._cache = cache
         self._ttl_seconds = ttl_seconds
 
-    def execute(self, course_id: UUID) -> CourseDetailDTO:
+    def execute(self, course_id: UUID, program_id: UUID | None = None) -> CourseDetailDTO:
         """Consulta el detalle de una materia.
 
         Args:
             course_id: identificador de la materia.
+            program_id: plan de estudios sobre el que resolver los requisitos. Sin él, las
+                dos listas vuelven vacías.
 
         Returns:
-            La materia y sus prerrequisitos directos.
+            La materia y, si se indicó un plan, sus prerrequisitos y correquisitos directos.
 
         Raises:
             CourseNotFoundError: si la materia no existe.
@@ -55,8 +68,16 @@ class GetCourseDetailUseCase:
 
             self._cache.set(clave, catalog_cache.materia_a_json(materia), self._ttl_seconds)
 
-        # Solo se consultan los prerrequisitos DESPUÉS de confirmar que la materia existe: al
-        # revés se haría una consulta inútil en el caso de error.
-        prerrequisitos = self._course_repository.find_prerequisites(course_id)
+        if program_id is None:
+            return CourseDetailDTO(course=materia)
 
-        return CourseDetailDTO(course=materia, prerequisites=prerrequisitos)
+        # Solo se consultan los requisitos DESPUÉS de confirmar que la materia existe: al revés
+        # se haría una consulta inútil en el caso de error.
+        requisitos = self._course_repository.find_requirements(course_id, program_id)
+
+        return CourseDetailDTO(
+            course=materia,
+            program_id=program_id,
+            prerequisites=[r.course for r in requisitos if r.is_prerequisite()],
+            corequisites=[r.course for r in requisitos if r.is_corequisite()],
+        )

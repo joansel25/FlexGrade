@@ -16,10 +16,12 @@ class Course:
     La materia es la definición (`Cálculo I`, 4 créditos); los grupos concretos que se abren
     en un período son `CourseOffering`.
 
-    No lleva sus prerrequisitos como atributo. Son una consulta aparte del repositorio
-    (`find_prerequisites`) porque el listado del catálogo muestra decenas de materias y
-    ninguna necesita esa información: cargarla siempre sería trabajo desperdiciado en la
-    consulta más frecuente para servir al endpoint de detalle, que es el menos frecuente.
+    No lleva sus requisitos como atributo, y no podría llevarlos aunque se quisiera: un
+    prerrequisito o un correquisito no une dos materias sino dos materias **dentro de un plan
+    de estudios**, así que no hay una respuesta única a «qué exige esta materia» sin decir en
+    qué carrera. Son una consulta aparte del repositorio (`find_requirements`), que además
+    ahorra trabajo donde más se nota: el listado del catálogo muestra decenas de materias y
+    ninguna necesita esa información.
 
     Attributes:
         id: identificador único de la materia.

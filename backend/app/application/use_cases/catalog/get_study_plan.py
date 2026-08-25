@@ -68,6 +68,7 @@ class GetStudyPlanUseCase:
         ]
 
         return StudyPlanDTO(
+            program_id=programa.id,
             program_code=programa.code,
             program_name=programa.name,
             total_semesters=programa.total_semesters,

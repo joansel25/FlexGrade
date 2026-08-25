@@ -8,6 +8,8 @@ nadie se atreve a ejecutar.
 
 from __future__ import annotations
 
+from uuid import UUID
+
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -16,13 +18,13 @@ from app.infrastructure.persistence.sqlalchemy.models.academic_history import Ac
 from app.infrastructure.persistence.sqlalchemy.models.administrator import AdministratorModel
 from app.infrastructure.persistence.sqlalchemy.models.course import CourseModel
 from app.infrastructure.persistence.sqlalchemy.models.course_offering import CourseOfferingModel
-from app.infrastructure.persistence.sqlalchemy.models.course_prerequisite import (
-    CoursePrerequisiteModel,
-)
 from app.infrastructure.persistence.sqlalchemy.models.enrollment_period import EnrollmentPeriodModel
 from app.infrastructure.persistence.sqlalchemy.models.professor import ProfessorModel
 from app.infrastructure.persistence.sqlalchemy.models.program import ProgramModel
 from app.infrastructure.persistence.sqlalchemy.models.program_course import ProgramCourseModel
+from app.infrastructure.persistence.sqlalchemy.models.program_course_requirement import (
+    ProgramCourseRequirementModel,
+)
 from app.infrastructure.persistence.sqlalchemy.models.schedule_block import ScheduleBlockModel
 from app.infrastructure.persistence.sqlalchemy.models.student import StudentModel
 from app.infrastructure.persistence.sqlalchemy.models.user import UserModel
@@ -32,8 +34,8 @@ from app.infrastructure.seed import CORREO_ADMIN, PASSWORD_DE_EJEMPLO, sembrar
 ESPERADO = {
     ProgramModel: 3,
     ProfessorModel: 10,
-    CourseModel: 15,
-    CourseOfferingModel: 20,
+    CourseModel: 16,
+    CourseOfferingModel: 21,
     StudentModel: 50,
 }
 
@@ -79,7 +81,7 @@ def test_seed_does_not_duplicate_the_secondary_tables(db_session: Session) -> No
         m: _contar(db_session, m)
         for m in (
             ProgramCourseModel,
-            CoursePrerequisiteModel,
+            ProgramCourseRequirementModel,
             ScheduleBlockModel,
             EnrollmentPeriodModel,
             AdministratorModel,
@@ -171,6 +173,23 @@ def test_seeded_accounts_can_authenticate(db_session: Session) -> None:
     assert hasher.verify(PASSWORD_DE_EJEMPLO, admin.password_hash)
 
 
+def _requisitos(db_session: Session) -> set[tuple[UUID, UUID, str]]:
+    """Devuelve los requisitos sembrados como tríos `(materia, exigida, tipo)`."""
+    return {
+        (r.course_id, r.required_course_id, r.requirement_type)
+        for r in db_session.execute(select(ProgramCourseRequirementModel)).scalars()
+    }
+
+
+def _materias(db_session: Session, *codigos: str) -> dict[str, CourseModel]:
+    return {
+        c.code: c
+        for c in db_session.execute(
+            select(CourseModel).where(CourseModel.code.in_(codigos))
+        ).scalars()
+    }
+
+
 @pytest.mark.integration
 def test_seeded_prerequisite_chain_is_linked(db_session: Session) -> None:
     # MAT101 -> MAT102 -> MAT201: la cadena que la Fase 3 usará para probar la validación de
@@ -178,20 +197,35 @@ def test_seeded_prerequisite_chain_is_linked(db_session: Session) -> None:
     sembrar(db_session)
     db_session.commit()
 
-    materias = {
-        c.code: c
-        for c in db_session.execute(
-            select(CourseModel).where(CourseModel.code.in_(["MAT101", "MAT102", "MAT201"]))
-        ).scalars()
-    }
+    materias = _materias(db_session, "MAT101", "MAT102", "MAT201")
+    enlaces = _requisitos(db_session)
 
-    enlaces = {
-        (p.course_id, p.required_course_id)
-        for p in db_session.execute(select(CoursePrerequisiteModel)).scalars()
-    }
+    assert (materias["MAT102"].id, materias["MAT101"].id, "PREREQUISITE") in enlaces
+    assert (materias["MAT201"].id, materias["MAT102"].id, "PREREQUISITE") in enlaces
 
-    assert (materias["MAT102"].id, materias["MAT101"].id) in enlaces
-    assert (materias["MAT201"].id, materias["MAT102"].id) in enlaces
+
+@pytest.mark.integration
+def test_seeded_corequisites_cover_the_simple_and_the_mutual_case(
+    db_session: Session,
+) -> None:
+    """Los dos casos que el validador trata distinto tienen datos con los que probarse a mano.
+
+    Sin el par mutuo, el único camino que quedaría sin ejercitar es justo el que resuelve el
+    bloqueo circular, que es el más difícil de razonar sobre el papel.
+    """
+    sembrar(db_session)
+    db_session.commit()
+
+    materias = _materias(db_session, "MAT101", "FIS101", "FIS102")
+    enlaces = _requisitos(db_session)
+
+    # Simple: Física I exige cursar Cálculo I a la vez, y Cálculo I no exige nada a cambio.
+    assert (materias["FIS101"].id, materias["MAT101"].id, "COREQUISITE") in enlaces
+    assert (materias["MAT101"].id, materias["FIS101"].id, "COREQUISITE") not in enlaces
+
+    # Mutuo: la teoría y su laboratorio se exigen en las dos direcciones.
+    assert (materias["FIS101"].id, materias["FIS102"].id, "COREQUISITE") in enlaces
+    assert (materias["FIS102"].id, materias["FIS101"].id, "COREQUISITE") in enlaces
 
 
 @pytest.mark.integration

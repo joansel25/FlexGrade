@@ -1,8 +1,8 @@
 """DTOs del catálogo académico.
 
 Existen solo donde el resultado **compone varios agregados** y por tanto no cabe en ninguna
-entidad: el detalle de una materia junto a sus prerrequisitos, los grupos junto a la materia y
-el período en que se dictan, o un período junto a su cuenta atrás.
+entidad: el detalle de una materia junto a lo que exige en un plan de estudios, los grupos
+junto a la materia y el período en que se dictan, o un período junto a su cuenta atrás.
 
 Cuando el resultado es una única entidad —el listado de materias, el detalle de un grupo— el
 caso de uso la devuelve tal cual y el router la traduce a su schema. Envolverla en un DTO que
@@ -12,6 +12,7 @@ copiase los mismos campos sería una capa de indirección que no aporta nada.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from uuid import UUID
 
 from app.domain.entities.course import Course
 from app.domain.entities.course_offering import CourseOffering
@@ -20,15 +21,27 @@ from app.domain.entities.enrollment_period import EnrollmentPeriod
 
 @dataclass(frozen=True)
 class CourseDetailDTO:
-    """Resultado de `GET /courses/{id}`: la materia y sus prerrequisitos directos.
+    """Resultado de `GET /courses/{id}`: la materia y lo que exige en un plan de estudios.
+
+    Los requisitos llegan separados en dos listas y no en una sola con el tipo dentro porque
+    quien los recibe hace dos cosas distintas con ellos: los prerrequisitos se anuncian como
+    «apruébalas antes» y los correquisitos como «inscríbelas a la vez». Una lista mezclada
+    obligaría a la interfaz a repartirla, y ese reparto acabaría escrito en cada pantalla.
 
     Attributes:
         course: la materia consultada.
+        program_id: plan de estudios sobre el que se resolvieron los requisitos, o `None` si
+            la consulta no indicó ninguno. Viaja de vuelta porque sin él las dos listas
+            vacías son ambiguas: no se sabría si la materia no exige nada o si nadie preguntó
+            por un plan concreto.
         prerequisites: las materias que hay que haber aprobado antes. Vacía si no tiene.
+        corequisites: las materias que hay que cursar en el mismo período. Vacía si no tiene.
     """
 
     course: Course
+    program_id: UUID | None = None
     prerequisites: list[Course] = field(default_factory=list)
+    corequisites: list[Course] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

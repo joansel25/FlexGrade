@@ -131,28 +131,64 @@ def test_get_course_detail_when_course_does_not_exist_raises() -> None:
 
 
 @pytest.mark.unit
-def test_get_course_detail_returns_the_course_with_its_prerequisites() -> None:
+def test_get_course_detail_separates_prerequisites_from_corequisites() -> None:
+    """Las dos listas llegan repartidas, no mezcladas con el tipo dentro.
+
+    Es lo que permite a la interfaz decir «apruébalas antes» y «inscríbelas a la vez» sin
+    tener que repartirlas ella en cada pantalla.
+    """
     calculo_i = crear_materia(code="MAT101", name="Cálculo I")
+    taller = crear_materia(code="TAL101", name="Taller de Cálculo I")
     calculo_ii = crear_materia(code="MAT102", name="Cálculo II")
+    programa = uuid4()
+    repo = InMemoryCourseRepository(
+        [calculo_i, taller, calculo_ii],
+        prerequisites={calculo_ii.id: [calculo_i]},
+        corequisites={calculo_ii.id: [taller]},
+    )
+
+    resultado = GetCourseDetailUseCase(repo, InMemoryCacheService(), TTL).execute(
+        calculo_ii.id, programa
+    )
+
+    assert resultado.course.id == calculo_ii.id
+    assert resultado.program_id == programa
+    assert [c.code.value for c in resultado.prerequisites] == ["MAT101"]
+    assert [c.code.value for c in resultado.corequisites] == ["TAL101"]
+
+
+@pytest.mark.unit
+def test_get_course_detail_without_a_program_does_not_answer_the_requirements() -> None:
+    """Sin plan de estudios no hay una respuesta correcta que dar, así que no se da ninguna.
+
+    Un requisito une dos materias DENTRO de una carrera. Devolver la unión de todos los planes
+    le mostraría a un estudiante de Derecho los requisitos de Ingeniería como si fueran suyos.
+    `program_id` vuelve en `None` para que las listas vacías no se lean como «no exige nada».
+    """
+    calculo_i = crear_materia(code="MAT101")
+    calculo_ii = crear_materia(code="MAT102")
     repo = InMemoryCourseRepository(
         [calculo_i, calculo_ii], prerequisites={calculo_ii.id: [calculo_i]}
     )
 
     resultado = GetCourseDetailUseCase(repo, InMemoryCacheService(), TTL).execute(calculo_ii.id)
 
-    assert resultado.course.id == calculo_ii.id
-    assert [c.code.value for c in resultado.prerequisites] == ["MAT101"]
+    assert resultado.program_id is None
+    assert resultado.prerequisites == []
+    assert resultado.corequisites == []
 
 
 @pytest.mark.unit
-def test_get_course_detail_when_course_has_no_prerequisites_returns_empty_list() -> None:
+def test_get_course_detail_when_course_has_no_requirements_returns_empty_lists() -> None:
     materia = crear_materia()
     repo = InMemoryCourseRepository([materia])
 
-    assert (
-        GetCourseDetailUseCase(repo, InMemoryCacheService(), TTL).execute(materia.id).prerequisites
-        == []
+    resultado = GetCourseDetailUseCase(repo, InMemoryCacheService(), TTL).execute(
+        materia.id, uuid4()
     )
+
+    assert resultado.prerequisites == []
+    assert resultado.corequisites == []
 
 
 # ---------------------------------------------------------------------------

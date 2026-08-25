@@ -35,6 +35,7 @@ from app.application.ports.repositories.user_repository import UserRepository
 from app.application.ports.unit_of_work import UnitOfWork
 from app.domain.entities.course import Course
 from app.domain.entities.course_offering import CourseOffering
+from app.domain.entities.course_requirement import CourseRequirement
 from app.domain.entities.enrollment import Enrollment
 from app.domain.entities.enrollment_period import EnrollmentPeriod
 from app.domain.entities.program import Program
@@ -44,6 +45,7 @@ from app.domain.exceptions.authentication import InvalidTokenError
 from app.domain.value_objects.course_code import CourseCode
 from app.domain.value_objects.email import Email
 from app.domain.value_objects.enrollment_status import EnrollmentStatus
+from app.domain.value_objects.requirement_type import RequirementType
 from app.domain.value_objects.student_code import StudentCode
 from app.domain.value_objects.user_role import UserRole
 
@@ -151,6 +153,7 @@ class InMemoryCourseRepository(CourseRepository):
         courses: list[Course] | None = None,
         prerequisites: dict[UUID, list[Course]] | None = None,
         plan: dict[UUID, list[tuple[UUID, int]]] | None = None,
+        corequisites: dict[UUID, list[Course]] | None = None,
     ) -> None:
         """Construye el doble.
 
@@ -158,10 +161,18 @@ class InMemoryCourseRepository(CourseRepository):
             courses: las materias del catálogo.
             prerequisites: prerrequisitos directos, indexados por materia.
             plan: plan de estudios por programa, como pares `(course_id, semestre_sugerido)`.
+            corequisites: correquisitos directos, indexados por materia.
+
+        Los requisitos se declaran SIN programa, al contrario que en el adaptador real. Es
+        deliberado: casi ningún test unitario va sobre la diferencia entre planes, y obligarles
+        a declarar un programa para cada requisito llenaría de ruido su preparación. El test
+        que sí necesita comprobar que los requisitos cambian según la carrera es de integración
+        y corre contra PostgreSQL, donde la clave foránea compuesta lo impone de verdad.
         """
         self._courses: dict[UUID, Course] = {c.id: c for c in (courses or [])}
         self._prerequisites: dict[UUID, list[Course]] = prerequisites or {}
         self._plan: dict[UUID, list[tuple[UUID, int]]] = plan or {}
+        self._corequisites: dict[UUID, list[Course]] = corequisites or {}
 
     def find_by_id(self, course_id: UUID) -> Course | None:
         return self._courses.get(course_id)
@@ -172,8 +183,29 @@ class InMemoryCourseRepository(CourseRepository):
     def find_by_ids(self, course_ids: Sequence[UUID]) -> dict[UUID, Course]:
         return {cid: self._courses[cid] for cid in course_ids if cid in self._courses}
 
-    def find_prerequisites(self, course_id: UUID) -> list[Course]:
-        return sorted(self._prerequisites.get(course_id, []), key=lambda c: c.code.value)
+    def find_requirements(self, course_id: UUID, program_id: UUID) -> list[CourseRequirement]:
+        requisitos = [
+            CourseRequirement(course=c, requirement_type=RequirementType.PREREQUISITE)
+            for c in self._prerequisites.get(course_id, [])
+        ] + [
+            CourseRequirement(course=c, requirement_type=RequirementType.COREQUISITE)
+            for c in self._corequisites.get(course_id, [])
+        ]
+
+        return sorted(requisitos, key=lambda r: r.course.code.value)
+
+    def find_mutual_corequisites(self, course_id: UUID, program_id: UUID) -> set[UUID]:
+        """Calcula la reciprocidad en vez de declararla.
+
+        Deducirla de `corequisites` y no pedirla como un tercer parámetro evita el fallo más
+        probable de un doble: que el test declare `A <-> B` en un sitio y se olvide de la
+        vuelta en el otro, y acabe probando una regla que la base de datos nunca aplicaría.
+        """
+        mios = {c.id for c in self._corequisites.get(course_id, [])}
+
+        return {
+            otro for otro in mios if course_id in {c.id for c in self._corequisites.get(otro, [])}
+        }
 
     def belongs_to_program(self, course_id: UUID, program_id: UUID) -> bool:
         # Si no se declaro plan de estudios, se acepta todo: la mayoria de los tests no van

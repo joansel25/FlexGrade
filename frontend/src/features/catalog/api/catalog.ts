@@ -34,9 +34,24 @@ export function listarMaterias(filtros: FiltrosCatalogo, signal?: AbortSignal) {
   });
 }
 
-/** Detalle de una materia con sus prerrequisitos. */
-export function obtenerMateria(courseId: string, signal?: AbortSignal) {
-  return api.get<CourseDetail>(`/api/v1/courses/${courseId}`, { signal });
+/**
+ * Detalle de una materia con lo que exige dentro de un plan de estudios.
+ *
+ * `programId` no es opcional por comodidad: sin él el servidor devuelve las listas de
+ * requisitos vacías, porque un prerrequisito pertenece a una carrera y no al catálogo. Se
+ * envía siempre el del estudiante.
+ */
+export function obtenerMateria(
+  courseId: string,
+  programId: string | null,
+  signal?: AbortSignal,
+) {
+  return api.get<CourseDetail>(`/api/v1/courses/${courseId}`, {
+    // El cliente omite los valores vacíos, así que `null` equivale a no enviar el parámetro:
+    // la materia llega igual y sin requisitos, que es lo correcto cuando no se sabe el plan.
+    query: { program_id: programId ?? undefined },
+    signal,
+  });
 }
 
 /** Grupos de una materia en el período activo. */
@@ -78,7 +93,11 @@ export function obtenerPeriodoActual(signal?: AbortSignal) {
 export const clavesCatalogo = {
   todo: ["catalogo"] as const,
   materias: (filtros: FiltrosCatalogo) => ["catalogo", "materias", filtros] as const,
-  materia: (courseId: string) => ["catalogo", "materia", courseId] as const,
+  // El programa entra en la clave porque cambia la RESPUESTA: la misma materia exige
+  // cosas distintas en dos carreras, y compartir entrada haría que la ficha mostrara los
+  // requisitos del plan de la sesión anterior.
+  materia: (courseId: string, programId: string) =>
+    ["catalogo", "materia", courseId, programId] as const,
   grupos: (courseId: string) => ["catalogo", "grupos", courseId] as const,
   periodoActual: ["catalogo", "periodo-actual"] as const,
   planDeEstudios: ["catalogo", "plan-de-estudios"] as const,

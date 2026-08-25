@@ -104,14 +104,30 @@ def list_courses(
     summary="Detalle de una materia",
     responses={404: {"model": ErrorResponseSchema, "description": "La materia no existe"}},
 )
-def get_course(course_id: UUID, use_case: GetCourseDetailUseCaseDep) -> CourseDetailSchema:
-    """Devuelve una materia junto con los prerrequisitos que exige."""
-    detalle = use_case.execute(course_id)
+def get_course(
+    course_id: UUID,
+    use_case: GetCourseDetailUseCaseDep,
+    program_id: Annotated[
+        UUID | None,
+        Query(description="Plan de estudios sobre el que resolver prerrequisitos y correquisitos"),
+    ] = None,
+) -> CourseDetailSchema:
+    """Devuelve una materia y, si se indica un plan, lo que exige dentro de él.
+
+    `program_id` es opcional pero no accesorio: sin él las listas de requisitos vuelven
+    vacías. Un prerrequisito no une dos materias sino dos materias dentro de una carrera, así
+    que «qué exige MAT102» no tiene una respuesta única. Devolver la unión de todos los planes
+    sería peor que no devolver nada: no es cierta en ninguna carrera concreta, y a un
+    estudiante de Derecho le mostraría los requisitos de Ingeniería como si fueran suyos.
+    """
+    detalle = use_case.execute(course_id, program_id)
     materia = a_schema_de_materia(detalle.course)
 
     return CourseDetailSchema(
         **materia.model_dump(),
+        program_id=detalle.program_id,
         prerequisites=[a_schema_de_materia(p) for p in detalle.prerequisites],
+        corequisites=[a_schema_de_materia(c) for c in detalle.corequisites],
     )
 
 

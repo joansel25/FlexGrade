@@ -15,6 +15,7 @@ from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from app.domain.value_objects.course_code import CourseCode
+from app.domain.value_objects.requirement_type import RequirementType
 from app.infrastructure.persistence.sqlalchemy.repositories.course_repository import (
     SQLAlchemyCourseRepository,
 )
@@ -92,21 +93,66 @@ def test_course_find_by_code_matches_the_normalized_value(
 
 
 @pytest.mark.integration
-def test_course_find_prerequisites_returns_the_direct_ones(
+def test_course_find_requirements_returns_the_direct_ones_with_their_type(
     db_session: Session, catalogo: CatalogoDePrueba
 ) -> None:
-    prerrequisitos = SQLAlchemyCourseRepository(db_session).find_prerequisites(
-        catalogo.calculo_ii_id
+    requisitos = SQLAlchemyCourseRepository(db_session).find_requirements(
+        catalogo.calculo_ii_id, catalogo.program_id
     )
 
-    assert [p.id for p in prerrequisitos] == [catalogo.calculo_i_id]
+    assert [(r.course.id, r.requirement_type) for r in requisitos] == [
+        (catalogo.calculo_i_id, RequirementType.PREREQUISITE)
+    ]
 
 
 @pytest.mark.integration
-def test_course_find_prerequisites_when_there_are_none_returns_empty(
+def test_course_find_requirements_depends_on_the_program(
     db_session: Session, catalogo: CatalogoDePrueba
 ) -> None:
-    assert SQLAlchemyCourseRepository(db_session).find_prerequisites(catalogo.calculo_i_id) == []
+    """La misma pareja de materias, dos planes, dos reglas: es la razón de la iteración 6.2.
+
+    En Ingeniería, Cálculo II exige Cálculo I. En Administración las dos están en el plan y no
+    hay requisito entre ellas. Con la tabla anterior —`course_prerequisites`, sin programa— una
+    de las dos afirmaciones tenía que estar mal.
+    """
+    repo = SQLAlchemyCourseRepository(db_session)
+
+    assert repo.find_requirements(catalogo.calculo_ii_id, catalogo.otro_program_id) == []
+    assert repo.find_requirements(catalogo.calculo_ii_id, catalogo.program_id) != []
+
+
+@pytest.mark.integration
+def test_course_find_requirements_when_there_are_none_returns_empty(
+    db_session: Session, catalogo: CatalogoDePrueba
+) -> None:
+    # Cálculo I no exige aprobar nada; su único requisito es el taller, que es correquisito.
+    requisitos = SQLAlchemyCourseRepository(db_session).find_requirements(
+        catalogo.calculo_i_id, catalogo.program_id
+    )
+
+    assert [r.requirement_type for r in requisitos] == [RequirementType.COREQUISITE]
+
+
+@pytest.mark.integration
+def test_course_find_mutual_corequisites_returns_only_the_reciprocal_pairs(
+    db_session: Session, catalogo: CatalogoDePrueba
+) -> None:
+    """Solo cuentan los pares que se exigen en las DOS direcciones.
+
+    Es lo que distingue el bloque «asignatura y su taller» —imposible de inscribir de uno en
+    uno si se exigieran mutuamente por adelantado— de un correquisito simple, donde la materia
+    exigida no exige nada a cambio y sí tiene que estar ya inscrita.
+    """
+    repo = SQLAlchemyCourseRepository(db_session)
+
+    assert repo.find_mutual_corequisites(catalogo.calculo_i_id, catalogo.program_id) == {
+        catalogo.taller_id
+    }
+    assert repo.find_mutual_corequisites(catalogo.taller_id, catalogo.program_id) == {
+        catalogo.calculo_i_id
+    }
+    # Cálculo II solo tiene un PRERREQUISITO: no forma bloque con nadie.
+    assert repo.find_mutual_corequisites(catalogo.calculo_ii_id, catalogo.program_id) == set()
 
 
 @pytest.mark.integration
@@ -117,7 +163,7 @@ def test_course_search_without_filters_returns_the_whole_catalog(
     # repositorio se uniera siempre a `program_courses`, desaparecería del catálogo completo.
     resultado = SQLAlchemyCourseRepository(db_session).search(page=1, size=20)
 
-    assert resultado.total == 3
+    assert resultado.total == 4
     assert catalogo.fisica_id in {c.id for c in resultado.items}
 
 
@@ -129,8 +175,12 @@ def test_course_search_by_program_excludes_courses_outside_the_curriculum(
         page=1, size=20, program_id=catalogo.program_id
     )
 
-    assert {c.id for c in resultado.items} == {catalogo.calculo_i_id, catalogo.calculo_ii_id}
-    assert resultado.total == 2
+    assert {c.id for c in resultado.items} == {
+        catalogo.calculo_i_id,
+        catalogo.calculo_ii_id,
+        catalogo.taller_id,
+    }
+    assert resultado.total == 3
 
 
 @pytest.mark.integration
@@ -211,7 +261,7 @@ def test_course_search_total_counts_all_matches_not_just_the_page(
     resultado = SQLAlchemyCourseRepository(db_session).search(page=1, size=1)
 
     assert len(resultado.items) == 1
-    assert resultado.total == 3
+    assert resultado.total == 4
 
 
 @pytest.mark.integration
@@ -220,10 +270,10 @@ def test_course_search_second_page_returns_different_courses(
 ) -> None:
     repo = SQLAlchemyCourseRepository(db_session)
 
-    primera = repo.search(page=1, size=2)
-    segunda = repo.search(page=2, size=2)
+    primera = repo.search(page=1, size=3)
+    segunda = repo.search(page=2, size=3)
 
-    assert len(primera.items) == 2
+    assert len(primera.items) == 3
     assert len(segunda.items) == 1
     assert {c.id for c in primera.items}.isdisjoint({c.id for c in segunda.items})
 
