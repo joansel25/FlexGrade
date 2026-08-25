@@ -401,3 +401,90 @@ def test_the_schedule_only_shows_your_own_classes(
 @pytest.mark.integration
 def test_schedule_without_a_token_is_rejected(client: TestClient) -> None:
     assert client.get(RUTA_HORARIO).status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# GET /students/me/enrollments
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_listado_de_inscripciones_vacio_no_es_un_error(
+    client: TestClient, db_session: Session, catalogo: CatalogoDePrueba
+) -> None:
+    """Todavía no ha inscrito nada: es un resultado legítimo, no un fallo."""
+    credenciales = _crear_cuenta(db_session, catalogo.program_id, "70")
+    cabecera = {"Authorization": f"Bearer {_token(client, credenciales)}"}
+
+    respuesta = client.get("/api/v1/students/me/enrollments", headers=cabecera)
+
+    assert respuesta.status_code == 200, respuesta.text
+    cuerpo = respuesta.json()
+    assert cuerpo["items"] == []
+    assert cuerpo["total_credits"] == 0
+    assert cuerpo["period_code"] == "2025-2-V1"
+
+
+@pytest.mark.integration
+def test_el_listado_trae_el_id_con_el_que_se_cancela(
+    client: TestClient, db_session: Session, catalogo: CatalogoDePrueba
+) -> None:
+    """Es la razón de ser del endpoint: el horario no lleva el identificador de la inscripción.
+
+    Se comprueba de la forma más contundente posible: cancelando con el identificador que
+    devolvió el listado. Si no fuera el correcto, la cancelación respondería 404.
+    """
+    credenciales = _crear_cuenta(db_session, catalogo.program_id, "71")
+    cabecera = {"Authorization": f"Bearer {_token(client, credenciales)}"}
+
+    inscripcion = client.post(
+        RUTA_ENROLLMENTS,
+        json={"course_offering_id": str(catalogo.offering_grupo_02_id)},
+        headers=cabecera,
+    )
+    assert inscripcion.status_code == 201, inscripcion.text
+
+    listado = client.get("/api/v1/students/me/enrollments", headers=cabecera)
+    assert listado.status_code == 200, listado.text
+    cuerpo = listado.json()
+
+    assert len(cuerpo["items"]) == 1
+    item = cuerpo["items"][0]
+    assert item["course_code"] == "MAT101"
+    assert item["group_number"] == "02"
+    # Los créditos se suman en el servidor para que la cifra sea la misma en la pantalla y en
+    # el comprobante en PDF.
+    assert cuerpo["total_credits"] == item["credits"]
+
+    cancelacion = client.delete(f"{RUTA_ENROLLMENTS}/{item['id']}", headers=cabecera)
+    assert cancelacion.status_code == 204, cancelacion.text
+
+
+@pytest.mark.integration
+def test_el_listado_omite_las_inscripciones_canceladas(
+    client: TestClient, db_session: Session, catalogo: CatalogoDePrueba
+) -> None:
+    """Las canceladas no ocupan cupo ni aparecen en el horario: tampoco deben aparecer aquí."""
+    credenciales = _crear_cuenta(db_session, catalogo.program_id, "72")
+    cabecera = {"Authorization": f"Bearer {_token(client, credenciales)}"}
+
+    inscripcion = client.post(
+        RUTA_ENROLLMENTS,
+        json={"course_offering_id": str(catalogo.offering_grupo_02_id)},
+        headers=cabecera,
+    )
+    enrollment_id = inscripcion.json()["id"]
+    assert client.delete(f"{RUTA_ENROLLMENTS}/{enrollment_id}", headers=cabecera).status_code == 204
+
+    listado = client.get("/api/v1/students/me/enrollments", headers=cabecera)
+
+    assert listado.json()["items"] == []
+    assert listado.json()["total_credits"] == 0
+
+
+@pytest.mark.integration
+def test_nadie_puede_ver_las_inscripciones_de_otro(client: TestClient) -> None:
+    """El estudiante sale del token, nunca de la petición."""
+    respuesta = client.get("/api/v1/students/me/enrollments")
+
+    assert respuesta.status_code == 401, respuesta.text

@@ -5,10 +5,11 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al cerrar la iteración 5.3 (catálogo en el frontend).** Última verificación
-> real: backend con `pytest` en verde (454 tests) y `mypy --strict` limpio sobre 141 archivos;
-> frontend con `npm run lint`, `type-check`, `test` (50 tests) y `build` en verde. Endpoints del
-> catálogo comprobados además contra el backend real con los datos del seed.
+> **Actualizada al cerrar la iteración 5.4 (inscripción y horario).** Última verificación
+> real: backend con `pytest` en verde (458 tests) y `mypy --strict` limpio sobre 142 archivos;
+> frontend con `npm run lint`, `type-check`, `test` (66 tests) y `build` en verde. Recorrido
+> completo comprobado además contra el backend real: inscribir, `ALREADY_ENROLLED`,
+> `SCHEDULE_CONFLICT`, `PREREQUISITES_NOT_MET`, listar y cancelar.
 
 Este archivo es la memoria del proyecto entre sesiones. `CLAUDE.md` dice cómo se trabaja; esto
 dice **en qué punto está el software y por qué está hecho así**. Si los dos se contradicen,
@@ -116,7 +117,18 @@ donde importa.
 18. **Los filtros del catálogo viven en la URL, no en `useState`.** Es lo que hace que el
     botón de atrás vuelva a la búsqueda anterior, que recargar no pierda lo escrito y que un
     enlace filtrado se pueda compartir. La búsqueda espera 300 ms antes de lanzarse.
-19. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
+19. **Los 409 de la inscripción NO son errores, son estados de la interfaz.**
+    `frontend/src/features/enrollment/mensajes.ts` los traduce a un título («El grupo se
+    llenó») y un detalle que dice qué hacer ahora. Se aprovechan los `details` del error:
+    `SCHEDULE_CONFLICT` trae día y hora del cruce, `PREREQUISITES_NOT_MET` los códigos que
+    faltan.
+20. **No hay actualizaciones optimistas al inscribir.** El resultado depende de una carrera por
+    el último cupo que solo PostgreSQL resuelve; pintar «inscrito» y retirarlo medio segundo
+    después es peor que esperar. Tras inscribir o cancelar se invalidan a la vez las tres cosas
+    que cambiaron: mis materias, mi horario y los cupos del catálogo.
+21. **`GET /students/me/enrollments` existe aparte de `/me/schedule`** porque el horario no
+    lleva el identificador de la inscripción, y sin él no se puede cancelar.
+22. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
     la API acepta credenciales y con ellas el comodín ni siquiera es válido.
 
 ## 4. Qué está construido
@@ -129,7 +141,7 @@ donde importa.
 | 3 — Inscripción | ✅ | `POST /enrollments`, `DELETE /enrollments/{id}`, `GET /students/me/schedule` |
 | 4 — Admin y reportes | ✅ | ver desglose abajo |
 | Preparación para la nube | ✅ | `/health/ready`, CORS, logs JSON, `X-Request-ID`, pool configurable, `deploy/aws/` |
-| 5 — Frontend y comprobante | 🔄 en curso | 5.1 fundación ✅ · 5.2 autenticación ✅ · 5.3 catálogo ✅ · 5.4 inscripción y horario · 5.5 comprobante PDF (incluye el endpoint `GET /students/me/receipt`, que aún no existe) |
+| 5 — Frontend y comprobante | 🔄 en curso | 5.1 fundación ✅ · 5.2 autenticación ✅ · 5.3 catálogo ✅ · 5.4 inscripción y horario ✅ · 5.5 comprobante PDF (incluye el endpoint `GET /students/me/receipt`, que aún no existe) |
 
 Desglose de la Fase 4 por iteraciones (la numeración es nuestra; los documentos solo describen
 la fase completa):
@@ -156,6 +168,11 @@ Ausencias que sí son deuda, pendientes de decidir cuándo se pagan:
 - **`GET /enrollment-periods` público.** `API.md` sección 5 lo documenta como listado paginado
   de períodos; el único listado que existe es `GET /admin/enrollment-periods`, que exige rol
   ADMIN.
+- **`GET /students/me/history`.** Documentado en `API.md` sección 2, sin implementar. No lo
+  necesita ninguna pantalla todavía.
+- **El seed no comparte ninguna materia entre programas.** El esquema sí lo admite
+  (`program_courses` tiene clave primaria compuesta), pero los datos de ejemplo dan a cada
+  programa materias propias, así que ese camino no se ejercita nunca.
 
 ## 5. Mapa rápido del código
 

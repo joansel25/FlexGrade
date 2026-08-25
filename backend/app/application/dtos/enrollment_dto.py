@@ -79,3 +79,56 @@ class StudentScheduleDTO:
 
     academic_period: str
     blocks: list[ScheduleBlockDTO] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class StudentEnrollmentDTO:
+    """Una inscripción activa del estudiante, con el contexto que la hace accionable.
+
+    Lleva el identificador de la INSCRIPCIÓN, no solo el del grupo, y esa es su razón de ser:
+    es lo que permite cancelarla con `DELETE /enrollments/{id}`. El horario
+    (`StudentScheduleDTO`) no sirve para eso —está pensado para leerse, no para operar sobre
+    él— y sus franjas no tienen identidad propia.
+
+    Attributes:
+        id: identificador de la inscripción.
+        course_offering_id: grupo inscrito.
+        course_id: materia, para poder enlazar con su ficha del catálogo.
+        course_code: código de la materia (por ejemplo `MAT101`).
+        course_name: nombre de la materia.
+        credits: créditos que otorga. Permite mostrar la carga total del semestre sin una
+            consulta más por materia.
+        group_number: número del grupo.
+        professor: nombre del docente, o `None` si aún no se ha asignado.
+        schedule: franjas del grupo, ordenadas por día y hora.
+        enrolled_at: instante de la inscripción, según la base de datos.
+    """
+
+    id: UUID
+    course_offering_id: UUID
+    course_id: UUID
+    course_code: str
+    course_name: str
+    credits: int
+    group_number: str
+    professor: str | None
+    schedule: list[ScheduleBlockDTO]
+    enrolled_at: datetime | None
+
+
+@dataclass(frozen=True)
+class StudentEnrollmentsDTO:
+    """Resultado de `GET /students/me/enrollments`.
+
+    Attributes:
+        academic_period: semestre al que corresponden (por ejemplo `2025-2`).
+        period_code: código de la ventana de matrícula.
+        items: las inscripciones activas, ordenadas por código de materia.
+        total_credits: suma de los créditos inscritos. Se calcula aquí y no en el frontend
+            para que la cifra sea la misma en el comprobante en PDF y en la pantalla.
+    """
+
+    academic_period: str
+    period_code: str
+    items: list[StudentEnrollmentDTO] = field(default_factory=list)
+    total_credits: int = 0

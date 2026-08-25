@@ -119,6 +119,48 @@ export const PERIODO_ABIERTO = {
   time_remaining_seconds: 172_800,
 };
 
+/**
+ * Inscripciones del estudiante en los tests.
+ *
+ * Es un array mutable a propósito: inscribir y cancelar lo modifican, así que los tests pueden
+ * comprobar el recorrido completo —inscribo, aparece en mis materias, cancelo, desaparece— en
+ * vez de solo la llamada aislada. `resetearInscripciones` lo devuelve a cero entre casos.
+ */
+export const inscripcionesDePrueba: {
+  id: string;
+  course_offering_id: string;
+  course_id: string;
+  course_code: string;
+  course_name: string;
+  credits: number;
+  group_number: string;
+  professor: string | null;
+  schedule: { day_of_week: number; start_time: string; end_time: string; classroom: string | null }[];
+  enrolled_at: string | null;
+}[] = [];
+
+export function resetearInscripciones() {
+  inscripcionesDePrueba.length = 0;
+}
+
+/** Añade una inscripción ya existente, para los tests que arrancan con materias inscritas. */
+export function sembrarInscripcion(offeringId = "g1") {
+  const grupo = GRUPOS.offerings.find((o) => o.id === offeringId) ?? GRUPOS.offerings[0]!;
+
+  inscripcionesDePrueba.push({
+    id: `e-${grupo.id}`,
+    course_offering_id: grupo.id,
+    course_id: "c1",
+    course_code: "MAT101",
+    course_name: "Cálculo I",
+    credits: 4,
+    group_number: grupo.group_number,
+    professor: grupo.professor,
+    schedule: grupo.schedule,
+    enrolled_at: "2025-11-15T14:30:00Z",
+  });
+}
+
 export const handlers = [
   http.get(`${API_URL}/health`, () => HttpResponse.json(ESTADO_SANO)),
 
@@ -189,6 +231,79 @@ export const handlers = [
   http.get(`${API_URL}/api/v1/enrollment-periods/current`, () =>
     HttpResponse.json(PERIODO_ABIERTO),
   ),
+
+  http.get(`${API_URL}/api/v1/students/me/enrollments`, () =>
+    HttpResponse.json({
+      period: "2025-2",
+      period_code: "2025-2-V1",
+      items: inscripcionesDePrueba,
+      total_credits: inscripcionesDePrueba.reduce((suma, i) => suma + i.credits, 0),
+    }),
+  ),
+
+  http.get(`${API_URL}/api/v1/students/me/schedule`, () =>
+    HttpResponse.json({
+      period: "2025-2",
+      blocks: inscripcionesDePrueba.flatMap((i) =>
+        i.schedule.map((f) => ({
+          course_code: i.course_code,
+          course_name: i.course_name,
+          group_number: i.group_number,
+          professor: i.professor,
+          day_of_week: f.day_of_week,
+          start_time: f.start_time,
+          end_time: f.end_time,
+          classroom: f.classroom,
+        })),
+      ),
+    }),
+  ),
+
+  http.post(`${API_URL}/api/v1/enrollments`, async ({ request }) => {
+    const cuerpo = (await request.json()) as { course_offering_id: string };
+    const grupo = GRUPOS.offerings.find((o) => o.id === cuerpo.course_offering_id);
+
+    if (!grupo) {
+      return respuestaDeError(404, "OFFERING_NOT_FOUND", "El grupo solicitado no existe");
+    }
+
+    if (grupo.available_slots <= 0) {
+      return respuestaDeError(
+        409,
+        "COURSE_CAPACITY_EXCEEDED",
+        "El grupo no tiene cupos disponibles",
+        { offering_id: grupo.id, capacity: grupo.total_capacity, enrolled: grupo.enrolled_count },
+      );
+    }
+
+    sembrarInscripcion(grupo.id);
+
+    return HttpResponse.json(
+      {
+        id: `e-${grupo.id}`,
+        student_id: USUARIO.id,
+        course_offering_id: grupo.id,
+        course_code: "MAT101",
+        course_name: "Cálculo I",
+        group_number: grupo.group_number,
+        enrolled_at: "2025-11-15T14:30:00Z",
+        status: "ENROLLED",
+      },
+      { status: 201 },
+    );
+  }),
+
+  http.delete(`${API_URL}/api/v1/enrollments/:enrollmentId`, ({ params }) => {
+    const indice = inscripcionesDePrueba.findIndex((i) => i.id === params.enrollmentId);
+
+    if (indice === -1) {
+      return respuestaDeError(404, "ENROLLMENT_NOT_FOUND", "La inscripción no existe");
+    }
+
+    inscripcionesDePrueba.splice(indice, 1);
+
+    return new HttpResponse(null, { status: 204 });
+  }),
 
   http.get(`${API_URL}/api/v1/students/me`, ({ request }) => {
     // Se comprueba la cabecera de verdad: es lo que demuestra que el token viaja en cada

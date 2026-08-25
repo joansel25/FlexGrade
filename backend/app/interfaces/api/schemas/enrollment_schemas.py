@@ -58,3 +58,54 @@ class StudentScheduleSchema(BaseModel):
 
     period: str
     blocks: list[ScheduleBlockSchema] = Field(default_factory=list)
+
+
+class OfferingScheduleSchema(BaseModel):
+    """Una franja del horario de un grupo, sin el contexto de la materia.
+
+    Se distingue de `ScheduleBlockSchema` a propósito: allí cada franja repite el código y el
+    nombre de la materia porque el horario mezcla las de varios grupos y hay que saber a qué
+    clase ir. Aquí las franjas ya viven DENTRO de su inscripción, así que repetirlo sería
+    duplicar el mismo dato en cada franja.
+    """
+
+    day_of_week: int = Field(ge=1, le=7, description="1 = lunes … 7 = domingo (ISO 8601)")
+    start_time: time
+    end_time: time
+    classroom: str | None = None
+
+
+class StudentEnrollmentSchema(BaseModel):
+    """Una inscripción activa del estudiante, con lo necesario para poder cancelarla.
+
+    Lleva `id` —el de la INSCRIPCIÓN, no el del grupo— porque es lo que exige
+    `DELETE /enrollments/{id}`. El horario no lo incluye: sus franjas se leen, no se cancelan.
+    """
+
+    id: UUID
+    course_offering_id: UUID
+    course_id: UUID
+    course_code: str
+    course_name: str
+    credits: int
+    group_number: str
+    professor: str | None = None
+    schedule: list[OfferingScheduleSchema] = Field(default_factory=list)
+    enrolled_at: datetime | None = None
+
+
+class StudentEnrollmentsSchema(BaseModel):
+    """Respuesta de `GET /students/me/enrollments`.
+
+    Attributes:
+        period: semestre al que corresponden (por ejemplo `2025-2`).
+        period_code: código de la ventana de matrícula.
+        items: las inscripciones activas, ordenadas por código de materia.
+        total_credits: créditos inscritos. Se calcula en el servidor para que la cifra sea la
+            misma en la pantalla y en el comprobante en PDF.
+    """
+
+    period: str
+    period_code: str
+    items: list[StudentEnrollmentSchema] = Field(default_factory=list)
+    total_credits: int

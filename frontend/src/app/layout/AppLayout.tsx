@@ -35,6 +35,8 @@ interface AppLayoutProps {
 const NAVEGACION = [
   { a: "/", etiqueta: "Inicio", soloConSesion: false },
   { a: "/catalogo", etiqueta: "Catálogo", soloConSesion: true },
+  { a: "/mis-materias", etiqueta: "Mis materias", soloConSesion: true },
+  { a: "/horario", etiqueta: "Horario", soloConSesion: true },
 ] as const;
 
 export function AppLayout({ children }: AppLayoutProps) {

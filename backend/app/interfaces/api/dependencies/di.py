@@ -49,6 +49,9 @@ from app.application.use_cases.catalog.list_courses import ListCoursesUseCase
 from app.application.use_cases.enrollment.cancel_enrollment import CancelEnrollmentUseCase
 from app.application.use_cases.enrollment.enroll_student import EnrollStudentUseCase
 from app.application.use_cases.enrollment.get_student_schedule import GetStudentScheduleUseCase
+from app.application.use_cases.enrollment.list_student_enrollments import (
+    ListStudentEnrollmentsUseCase,
+)
 from app.infrastructure.auth.jwt_auth_service import JWTAuthService
 from app.infrastructure.cache.client import get_redis_client
 from app.infrastructure.cache.redis_cache_service import RedisCacheService
@@ -365,6 +368,27 @@ def get_student_schedule_use_case(
         enrollment_repository, offering_repository, course_repository, period_repository
     )
 
+
+def get_list_student_enrollments_use_case(
+    enrollment_repository: EnrollmentRepositoryDep,
+    offering_repository: OfferingRepositoryDep,
+    course_repository: CourseRepositoryDep,
+    period_repository: PeriodRepositoryDep,
+) -> ListStudentEnrollmentsUseCase:
+    """Construye el caso de uso del listado de inscripciones.
+
+    Sin caché: cada inscripción lleva su grupo, y los grupos cambian de cupo constantemente
+    durante la ventana. Además es el listado desde el que se cancela, así que servirlo
+    desactualizado ofrecería cancelar algo que ya no existe.
+    """
+    return ListStudentEnrollmentsUseCase(
+        enrollment_repository, offering_repository, course_repository, period_repository
+    )
+
+
+ListStudentEnrollmentsUseCaseDep = Annotated[
+    ListStudentEnrollmentsUseCase, Depends(get_list_student_enrollments_use_case)
+]
 
 CancelEnrollmentUseCaseDep = Annotated[
     CancelEnrollmentUseCase, Depends(get_cancel_enrollment_use_case)

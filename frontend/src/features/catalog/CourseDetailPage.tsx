@@ -1,9 +1,13 @@
 /**
  * Detalle de una materia: sus prerrequisitos y sus grupos con cupos.
  *
- * Es la pantalla desde la que se decide qué grupo inscribir, así que los cupos se refrescan
- * solos cada quince segundos. El botón de inscripción llega en la iteración 5.4; aquí ya está
- * todo lo que hay que ver para elegir.
+ * Es la pantalla desde la que se inscribe, así que los cupos se refrescan solos cada quince
+ * segundos: el número que se ve al pulsar «Inscribir» tiene que ser el de ahora, no el de
+ * cuando se abrió la página.
+ *
+ * Cada grupo sabe si la persona YA lo tiene inscrito. Sin eso, el botón ofrecería inscribir algo
+ * que ya está inscrito y el servidor respondería `ALREADY_ENROLLED`: un error evitable que la
+ * interfaz provocó por no mirar.
  */
 
 import { Link, useParams } from "react-router-dom";
@@ -12,7 +16,13 @@ import { Alert, Card, CardBody, CardHeader, CardTitle, EmptyState, Skeleton } fr
 import { CapacityBadge } from "@/features/catalog/components/CapacityBadge";
 import { ScheduleList } from "@/features/catalog/components/ScheduleList";
 import type { Course, Offering } from "@/features/catalog/api/types";
-import { useCourseDetail, useCourseOfferings } from "@/features/catalog/hooks";
+import {
+  useCourseDetail,
+  useCourseOfferings,
+  useCurrentPeriod,
+} from "@/features/catalog/hooks";
+import { EnrollButton } from "@/features/enrollment/components/EnrollButton";
+import { useMyEnrollments } from "@/features/enrollment/hooks";
 import { ApiError } from "@/lib/api/errors";
 
 export function CourseDetailPage() {
@@ -20,6 +30,15 @@ export function CourseDetailPage() {
 
   const materia = useCourseDetail(courseId);
   const grupos = useCourseOfferings(courseId);
+  const periodo = useCurrentPeriod();
+  const inscripciones = useMyEnrollments();
+
+  // Los grupos que el estudiante ya tiene inscritos: el boton de esos no debe ofrecer volver
+  // a inscribir, sino decir que ya esta dentro.
+  const gruposInscritos = new Set(
+    inscripciones.data?.items.map((i) => i.course_offering_id) ?? [],
+  );
+  const matriculaAbierta = periodo.data?.is_open ?? false;
 
   if (materia.isPending) {
     return <DetalleCargando />;
@@ -90,7 +109,11 @@ export function CourseDetailPage() {
           <ul className="space-y-3">
             {grupos.data.offerings.map((grupo) => (
               <li key={grupo.id}>
-                <TarjetaDeGrupo grupo={grupo} />
+                <TarjetaDeGrupo
+                  grupo={grupo}
+                  yaInscrito={gruposInscritos.has(grupo.id)}
+                  matriculaAbierta={matriculaAbierta}
+                />
               </li>
             ))}
           </ul>
@@ -100,8 +123,18 @@ export function CourseDetailPage() {
   );
 }
 
-function TarjetaDeGrupo({ grupo }: { grupo: Offering }) {
-  const lleno = grupo.available_slots <= 0;
+function TarjetaDeGrupo({
+  grupo,
+  yaInscrito,
+  matriculaAbierta,
+}: {
+  grupo: Offering;
+  yaInscrito: boolean;
+  matriculaAbierta: boolean;
+}) {
+  // El grupo lleno se atenua salvo que sea el que la persona ya tiene: ahi no hay nada que
+  // desanimar, es informacion suya.
+  const lleno = grupo.available_slots <= 0 && !yaInscrito;
 
   return (
     <Card className={lleno ? "opacity-75" : undefined}>
@@ -121,10 +154,17 @@ function TarjetaDeGrupo({ grupo }: { grupo: Offering }) {
           <ScheduleList franjas={grupo.schedule} />
         </div>
 
-        <div className="text-ink-500 shrink-0 text-sm sm:text-right">
-          <p>
+        <div className="shrink-0 space-y-2 sm:text-right">
+          <p className="text-ink-500 text-sm">
             {grupo.enrolled_count} / {grupo.total_capacity} inscritos
           </p>
+          <EnrollButton
+            offeringId={grupo.id}
+            groupNumber={grupo.group_number}
+            disponibles={grupo.available_slots}
+            yaInscrito={yaInscrito}
+            matriculaAbierta={matriculaAbierta}
+          />
         </div>
       </CardBody>
     </Card>

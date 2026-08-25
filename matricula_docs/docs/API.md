@@ -174,6 +174,47 @@ Un estudiante sin nada inscrito recibe `200` con `blocks` vacío —es un result
 
 Retorna las inscripciones activas del estudiante en el período actual.
 
+Se distingue de `/me/schedule` en algo más que el formato, y por eso son dos endpoints: el
+horario está pensado para **leerse** —franjas sueltas ordenadas por día y hora— y este para
+**operar**. Cada elemento lleva el `id` de su INSCRIPCIÓN, que es lo que exige
+`DELETE /enrollments/{id}`; una franja del horario no se puede cancelar porque no tiene
+identidad propia.
+
+**Response 200**
+```json
+{
+  "period": "2025-2",
+  "period_code": "2025-2-V1",
+  "items": [
+    {
+      "id": "uuid",
+      "course_offering_id": "uuid",
+      "course_id": "uuid",
+      "course_code": "MAT101",
+      "course_name": "Cálculo I",
+      "credits": 4,
+      "group_number": "01",
+      "professor": "Ana Pérez",
+      "schedule": [
+        { "day_of_week": 1, "start_time": "08:00", "end_time": "10:00", "classroom": "A-201" }
+      ],
+      "enrolled_at": "2025-11-15T14:30:00Z"
+    }
+  ],
+  "total_credits": 4
+}
+```
+
+Solo llegan las **activas**: las canceladas no ocupan cupo ni aparecen en el horario, así que
+mostrarlas obligaría a cada cliente a repetir el mismo filtro.
+
+`total_credits` se suma en el servidor para que la cifra sea idéntica en la pantalla y en el
+comprobante en PDF. Una lista vacía es un resultado legítimo, no un error.
+
+| Código HTTP | error.code | Situación |
+|---|---|---|
+| 404 | `NO_ACTIVE_PERIOD` | No hay ventana de matrícula activa |
+
 ### GET /students/me/history
 
 Retorna el historial académico completo del estudiante.
