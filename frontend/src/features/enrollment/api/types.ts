@@ -32,6 +32,35 @@ export interface StudentEnrollment {
   professor: string | null;
   schedule: ScheduleBlock[];
   enrolled_at: string | null;
+  /**
+   * Códigos que esta materia exige cursar a la vez y que todavía NO están inscritos.
+   *
+   * Casi siempre vacío: la inscripción no acepta que falte un correquisito. La excepción es el
+   * bloque de correquisitos mutuos —la teoría y su laboratorio—, que se permite inscribir de
+   * una en una porque exigir la otra por adelantado haría imposible entrar en ninguna. Entre
+   * la primera y la segunda hay un instante con media pareja inscrita, y esto es lo que lo
+   * hace visible.
+   */
+  pending_corequisites: string[];
+}
+
+/** Una inscripción que quedó cancelada. */
+export interface CancelledEnrollment {
+  id: string;
+  course_offering_id: string;
+  course_code: string;
+  course_name: string;
+  group_number: string;
+}
+
+/**
+ * Respuesta de `DELETE /enrollments/{id}`.
+ *
+ * Es una LISTA porque cancelar puede arrastrar más de una inscripción: las materias unidas por
+ * correquisitos mutuos se abandonan como un bloque, igual que se cursan como un bloque.
+ */
+export interface Cancellation {
+  cancelled: CancelledEnrollment[];
 }
 
 /** Respuesta de `GET /students/me/enrollments`. */

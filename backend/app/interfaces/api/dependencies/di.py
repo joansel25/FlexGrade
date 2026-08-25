@@ -367,11 +367,25 @@ EnrollStudentUseCaseDep = Annotated[EnrollStudentUseCase, Depends(get_enroll_stu
 def get_cancel_enrollment_use_case(
     enrollment_repository: EnrollmentRepositoryDep,
     offering_repository: OfferingRepositoryDep,
+    course_repository: CourseRepositoryDep,
+    student_repository: StudentRepositoryDep,
     unit_of_work: UnitOfWorkDep,
     cache: CacheServiceDep,
 ) -> CancelEnrollmentUseCase:
-    """Construye el caso de uso de cancelación."""
-    return CancelEnrollmentUseCase(enrollment_repository, offering_repository, unit_of_work, cache)
+    """Construye el caso de uso de cancelación.
+
+    Necesita el catálogo y el estudiante desde la iteración 6.2.1: cancelar dejó de ser una
+    operación sin reglas académicas cuando aparecieron los correquisitos, y para aplicarlas hay
+    que saber el plan de estudios de quien cancela y qué materias exigen a la que se va.
+    """
+    return CancelEnrollmentUseCase(
+        enrollment_repository,
+        offering_repository,
+        course_repository,
+        student_repository,
+        unit_of_work,
+        cache,
+    )
 
 
 def get_student_schedule_use_case(
@@ -395,6 +409,8 @@ def get_list_student_enrollments_use_case(
     offering_repository: OfferingRepositoryDep,
     course_repository: CourseRepositoryDep,
     period_repository: PeriodRepositoryDep,
+    student_repository: StudentRepositoryDep,
+    academic_history: AcademicHistoryReaderDep,
 ) -> ListStudentEnrollmentsUseCase:
     """Construye el caso de uso del listado de inscripciones.
 
@@ -403,7 +419,12 @@ def get_list_student_enrollments_use_case(
     desactualizado ofrecería cancelar algo que ya no existe.
     """
     return ListStudentEnrollmentsUseCase(
-        enrollment_repository, offering_repository, course_repository, period_repository
+        enrollment_repository,
+        offering_repository,
+        course_repository,
+        period_repository,
+        student_repository,
+        academic_history,
     )
 
 
@@ -554,16 +575,25 @@ def get_generate_receipt_use_case(
     period_repository: PeriodRepositoryDep,
     student_repository: StudentRepositoryDep,
     program_repository: ProgramRepositoryDep,
+    academic_history: AcademicHistoryReaderDep,
     renderer: ReceiptRendererDep,
 ) -> GenerateReceiptUseCase:
     """Construye el caso de uso del comprobante.
 
     Recibe el caso de uso del listado ya montado en vez de sus repositorios sueltos: es lo
     que garantiza que el PDF diga exactamente lo mismo que la pantalla «Mis materias»,
-    incluida la suma de créditos.
+    incluida la suma de créditos. El precio de esa garantía es que el comprobante arrastra
+    las dependencias del listado aunque no use todo lo que calcula: los correquisitos
+    pendientes no se imprimen. Se acepta a cambio de que las dos cifras no puedan divergir,
+    que es justo lo que se evitaba al compartir el caso de uso.
     """
     listado = ListStudentEnrollmentsUseCase(
-        enrollment_repository, offering_repository, course_repository, period_repository
+        enrollment_repository,
+        offering_repository,
+        course_repository,
+        period_repository,
+        student_repository,
+        academic_history,
     )
 
     return GenerateReceiptUseCase(listado, student_repository, program_repository, renderer)

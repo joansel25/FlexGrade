@@ -26,6 +26,7 @@ from app.domain.exceptions.authentication import StudentProfileNotFoundError
 from app.domain.exceptions.catalog import NoActivePeriodError
 from app.infrastructure.documents.pdf_receipt_renderer import PdfReceiptRenderer
 from tests.unit.doubles import (
+    InMemoryAcademicHistory,
     InMemoryCourseRepository,
     InMemoryEnrollmentRepository,
     InMemoryOfferingRepository,
@@ -112,6 +113,8 @@ def _montar(*, con_inscripciones: bool = True, con_periodo: bool = True):
         InMemoryOfferingRepository([grupo_calculo, grupo_fisica]),
         InMemoryCourseRepository([calculo, fisica]),
         InMemoryPeriodRepository([periodo] if con_periodo else []),
+        InMemoryStudentRepository([estudiante]),
+        InMemoryAcademicHistory({estudiante.id: set()}),
     )
 
     espia = RenderizadorEspia()

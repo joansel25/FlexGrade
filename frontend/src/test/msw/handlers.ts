@@ -146,14 +146,22 @@ export const inscripcionesDePrueba: {
   professor: string | null;
   schedule: { day_of_week: number; start_time: string; end_time: string; classroom: string | null }[];
   enrolled_at: string | null;
+  pending_corequisites: string[];
 }[] = [];
 
 export function resetearInscripciones() {
   inscripcionesDePrueba.length = 0;
 }
 
-/** Añade una inscripción ya existente, para los tests que arrancan con materias inscritas. */
-export function sembrarInscripcion(offeringId = "g1") {
+/**
+ * Añade una inscripción ya existente, para los tests que arrancan con materias inscritas.
+ *
+ * `pendientes` reproduce los correquisitos que el backend calcula y devuelve por materia. Se
+ * declara aquí y no se deduce porque el doble no tiene planes de estudio: lo que se prueba en
+ * el frontend es que la pantalla los muestre, no que se calculen bien —eso vive en el backend,
+ * que es donde se decide si la inscripción se acepta—.
+ */
+export function sembrarInscripcion(offeringId = "g1", pendientes: string[] = []) {
   const grupo = GRUPOS.offerings.find((o) => o.id === offeringId) ?? GRUPOS.offerings[0]!;
 
   inscripcionesDePrueba.push({
@@ -167,6 +175,7 @@ export function sembrarInscripcion(offeringId = "g1") {
     professor: grupo.professor,
     schedule: grupo.schedule,
     enrolled_at: "2025-11-15T14:30:00Z",
+    pending_corequisites: pendientes,
   });
 }
 
@@ -370,9 +379,22 @@ export const handlers = [
       return respuestaDeError(404, "ENROLLMENT_NOT_FOUND", "La inscripción no existe");
     }
 
-    inscripcionesDePrueba.splice(indice, 1);
+    // El backend responde 200 con lo que canceló, no 204: la operación puede arrastrar el
+    // bloque de correquisitos mutuos. El doble devuelve una sola porque el arrastre se
+    // reproduce en los tests que lo necesitan, sobreescribiendo este handler.
+    const [cancelada] = inscripcionesDePrueba.splice(indice, 1);
 
-    return new HttpResponse(null, { status: 204 });
+    return HttpResponse.json({
+      cancelled: [
+        {
+          id: cancelada!.id,
+          course_offering_id: cancelada!.course_offering_id,
+          course_code: cancelada!.course_code,
+          course_name: cancelada!.course_name,
+          group_number: cancelada!.group_number,
+        },
+      ],
+    });
   }),
 
   http.get(`${API_URL}/api/v1/students/me`, ({ request }) => {

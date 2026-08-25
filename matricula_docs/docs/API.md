@@ -198,7 +198,8 @@ identidad propia.
       "schedule": [
         { "day_of_week": 1, "start_time": "08:00", "end_time": "10:00", "classroom": "A-201" }
       ],
-      "enrolled_at": "2025-11-15T14:30:00Z"
+      "enrolled_at": "2025-11-15T14:30:00Z",
+      "pending_corequisites": []
     }
   ],
   "total_credits": 4
@@ -207,6 +208,15 @@ identidad propia.
 
 Solo llegan las **activas**: las canceladas no ocupan cupo ni aparecen en el horario, así que
 mostrarlas obligaría a cada cliente a repetir el mismo filtro.
+
+`pending_corequisites` lleva los códigos que esa materia exige cursar **al mismo tiempo** y que
+todavía no están inscritos ni aprobados. Casi siempre va vacío, porque la inscripción no acepta
+que falte un correquisito. La excepción es el bloque de correquisitos **mutuos**: se permite
+inscribirlo de una en una —si no, ninguna de las dos podría entrar nunca—, así que existe un
+instante con media pareja inscrita. Ese estado es legítimo y transitorio, pero esconderlo lo
+vuelve permanente: nadie completa lo que no sabe que le falta. Se calcula en el servidor porque
+es la misma regla que decide si la inscripción se acepta, y duplicarla en el cliente garantiza
+que un día discrepen.
 
 `total_credits` se suma en el servidor para que la cifra sea idéntica en la pantalla y en el
 comprobante en PDF. Una lista vacía es un resultado legítimo, no un error.
@@ -447,16 +457,57 @@ Los `details` del error llevan lo que el cliente necesita para explicarlo sin in
 
 Cancela una inscripción activa y libera el cupo. Solo el propio estudiante puede cancelar sus inscripciones.
 
-**Response 204** (sin cuerpo)
+**Response 200**
+```json
+{
+  "cancelled": [
+    {
+      "id": "uuid",
+      "course_offering_id": "uuid",
+      "course_code": "FIS101",
+      "course_name": "Física I",
+      "group_number": "01"
+    },
+    {
+      "id": "uuid",
+      "course_offering_id": "uuid",
+      "course_code": "FIS102",
+      "course_name": "Laboratorio de Física I",
+      "group_number": "01"
+    }
+  ]
+}
+```
+
+**Devuelve una lista, y respondía `204 No Content` hasta la iteración 6.2.1.** El cambio no es
+cosmético: cancelar puede arrastrar más de una inscripción, y con un `204` desaparecerían dos
+materias de la pantalla tras pulsar «Cancelar» en una sola, sin nada que lo explicara. Eso se
+lee como una avería, no como la regla que es.
 
 | Código HTTP | error.code | Situación |
 |---|---|---|
 | 404 | `ENROLLMENT_NOT_FOUND` | La inscripción no existe **o pertenece a otra persona** |
 | 409 | `ENROLLMENT_ALREADY_CANCELLED` | Ya estaba cancelada |
+| 409 | `COREQUISITE_DEPENDENCY` | Otra materia inscrita exige cursar esta al mismo tiempo |
 
 Cancelar una inscripción ajena responde `404`, exactamente igual que si no existiera. Es deliberado: un `403` confirmaría que ese identificador corresponde a una inscripción real y permitiría enumerarlas probando identificadores.
 
 Cancelar dos veces se rechaza porque liberaría el cupo dos veces, dejando `enrolled_count` por debajo de la ocupación real. Ese hueco fantasma lo podrían tomar dos personas.
+
+**Cancelar también respeta los correquisitos.** No es evidente —inscribir y cancelar parecen
+operaciones independientes—, pero sin esa comprobación cancelar sería una puerta trasera al
+estado que la inscripción rechaza: quien inscribe `FIS101` junto a `MAT101`, como exige la
+regla, podría cancelar `MAT101` un segundo después y seguir cursando Física sin el Cálculo que
+la acompaña. La decisión se reparte según la dirección del requisito:
+
+- **Dependencia en un solo sentido.** Se rechaza con `COREQUISITE_DEPENDENCY` mientras la
+  materia que depende siga inscrita. Los `details` traen `required_by` con sus códigos, porque
+  la salida es concreta: cancelar antes esas. El orden correcto existe y la persona puede
+  seguirlo.
+- **Dependencia mutua.** Se cancela el **bloque entero**, y por eso la respuesta es una lista.
+  Rechazarla dejaría las dos materias imposibles de abandonar para siempre, que es el bloqueo
+  circular de la inscripción con el signo cambiado. Si el bloque se cursa como una unidad, se
+  abandona como una unidad.
 
 ## 5. Períodos de matrícula
 

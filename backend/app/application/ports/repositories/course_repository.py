@@ -83,6 +83,49 @@ class CourseRepository(ABC):
         """
 
     @abstractmethod
+    def find_requirements_for_courses(
+        self, course_ids: Sequence[UUID], program_id: UUID
+    ) -> dict[UUID, list[CourseRequirement]]:
+        """Recupera de una vez los requisitos de varias materias del mismo plan.
+
+        Es `find_requirements` en lote, y existe por la misma razón que `find_by_ids`: quien
+        recorre las materias inscritas de un estudiante necesita los requisitos de todas, y
+        pedirlos de uno en uno sería un N+1 sobre una pantalla que se abre entera.
+
+        Devuelve un diccionario porque quien llama busca por materia, no recorre. Las materias
+        sin requisitos **no aparecen** como clave: obligarlas a estar con una lista vacía no
+        añade información y sí un recorrido extra al construirlo.
+
+        Args:
+            course_ids: identificadores de las materias.
+            program_id: plan de estudios sobre el que se pregunta.
+
+        Returns:
+            Los requisitos directos de cada materia que tenga alguno.
+        """
+
+    @abstractmethod
+    def find_corequisite_dependents(self, course_id: UUID, program_id: UUID) -> list[Course]:
+        """Recupera las materias que exigen a esta como correquisito suyo.
+
+        Es la consulta INVERSA de los correquisitos, y sostiene la regla de cancelación: antes
+        de dejar que alguien cancele `MAT101` hay que saber si sigue inscrito en `FIS101`, que
+        exige cursarla a la vez. Sin ella, cancelar sería una puerta trasera al estado que la
+        inscripción rechaza.
+
+        Devuelve las materias del plan, no solo las que el estudiante curse: quién las tiene
+        inscritas es una pregunta de la capa de aplicación, y mezclarla aquí ataría el
+        repositorio del catálogo al de inscripciones.
+
+        Args:
+            course_id: la materia exigida.
+            program_id: plan de estudios sobre el que se pregunta.
+
+        Returns:
+            Las materias que la exigen, ordenadas por código. Vacío si no la exige ninguna.
+        """
+
+    @abstractmethod
     def find_mutual_corequisites(self, course_id: UUID, program_id: UUID) -> set[UUID]:
         """Recupera las materias con las que esta forma bloque de correquisitos mutuos.
 

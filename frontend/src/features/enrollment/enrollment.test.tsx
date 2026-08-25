@@ -8,7 +8,7 @@
 
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { http } from "msw";
+import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 
 import { AppRoutes } from "@/app/router";
@@ -246,6 +246,94 @@ describe("mis materias", () => {
     expect(
       await screen.findByText("Todavía no has inscrito ninguna materia"),
     ).toBeInTheDocument();
+  });
+
+  it("avisa de que la matrícula está incompleta cuando falta un correquisito", async () => {
+    // El bloque de correquisitos mutuos se puede inscribir de una en una —si no, ninguna de
+    // las dos entraría nunca—, así que existe un instante con media pareja inscrita. Nadie
+    // completa lo que no sabe que le falta.
+    sembrarInscripcion("g1", ["TAL101"]);
+    montarConSesion("/mis-materias");
+
+    const aviso = await screen.findByText(/Te falta inscribir una materia que va con esta/);
+    expect(aviso).toBeInTheDocument();
+    expect(screen.getByText(/TAL101/)).toBeInTheDocument();
+  });
+
+  it("no avisa de nada cuando no falta ningún correquisito", async () => {
+    sembrarInscripcion("g1");
+    montarConSesion("/mis-materias");
+    await screen.findByText("Cálculo I");
+
+    expect(
+      screen.queryByText(/Te falta inscribir una materia que va con esta/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("explica que se canceló el bloque completo cuando la cancelación arrastra otra", async () => {
+    // Sin este aviso, desaparecerían dos materias tras pulsar «Cancelar» en una sola, y eso
+    // se lee como una avería en vez de como la regla que es.
+    server.use(
+      http.delete(`${API_URL}/api/v1/enrollments/:enrollmentId`, () =>
+        HttpResponse.json({
+          cancelled: [
+            {
+              id: "e-g1",
+              course_offering_id: "g1",
+              course_code: "MAT101",
+              course_name: "Cálculo I",
+              group_number: "01",
+            },
+            {
+              id: "e-g9",
+              course_offering_id: "g9",
+              course_code: "TAL101",
+              course_name: "Taller de Cálculo I",
+              group_number: "55",
+            },
+          ],
+        }),
+      ),
+    );
+
+    const usuario = userEvent.setup();
+    sembrarInscripcion("g1");
+    montarConSesion("/mis-materias");
+    await screen.findByText("Cálculo I");
+
+    await usuario.click(screen.getByRole("button", { name: /Cancelar MAT101 grupo 01/ }));
+    await usuario.click(screen.getByRole("button", { name: "Sí, cancelar" }));
+
+    const aviso = await screen.findByText(/Se canceló el bloque completo/);
+    expect(aviso).toBeInTheDocument();
+    expect(screen.getByText(/Taller de Cálculo I/)).toBeInTheDocument();
+  });
+
+  it("dice qué materia impide cancelar cuando otra depende de esta", async () => {
+    // El rechazo tiene que ser una guía: existe un orden que funciona —cancelar antes la que
+    // depende— y el mensaje es el único sitio donde la persona puede enterarse.
+    server.use(
+      http.delete(`${API_URL}/api/v1/enrollments/:enrollmentId`, () =>
+        respuestaDeError(409, "COREQUISITE_DEPENDENCY", "Otra materia exige esta", {
+          required_by: ["FIS101"],
+        }),
+      ),
+    );
+
+    const usuario = userEvent.setup();
+    sembrarInscripcion("g1");
+    montarConSesion("/mis-materias");
+    await screen.findByText("Cálculo I");
+
+    await usuario.click(screen.getByRole("button", { name: /Cancelar MAT101 grupo 01/ }));
+    await usuario.click(screen.getByRole("button", { name: "Sí, cancelar" }));
+
+    const aviso = await screen.findByRole("alert");
+    expect(aviso).toHaveTextContent("Otra materia tuya necesita esta");
+    expect(aviso).toHaveTextContent("FIS101");
+    // La materia sigue ahí: un rechazo que además la borrara de la pantalla sería peor que
+    // el propio fallo.
+    expect(screen.getByText("Cálculo I")).toBeInTheDocument();
   });
 
   it("permite echarse atrás sin cancelar", async () => {

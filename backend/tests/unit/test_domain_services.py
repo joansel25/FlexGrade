@@ -13,6 +13,7 @@ from uuid import uuid4
 import pytest
 
 from app.domain.exceptions.enrollment import (
+    CorequisiteDependencyError,
     CorequisitesNotMetError,
     PrerequisitesNotMetError,
     ScheduleConflictError,
@@ -209,6 +210,89 @@ def test_the_missing_corequisites_come_sorted() -> None:
         _validar(required=materias)
 
     assert error.value.details["missing_corequisites"] == ["FIS101", "MAT101", "PRG101"]
+
+
+@pytest.mark.unit
+def test_cancelling_a_course_nobody_depends_on_drags_nothing() -> None:
+    assert (
+        CorequisiteValidator().resolve_cancellation(
+            course_id=uuid4(),
+            dependents=[],
+            enrolled_course_ids=set(),
+            mutual_course_ids=set(),
+        )
+        == set()
+    )
+
+
+@pytest.mark.unit
+def test_cancelling_a_course_another_enrolled_one_requires_is_rejected() -> None:
+    """Sin esta regla, cancelar sería una puerta trasera al estado que inscribir rechaza."""
+    fisica = crear_materia(code="FIS101")
+    calculo_id = uuid4()
+
+    with pytest.raises(CorequisiteDependencyError) as error:
+        CorequisiteValidator().resolve_cancellation(
+            course_id=calculo_id,
+            dependents=[fisica],
+            enrolled_course_ids={fisica.id},
+            mutual_course_ids=set(),
+        )
+
+    assert error.value.details["required_by"] == ["FIS101"]
+
+
+@pytest.mark.unit
+def test_a_dependent_that_is_not_enrolled_does_not_block_the_cancellation() -> None:
+    # Que FIS101 exija MAT101 no importa si el estudiante no está cursando FIS101.
+    fisica = crear_materia(code="FIS101")
+
+    assert (
+        CorequisiteValidator().resolve_cancellation(
+            course_id=uuid4(),
+            dependents=[fisica],
+            enrolled_course_ids=set(),
+            mutual_course_ids=set(),
+        )
+        == set()
+    )
+
+
+@pytest.mark.unit
+def test_cancelling_one_of_a_mutual_block_drags_the_whole_block() -> None:
+    """Rechazarlo dejaría las dos imposibles de cancelar: el bloqueo circular al revés.
+
+    Si `FIS101` y `FIS102` se exigen entre sí, y cancelar una se rechaza porque la otra
+    depende de ella, entonces ninguna de las dos puede cancelarse nunca. La salida es la misma
+    que al inscribir: tratar el bloque como una unidad.
+    """
+    laboratorio = crear_materia(code="FIS102")
+
+    arrastradas = CorequisiteValidator().resolve_cancellation(
+        course_id=uuid4(),
+        dependents=[laboratorio],
+        enrolled_course_ids={laboratorio.id},
+        mutual_course_ids={laboratorio.id},
+    )
+
+    assert arrastradas == {laboratorio.id}
+
+
+@pytest.mark.unit
+def test_a_single_non_mutual_dependent_blocks_even_alongside_a_mutual_one() -> None:
+    """El arrastre no puede tapar un rechazo: basta una dependencia en un solo sentido."""
+    laboratorio = crear_materia(code="FIS102")
+    fisica = crear_materia(code="FIS101")
+
+    with pytest.raises(CorequisiteDependencyError) as error:
+        CorequisiteValidator().resolve_cancellation(
+            course_id=uuid4(),
+            dependents=[laboratorio, fisica],
+            enrolled_course_ids={laboratorio.id, fisica.id},
+            mutual_course_ids={laboratorio.id},
+        )
+
+    assert error.value.details["required_by"] == ["FIS101"]
 
 
 # ---------------------------------------------------------------------------

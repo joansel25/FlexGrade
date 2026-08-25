@@ -146,9 +146,40 @@ export function mensajeDeCancelacion(error: unknown): MensajeDeInscripcion {
     };
   }
 
+  if (error instanceof ApiError && error.is("COREQUISITE_DEPENDENCY")) {
+    return {
+      titulo: "Otra materia tuya necesita esta",
+      detalle: describirDependencia(error.details),
+      refrescarCupos: false,
+    };
+  }
+
   const base = mensajeDeInscripcion(error);
 
   return { ...base, titulo: "No se pudo cancelar la inscripción" };
+}
+
+/**
+ * Explica qué materia impide la cancelación y cómo desbloquearla.
+ *
+ * El rechazo tiene que ser una guía, no un muro: existe un orden que funciona —cancelar antes
+ * la materia que depende— y el mensaje es el único sitio donde la persona puede enterarse.
+ */
+function describirDependencia(details: Record<string, unknown>): string {
+  const dependientes = details.required_by;
+
+  if (Array.isArray(dependientes) && dependientes.length > 0) {
+    const codigos = dependientes.filter((c): c is string => typeof c === "string");
+
+    if (codigos.length > 0) {
+      return (
+        `${codigos.join(", ")} exige cursar esta materia al mismo tiempo. ` +
+        "Cancela primero esa y vuelve a intentarlo."
+      );
+    }
+  }
+
+  return "Cancela primero la materia que exige cursar esta al mismo tiempo.";
 }
 
 /**

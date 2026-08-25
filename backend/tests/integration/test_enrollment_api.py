@@ -236,7 +236,7 @@ def _inscribir(client: TestClient, token: str, offering_id: UUID) -> str:
 
 
 @pytest.mark.integration
-def test_cancel_returns_204_and_frees_the_seat(
+def test_cancel_returns_what_it_cancelled_and_frees_the_seat(
     client: TestClient, catalogo: CatalogoDePrueba, db_session: Session
 ) -> None:
     token = _token(client, _crear_cuenta(db_session, catalogo.program_id))
@@ -248,7 +248,10 @@ def test_cancel_returns_204_and_frees_the_seat(
 
     respuesta = client.delete(f"{RUTA_ENROLLMENTS}/{inscripcion_id}", headers=_cabecera(token))
 
-    assert respuesta.status_code == 204
+    assert respuesta.status_code == 200, respuesta.text
+    # Devuelve QUÉ se canceló, no un 204 mudo: la operación puede arrastrar el bloque de
+    # correquisitos mutuos, y entonces desaparece más de una materia de la pantalla.
+    assert [c["course_code"] for c in respuesta.json()["cancelled"]] == ["MAT101"]
     despues = db_session.execute(
         text("SELECT enrolled_count FROM course_offerings WHERE id = :i"),
         {"i": catalogo.offering_grupo_01_id},
@@ -457,7 +460,7 @@ def test_el_listado_trae_el_id_con_el_que_se_cancela(
     assert cuerpo["total_credits"] == item["credits"]
 
     cancelacion = client.delete(f"{RUTA_ENROLLMENTS}/{item['id']}", headers=cabecera)
-    assert cancelacion.status_code == 204, cancelacion.text
+    assert cancelacion.status_code == 200, cancelacion.text
 
 
 @pytest.mark.integration
@@ -474,7 +477,7 @@ def test_el_listado_omite_las_inscripciones_canceladas(
         headers=cabecera,
     )
     enrollment_id = inscripcion.json()["id"]
-    assert client.delete(f"{RUTA_ENROLLMENTS}/{enrollment_id}", headers=cabecera).status_code == 204
+    assert client.delete(f"{RUTA_ENROLLMENTS}/{enrollment_id}", headers=cabecera).status_code == 200
 
     listado = client.get("/api/v1/students/me/enrollments", headers=cabecera)
 
@@ -544,3 +547,153 @@ def test_nadie_descarga_el_comprobante_de_otro(client: TestClient) -> None:
     respuesta = client.get("/api/v1/students/me/receipt")
 
     assert respuesta.status_code == 401, respuesta.text
+
+
+# ---------------------------------------------------------------------------
+# Correquisitos al cancelar: el bloque se abandona entero, o no se abandona
+# ---------------------------------------------------------------------------
+
+
+def _ofrecer_taller(db_session: Session, catalogo: CatalogoDePrueba) -> UUID:
+    """Abre un grupo sin horario del taller, que es correquisito MUTUO de Cálculo I."""
+    from app.infrastructure.persistence.sqlalchemy.models.course_offering import CourseOfferingModel
+
+    oferta = CourseOfferingModel(
+        id=uuid4(),
+        enrollment_period_id=catalogo.period_id,
+        course_id=catalogo.taller_id,
+        group_number="55",
+        total_capacity=30,
+        enrolled_count=0,
+    )
+    db_session.add(oferta)
+    db_session.commit()
+    return oferta.id
+
+
+def _ocupados(db_session: Session, offering_id: UUID) -> int:
+    return int(
+        db_session.execute(
+            text("SELECT enrolled_count FROM course_offerings WHERE id = :i"),
+            {"i": offering_id},
+        ).scalar_one()
+    )
+
+
+@pytest.mark.integration
+def test_cancelling_one_of_a_mutual_block_cancels_and_frees_both(
+    client: TestClient, catalogo: CatalogoDePrueba, db_session: Session
+) -> None:
+    """El bloque se abandona como se cursa: entero.
+
+    Rechazar la cancelación dejaría las dos materias imposibles de abandonar —cada una es
+    correquisito de la otra—, que es el bloqueo circular de la inscripción con el signo
+    cambiado.
+    """
+    taller_grupo = _ofrecer_taller(db_session, catalogo)
+    token = _token(client, _crear_cuenta(db_session, catalogo.program_id, sufijo="80"))
+    calculo_id = _inscribir(client, token, catalogo.offering_grupo_02_id)
+    _inscribir(client, token, taller_grupo)
+
+    respuesta = client.delete(f"{RUTA_ENROLLMENTS}/{calculo_id}", headers=_cabecera(token))
+
+    assert respuesta.status_code == 200, respuesta.text
+    assert {c["course_code"] for c in respuesta.json()["cancelled"]} == {"MAT101", "TAL101"}
+    # Los dos cupos vuelven: cancelar en bloque sin liberar el segundo dejaría un cupo ocupado
+    # por una inscripción que ya no existe.
+    assert _ocupados(db_session, taller_grupo) == 0
+
+    listado = client.get("/api/v1/students/me/enrollments", headers=_cabecera(token))
+    assert listado.json()["items"] == []
+
+
+@pytest.mark.integration
+def test_cancelling_a_course_another_enrolled_one_requires_returns_409(
+    client: TestClient, catalogo: CatalogoDePrueba, db_session: Session
+) -> None:
+    """El agujero que cierra esta iteración, comprobado de extremo a extremo.
+
+    Se declara una dependencia en UN SOLO sentido —el taller exige Cálculo I, y se retira la
+    vuelta— y se comprueba que cancelar Cálculo I ya no deja al taller huérfano.
+    """
+    db_session.execute(
+        text(
+            "DELETE FROM program_course_requirements "
+            "WHERE course_id = :calculo AND required_course_id = :taller"
+        ),
+        {"calculo": catalogo.calculo_i_id, "taller": catalogo.taller_id},
+    )
+    db_session.commit()
+
+    taller_grupo = _ofrecer_taller(db_session, catalogo)
+    token = _token(client, _crear_cuenta(db_session, catalogo.program_id, sufijo="81"))
+    calculo_id = _inscribir(client, token, catalogo.offering_grupo_02_id)
+    _inscribir(client, token, taller_grupo)
+
+    respuesta = client.delete(f"{RUTA_ENROLLMENTS}/{calculo_id}", headers=_cabecera(token))
+
+    assert respuesta.status_code == 409
+    error = respuesta.json()["error"]
+    assert error["code"] == "COREQUISITE_DEPENDENCY"
+    assert error["details"]["required_by"] == ["TAL101"]
+    # Nada se liberó: un cupo devuelto por una cancelación que no ocurrió es un cupo fantasma.
+    assert _ocupados(db_session, taller_grupo) == 1
+
+
+@pytest.mark.integration
+def test_the_dependent_side_can_always_be_cancelled_first(
+    client: TestClient, catalogo: CatalogoDePrueba, db_session: Session
+) -> None:
+    """El rechazo es una guía, no un callejón sin salida: existe un orden que funciona."""
+    db_session.execute(
+        text(
+            "DELETE FROM program_course_requirements "
+            "WHERE course_id = :calculo AND required_course_id = :taller"
+        ),
+        {"calculo": catalogo.calculo_i_id, "taller": catalogo.taller_id},
+    )
+    db_session.commit()
+
+    taller_grupo = _ofrecer_taller(db_session, catalogo)
+    token = _token(client, _crear_cuenta(db_session, catalogo.program_id, sufijo="82"))
+    calculo_id = _inscribir(client, token, catalogo.offering_grupo_02_id)
+    taller_id = _inscribir(client, token, taller_grupo)
+
+    primera = client.delete(f"{RUTA_ENROLLMENTS}/{taller_id}", headers=_cabecera(token))
+    segunda = client.delete(f"{RUTA_ENROLLMENTS}/{calculo_id}", headers=_cabecera(token))
+
+    assert primera.status_code == 200, primera.text
+    assert segunda.status_code == 200, segunda.text
+
+
+@pytest.mark.integration
+def test_the_listing_reports_the_corequisites_still_missing(
+    client: TestClient, catalogo: CatalogoDePrueba, db_session: Session
+) -> None:
+    """La matrícula a medias se permite, pero no se esconde.
+
+    El bloque mutuo puede entrar de una en una —si no, ninguna de las dos entraría nunca—, así
+    que existe un instante con media pareja inscrita. Nadie completa lo que no sabe que le
+    falta.
+    """
+    token = _token(client, _crear_cuenta(db_session, catalogo.program_id, sufijo="83"))
+    _inscribir(client, token, catalogo.offering_grupo_02_id)
+
+    cuerpo = client.get("/api/v1/students/me/enrollments", headers=_cabecera(token)).json()
+
+    assert cuerpo["items"][0]["course_code"] == "MAT101"
+    assert cuerpo["items"][0]["pending_corequisites"] == ["TAL101"]
+
+
+@pytest.mark.integration
+def test_a_complete_block_reports_nothing_pending(
+    client: TestClient, catalogo: CatalogoDePrueba, db_session: Session
+) -> None:
+    taller_grupo = _ofrecer_taller(db_session, catalogo)
+    token = _token(client, _crear_cuenta(db_session, catalogo.program_id, sufijo="84"))
+    _inscribir(client, token, catalogo.offering_grupo_02_id)
+    _inscribir(client, token, taller_grupo)
+
+    cuerpo = client.get("/api/v1/students/me/enrollments", headers=_cabecera(token)).json()
+
+    assert all(i["pending_corequisites"] == [] for i in cuerpo["items"])

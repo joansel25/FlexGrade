@@ -5,12 +5,13 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al cerrar la iteración 6.2 (prerrequisitos y correquisitos por plan).** Última
-> verificación real: backend con `pytest` en verde (506 tests) y `mypy --strict` limpio sobre
-> 152 archivos; frontend con `npm run lint`, `type-check`, `test` (79 tests) y `build` en verde.
-> Migración `0007` aplicada sobre la base de desarrollo y las tres reglas comprobadas contra la
-> API real: el correquisito mutuo entra solo, el simple se rechaza con `COREQUISITES_NOT_MET`, y
-> tras inscribir la materia que faltaba pasa.
+> **Actualizada al cerrar la iteración 6.2.1 (consistencia del bloque de correquisitos).**
+> Última verificación real: backend con `pytest` en verde (522 tests) y `mypy --strict` limpio
+> sobre 152 archivos; frontend con `npm run lint`, `type-check`, `test` (83 tests) y `build` en
+> verde. Migraciones `0007` y `0008` aplicadas sobre la base de desarrollo, y el ciclo completo
+> comprobado contra la API real: se rechaza cancelar `MAT101` mientras `FIS101` la exija
+> (`COREQUISITE_DEPENDENCY`), cancelar `FIS101` arrastra `FIS102` por ser bloque mutuo, y el
+> listado marca `pending_corequisites` mientras el bloque está a medias.
 
 Este archivo es la memoria del proyecto entre sesiones. `CLAUDE.md` dice cómo se trabaja; esto
 dice **en qué punto está el software y por qué está hecho así**. Si los dos se contradicen,
@@ -167,7 +168,24 @@ donde importa.
     carrera concreta y le mostraría a un estudiante de Derecho los requisitos de Ingeniería.
     Por eso `GET /students/me/study-plan` empezó a devolver `program_id`: es lo que el
     frontend envía.
-31. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
+31. **La regla de correquisitos vale en las DOS direcciones.** Inscribir la comprobaba y
+    cancelar no, así que bastaba con cancelar la materia exigida para quedar en un estado que
+    inscribir jamás habría permitido. Cancelar se rechaza (`COREQUISITE_DEPENDENCY`) mientras
+    una materia inscrita dependa de esta en un solo sentido, y arrastra el BLOQUE ENTERO cuando
+    la dependencia es mutua: rechazarla ahí dejaría las dos imposibles de abandonar. Las dos
+    caras viven en el mismo `CorequisiteValidator` para que no puedan divergir otra vez.
+32. **`DELETE /enrollments/{id}` devuelve 200 con lo que canceló, no 204.** Con el arrastre del
+    bloque, un 204 haría desaparecer dos materias de la pantalla tras pulsar «Cancelar» en una
+    sola, y eso se lee como una avería. El aviso se pinta en la PÁGINA y no en la fila: la fila
+    cancelada se desmonta en cuanto llega la respuesta.
+33. **La matrícula incompleta se permite, pero no se esconde.** `GET /students/me/enrollments`
+    devuelve `pending_corequisites` por materia. Es el precio de dejar que el bloque mutuo entre
+    de una en una, y sin hacerlo visible ese estado transitorio se vuelve permanente.
+34. **`ix_program_course_requirements_required` no es opcional.** La consulta inversa —«qué
+    materias exigen a esta»— filtra por `(program_id, required_course_id)`, que NO es prefijo de
+    la clave primaria. Corre dentro de la transacción que libera un cupo mientras las
+    inscripciones compiten por él: el peor sitio para un recorrido de tabla.
+35. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
     la API acepta credenciales y con ellas el comodín ni siquiera es válido.
 
 ## 4. Qué está construido
@@ -183,7 +201,8 @@ donde importa.
 | 5 — Frontend y comprobante | ✅ | 5.1 fundación · 5.2 autenticación · 5.3 catálogo · 5.4 inscripción y horario · 5.5 comprobante PDF |
 
 **Fase 6 — Reglas académicas por carrera** (en curso): 6.1 catálogo acotado ✅ (`c6782c0`) ·
-6.2 prerrequisitos y correquisitos por plan ✅ (`225a811`) · 6.3 semáforo del plan · 6.4 limpieza de la
+6.2 prerrequisitos y correquisitos por plan ✅ (`0c0131b`) ·
+6.2.1 consistencia del bloque al cancelar ✅ (esta iteración) · 6.3 semáforo del plan · 6.4 limpieza de la
 interfaz del estudiante.
 
 El plan completo de las fases 6 a 10 está en el artefacto «Hoja de ruta FlexGrade».

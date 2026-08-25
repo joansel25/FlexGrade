@@ -194,6 +194,31 @@ class InMemoryCourseRepository(CourseRepository):
 
         return sorted(requisitos, key=lambda r: r.course.code.value)
 
+    def find_requirements_for_courses(
+        self, course_ids: Sequence[UUID], program_id: UUID
+    ) -> dict[UUID, list[CourseRequirement]]:
+        """Reproduce el contrato del adaptador: las materias sin requisitos NO son clave."""
+        por_materia = {
+            course_id: self.find_requirements(course_id, program_id) for course_id in course_ids
+        }
+
+        return {cid: requisitos for cid, requisitos in por_materia.items() if requisitos}
+
+    def find_corequisite_dependents(self, course_id: UUID, program_id: UUID) -> list[Course]:
+        """Recorre las declaraciones al revés en vez de pedir una tabla inversa.
+
+        Deducirlo de `corequisites` y no declararlo aparte evita el fallo más probable de un
+        doble: que el test declare `A -> B` en un sitio y se olvide de reflejarlo en el otro, y
+        acabe probando una regla que la base de datos nunca aplicaría.
+        """
+        dependientes = [
+            self._courses[dependiente_id]
+            for dependiente_id, exigidas in self._corequisites.items()
+            if any(c.id == course_id for c in exigidas) and dependiente_id in self._courses
+        ]
+
+        return sorted(dependientes, key=lambda c: c.code.value)
+
     def find_mutual_corequisites(self, course_id: UUID, program_id: UUID) -> set[UUID]:
         """Calcula la reciprocidad en vez de declararla.
 

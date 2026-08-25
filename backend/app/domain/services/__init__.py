@@ -4,10 +4,12 @@ Existentes:
 
 - `prerequisite_validator.py`: PrerequisiteValidator, verifica contra el historial académico
   que el estudiante haya aprobado todos los prerrequisitos directos de la materia.
-- `corequisite_validator.py`: CorequisiteValidator, verifica contra las inscripciones activas
-  del período vigente que el estudiante curse a la vez las materias correquisito. Trata
-  aparte el bloque de materias unidas por correquisitos mutuos, que de otro modo sería
-  imposible de inscribir.
+- `corequisite_validator.py`: CorequisiteValidator, las dos caras de la regla de
+  correquisitos: `validate` comprueba al inscribir que el estudiante curse a la vez lo que la
+  materia exige a la vez, y `resolve_cancellation` impide que cancelar deje inscrita una
+  materia sin el correquisito que exige. Trata aparte el bloque de materias unidas por
+  correquisitos mutuos, que de otro modo sería imposible de inscribir y, al cancelar,
+  imposible de abandonar.
 - `schedule_conflict_detector.py`: ScheduleConflictDetector, determina si los bloques de
   horario de un grupo se solapan con los de las inscripciones activas del estudiante.
 

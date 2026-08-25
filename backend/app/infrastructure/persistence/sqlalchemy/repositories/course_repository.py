@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid as uuid_module
+from collections import defaultdict
 from collections.abc import Sequence
 from uuid import UUID
 
@@ -65,6 +66,62 @@ class SQLAlchemyCourseRepository(CourseRepository):
             )
             for modelo, tipo in self._session.execute(sentencia).all()
         ]
+
+    def find_requirements_for_courses(
+        self, course_ids: Sequence[UUID], program_id: UUID
+    ) -> dict[UUID, list[CourseRequirement]]:
+        if not course_ids:
+            return {}
+
+        sentencia = (
+            select(
+                ProgramCourseRequirementModel.course_id,
+                CourseModel,
+                ProgramCourseRequirementModel.requirement_type,
+            )
+            .join(
+                ProgramCourseRequirementModel,
+                ProgramCourseRequirementModel.required_course_id == CourseModel.id,
+            )
+            .where(ProgramCourseRequirementModel.program_id == program_id)
+            .where(ProgramCourseRequirementModel.course_id.in_(course_ids))
+            .order_by(CourseModel.code)
+        )
+
+        por_materia: dict[UUID, list[CourseRequirement]] = defaultdict(list)
+
+        for materia_id, modelo, tipo in self._session.execute(sentencia).all():
+            por_materia[materia_id].append(
+                CourseRequirement(
+                    course=self._a_entidad(modelo),
+                    requirement_type=RequirementType(tipo),
+                )
+            )
+
+        # Se devuelve un `dict` normal y no el `defaultdict`: quien llama consulta materias que
+        # pueden no tener requisitos, y con un `defaultdict` cada consulta fallida insertaría
+        # una lista vacía y haría crecer el resultado por el mero hecho de leerlo.
+        return dict(por_materia)
+
+    def find_corequisite_dependents(self, course_id: UUID, program_id: UUID) -> list[Course]:
+        # Filtra por `(program_id, required_course_id)`, que NO es prefijo de la clave
+        # primaria: lo resuelve el índice `ix_program_course_requirements_required` que crea la
+        # migración 0008. Sin él, PostgreSQL recorrería la tabla entera en cada cancelación.
+        sentencia = (
+            select(CourseModel)
+            .join(
+                ProgramCourseRequirementModel,
+                ProgramCourseRequirementModel.course_id == CourseModel.id,
+            )
+            .where(ProgramCourseRequirementModel.program_id == program_id)
+            .where(ProgramCourseRequirementModel.required_course_id == course_id)
+            .where(
+                ProgramCourseRequirementModel.requirement_type == RequirementType.COREQUISITE.value
+            )
+            .order_by(CourseModel.code)
+        )
+
+        return [self._a_entidad(m) for m in self._session.execute(sentencia).scalars()]
 
     def find_mutual_corequisites(self, course_id: UUID, program_id: UUID) -> set[UUID]:
         # Autojoin: `ida` son los correquisitos de la materia y `vuelta` comprueba que cada uno

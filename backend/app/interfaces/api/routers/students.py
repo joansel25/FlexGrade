@@ -162,6 +162,7 @@ def get_my_enrollments(
                 group_number=i.group_number,
                 professor=i.professor,
                 enrolled_at=i.enrolled_at,
+                pending_corequisites=i.pending_corequisites,
                 schedule=[
                     OfferingScheduleSchema(
                         day_of_week=f.day_of_week,

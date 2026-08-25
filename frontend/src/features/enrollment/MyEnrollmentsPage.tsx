@@ -4,6 +4,12 @@
  * Cancelar es destructivo y libera un cupo que otra persona puede tomar en segundos, así que
  * pide confirmación en dos pasos dentro de la propia fila. No se usa un `window.confirm`: no se
  * puede dar estilo, no se puede explicar bien la consecuencia y bloquea el navegador entero.
+ *
+ * Y puede arrastrar más de una materia. Las unidas por correquisitos mutuos —la teoría y su
+ * laboratorio— se abandonan como un bloque, y el servidor responde con la lista de lo que
+ * canceló. Ese aviso se pinta en la PÁGINA y no en la fila: la fila que se acaba de cancelar
+ * desaparece de la lista en cuanto llega la respuesta, y con ella se iría el mensaje que
+ * explica lo ocurrido justo antes de poder leerse.
  */
 
 import { useState } from "react";
@@ -12,13 +18,17 @@ import { Link } from "react-router-dom";
 import { Alert, Button, Card, CardBody, EmptyState, Skeleton } from "@/components/ui";
 import { ScheduleList } from "@/features/catalog/components/ScheduleList";
 import { esSinPeriodoActivo } from "@/features/catalog/hooks";
-import type { StudentEnrollment } from "@/features/enrollment/api/types";
+import type { CancelledEnrollment, StudentEnrollment } from "@/features/enrollment/api/types";
 import { ReceiptButton } from "@/features/enrollment/components/ReceiptButton";
 import { useCancelEnrollment, useMyEnrollments } from "@/features/enrollment/hooks";
 import { mensajeDeCancelacion } from "@/features/enrollment/mensajes";
 
 export function MyEnrollmentsPage() {
   const { data, isPending, isError, error } = useMyEnrollments();
+
+  // Lo que arrastró la última cancelación. Solo se anuncia cuando fue más de una materia:
+  // decir «cancelaste MAT101» después de pulsar «Cancelar» en MAT101 es ruido.
+  const [arrastradas, setArrastradas] = useState<CancelledEnrollment[]>([]);
 
   return (
     <div className="space-y-6">
@@ -43,6 +53,14 @@ export function MyEnrollmentsPage() {
             y a veces hay que demostrarlo. */}
         {data && <ReceiptButton />}
       </header>
+
+      {arrastradas.length > 1 && (
+        <Alert tono="info" titulo="Se canceló el bloque completo">
+          {arrastradas.map((c) => `${c.course_code} — ${c.course_name}`).join(" y ")} se cursan
+          juntas, así que se cancelaron las dos. Volver a inscribir una sin la otra tampoco es
+          posible.
+        </Alert>
+      )}
 
       {isPending && <ListaCargando />}
 
@@ -77,7 +95,7 @@ export function MyEnrollmentsPage() {
         <ul className="space-y-3">
           {data.items.map((inscripcion) => (
             <li key={inscripcion.id}>
-              <FilaDeInscripcion inscripcion={inscripcion} />
+              <FilaDeInscripcion inscripcion={inscripcion} onCancelada={setArrastradas} />
             </li>
           ))}
         </ul>
@@ -86,11 +104,18 @@ export function MyEnrollmentsPage() {
   );
 }
 
-function FilaDeInscripcion({ inscripcion }: { inscripcion: StudentEnrollment }) {
+function FilaDeInscripcion({
+  inscripcion,
+  onCancelada,
+}: {
+  inscripcion: StudentEnrollment;
+  onCancelada: (canceladas: CancelledEnrollment[]) => void;
+}) {
   const [confirmando, setConfirmando] = useState(false);
   const cancelacion = useCancelEnrollment();
 
   const fallo = cancelacion.isError ? mensajeDeCancelacion(cancelacion.error) : null;
+  const pendientes = inscripcion.pending_corequisites;
 
   return (
     <Card>
@@ -116,6 +141,18 @@ function FilaDeInscripcion({ inscripcion }: { inscripcion: StudentEnrollment }) 
             </p>
 
             <ScheduleList franjas={inscripcion.schedule} />
+
+            {pendientes.length > 0 && (
+              <Alert tono="advertencia" titulo="Te falta inscribir una materia que va con esta">
+                {/* El servidor calcula qué falta con la misma regla que decide si la
+                    inscripción se acepta. Repetirla aquí garantizaría que un día discrepen. */}
+                Esta materia se cursa junto a {pendientes.join(", ")}. Mientras no la inscribas,
+                tu matrícula está incompleta.{" "}
+                <Link to="/catalogo" className="font-medium underline">
+                  Buscarla en el catálogo
+                </Link>
+              </Alert>
+            )}
           </div>
 
           <div className="shrink-0">
@@ -139,7 +176,11 @@ function FilaDeInscripcion({ inscripcion }: { inscripcion: StudentEnrollment }) 
                     variante="peligro"
                     tamano="sm"
                     cargando={cancelacion.isPending}
-                    onClick={() => cancelacion.mutate(inscripcion.id)}
+                    onClick={() =>
+                      cancelacion.mutate(inscripcion.id, {
+                        onSuccess: (resultado) => onCancelada(resultado.cancelled),
+                      })
+                    }
                   >
                     Sí, cancelar
                   </Button>

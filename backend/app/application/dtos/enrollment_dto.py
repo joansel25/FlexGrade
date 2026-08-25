@@ -102,6 +102,12 @@ class StudentEnrollmentDTO:
         professor: nombre del docente, o `None` si aún no se ha asignado.
         schedule: franjas del grupo, ordenadas por día y hora.
         enrolled_at: instante de la inscripción, según la base de datos.
+        pending_corequisites: códigos de las materias que esta exige cursar a la vez y que el
+            estudiante todavía NO tiene inscritas ni aprobadas. Casi siempre va vacío. Cuando
+            no lo está, la matrícula está incompleta: es el estado intermedio que deja el
+            bloque de correquisitos mutuos, donde se permite entrar de una en una y por tanto
+            existe un momento en que solo hay media pareja inscrita. Se calcula en el servidor
+            porque es la misma regla que decide si la inscripción se acepta.
     """
 
     id: UUID
@@ -114,6 +120,7 @@ class StudentEnrollmentDTO:
     professor: str | None
     schedule: list[ScheduleBlockDTO]
     enrolled_at: datetime | None
+    pending_corequisites: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -132,3 +139,43 @@ class StudentEnrollmentsDTO:
     period_code: str
     items: list[StudentEnrollmentDTO] = field(default_factory=list)
     total_credits: int = 0
+
+
+@dataclass(frozen=True)
+class CancelledEnrollmentDTO:
+    """Una inscripción que quedó cancelada, descrita para poder nombrarla.
+
+    Attributes:
+        id: identificador de la inscripción cancelada.
+        course_offering_id: grupo cuyo cupo se liberó.
+        course_code: código de la materia (por ejemplo `MAT101`).
+        course_name: nombre de la materia.
+        group_number: número del grupo.
+    """
+
+    id: UUID
+    course_offering_id: UUID
+    course_code: str
+    course_name: str
+    group_number: str
+
+
+@dataclass(frozen=True)
+class CancellationDTO:
+    """Resultado de `DELETE /enrollments/{id}`.
+
+    Es una LISTA y no una sola inscripción porque cancelar puede arrastrar más de una: las
+    materias unidas por correquisitos mutuos se abandonan como un bloque, igual que se cursan
+    como un bloque. La operación devolvía `204 No Content` hasta esta iteración; con el arrastre
+    eso dejaría que dos materias desaparecieran de la pantalla tras pulsar «Cancelar» en una
+    sola, sin nada que lo explicara.
+
+    Attributes:
+        items: lo que quedó cancelado, empezando por la inscripción que se pidió cancelar.
+    """
+
+    items: list[CancelledEnrollmentDTO] = field(default_factory=list)
+
+    def arrastro_otras(self) -> bool:
+        """Indica si la cancelación afectó a algo más que la inscripción pedida."""
+        return len(self.items) > 1

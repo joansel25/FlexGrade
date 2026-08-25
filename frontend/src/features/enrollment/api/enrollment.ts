@@ -7,6 +7,7 @@
  */
 
 import type {
+  Cancellation,
   Enrollment,
   StudentEnrollments,
   StudentSchedule,
@@ -25,11 +26,15 @@ export function inscribir(courseOfferingId: string, token: string, signal?: Abor
 /**
  * Cancela una inscripción y libera el cupo.
  *
+ * Devuelve QUÉ se canceló, y no `void`, porque la operación puede arrastrar más de una
+ * inscripción: las materias unidas por correquisitos mutuos se abandonan como un bloque. Sin
+ * ese dato la pantalla no podría explicar por qué desaparecieron dos materias al cancelar una.
+ *
  * Cancelar una inscripción ajena responde 404, igual que si no existiera: un 403 confirmaría
  * que ese identificador corresponde a una inscripción real.
  */
 export function cancelar(enrollmentId: string, token: string, signal?: AbortSignal) {
-  return api.delete<void>(`/api/v1/enrollments/${enrollmentId}`, { token, signal });
+  return api.delete<Cancellation>(`/api/v1/enrollments/${enrollmentId}`, { token, signal });
 }
 
 /** Inscripciones activas del estudiante en el período vigente. */

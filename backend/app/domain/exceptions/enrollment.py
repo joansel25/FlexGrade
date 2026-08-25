@@ -90,6 +90,26 @@ class CorequisitesNotMetError(DomainError):
         )
 
 
+class CorequisiteDependencyError(DomainError):
+    """No se puede cancelar: otra materia inscrita exige cursar esta a la vez.
+
+    Es el correquisito visto desde el otro lado. Sin esta comprobación, la cancelación sería
+    una puerta trasera a un estado que la inscripción nunca habría aceptado: quien inscribe
+    `FIS101` con `MAT101` puede después cancelar `MAT101` y quedarse cursando Física sin el
+    Cálculo que la regla exige.
+
+    Lleva en `details` los códigos de las materias que dependen de esta, porque la acción que
+    resuelve el bloqueo es concreta —cancelar antes esas— y sin nombrarlas la persona no puede
+    hacer nada.
+    """
+
+    def __init__(self, course_id: UUID, dependents: list[str]) -> None:
+        super().__init__(
+            "Otra materia que tienes inscrita exige cursar esta al mismo tiempo",
+            details={"course_id": str(course_id), "required_by": dependents},
+        )
+
+
 class ScheduleConflictError(DomainError):
     """El horario del grupo choca con otra inscripción activa.
 

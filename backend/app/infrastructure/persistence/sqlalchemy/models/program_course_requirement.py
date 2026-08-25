@@ -14,7 +14,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, ForeignKeyConstraint, String, text
+from sqlalchemy import CheckConstraint, ForeignKeyConstraint, Index, String, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -44,10 +44,15 @@ class ProgramCourseRequirementModel(Base):
     el estudiante se encontraría con un requisito que no puede cursar jamás. `ON DELETE
     CASCADE`: sacar una materia del plan se lleva con ella los requisitos en los que aparece.
 
-    NO HACE FALTA UN ÍNDICE ADICIONAL. Las dos consultas que existen —los requisitos de una
-    materia, y los de la materia exigida al comprobar si el correquisito es mutuo— filtran por
-    `(program_id, course_id)`, que es el prefijo de la clave primaria. El índice de la PK las
-    resuelve las dos.
+    ÍNDICES. Las consultas que filtran por `(program_id, course_id)` —los requisitos de una
+    materia, y los de la materia exigida al comprobar si el correquisito es mutuo— las resuelve
+    el índice de la clave primaria, porque esas dos columnas son su prefijo.
+
+    La consulta INVERSA no. `find_corequisite_dependents` pregunta «qué materias exigen a esta»
+    y filtra por `(program_id, required_course_id)`, que no es prefijo de la PK, así que lleva
+    índice propio (`ix_program_course_requirements_required`, migración `0008`). Sostiene la
+    regla de cancelación, que corre dentro de una transacción que libera un cupo mientras las
+    inscripciones compiten por él: el peor sitio posible para un recorrido de tabla.
     """
 
     __tablename__ = "program_course_requirements"
@@ -89,4 +94,7 @@ class ProgramCourseRequirementModel(Base):
             name="fk_pcr_required_course_in_plan",
             ondelete="CASCADE",
         ),
+        # Nombre explícito y corto: la convención compondría uno de más de 63 caracteres, que
+        # PostgreSQL truncaría, y el nombre dejaría de coincidir con el de la migración.
+        Index("ix_program_course_requirements_required", "program_id", "required_course_id"),
     )

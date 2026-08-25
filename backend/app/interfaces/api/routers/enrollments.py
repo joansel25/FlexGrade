@@ -9,11 +9,16 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, status
 
 from app.interfaces.api.dependencies.auth import CurrentStudentDep
 from app.interfaces.api.dependencies.di import CancelEnrollmentUseCaseDep, EnrollStudentUseCaseDep
-from app.interfaces.api.schemas.enrollment_schemas import EnrollmentSchema, EnrollRequestSchema
+from app.interfaces.api.schemas.enrollment_schemas import (
+    CancellationSchema,
+    CancelledEnrollmentSchema,
+    EnrollmentSchema,
+    EnrollRequestSchema,
+)
 from app.interfaces.api.schemas.error_schemas import ErrorResponseSchema
 
 router = APIRouter(prefix="/enrollments", tags=["inscripciones"])
@@ -64,23 +69,44 @@ def enroll(
 
 @router.delete(
     "/{enrollment_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=CancellationSchema,
+    status_code=status.HTTP_200_OK,
     summary="Cancelar una inscripción propia",
     responses={
         401: {"model": ErrorResponseSchema, "description": "Token ausente o inválido"},
         404: {"model": ErrorResponseSchema, "description": "La inscripción no existe"},
-        409: {"model": ErrorResponseSchema, "description": "Ya estaba cancelada"},
+        409: {
+            "model": ErrorResponseSchema,
+            "description": "Ya estaba cancelada, u otra materia inscrita exige cursar esta",
+        },
     },
 )
 def cancel(
     enrollment_id: UUID,
     estudiante: CurrentStudentDep,
     use_case: CancelEnrollmentUseCaseDep,
-) -> Response:
+) -> CancellationSchema:
     """Cancela una inscripción del estudiante autenticado y libera su cupo.
+
+    Responde `200` con lo que se canceló, y no `204`, porque la operación puede arrastrar más
+    de una inscripción: las materias unidas por correquisitos mutuos se abandonan como un
+    bloque. Con `204` desaparecerían dos materias de la pantalla tras pulsar «Cancelar» en una
+    sola, sin nada que lo explicara.
 
     Cancelar una inscripción ajena responde 404, igual que si no existiera: distinguir ambos
     casos confirmaría qué identificadores corresponden a inscripciones reales.
     """
-    use_case.execute(student_id=estudiante.id, enrollment_id=enrollment_id)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    resultado = use_case.execute(student_id=estudiante.id, enrollment_id=enrollment_id)
+
+    return CancellationSchema(
+        cancelled=[
+            CancelledEnrollmentSchema(
+                id=c.id,
+                course_offering_id=c.course_offering_id,
+                course_code=c.course_code,
+                course_name=c.course_name,
+                group_number=c.group_number,
+            )
+            for c in resultado.items
+        ]
+    )

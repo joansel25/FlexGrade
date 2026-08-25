@@ -92,6 +92,36 @@ class StudentEnrollmentSchema(BaseModel):
     professor: str | None = None
     schedule: list[OfferingScheduleSchema] = Field(default_factory=list)
     enrolled_at: datetime | None = None
+    pending_corequisites: list[str] = Field(
+        default_factory=list,
+        description="Códigos que esta materia exige cursar a la vez y aún no están inscritos",
+    )
+
+
+class CancelledEnrollmentSchema(BaseModel):
+    """Una inscripción que quedó cancelada."""
+
+    id: UUID
+    course_offering_id: UUID
+    course_code: str
+    course_name: str
+    group_number: str
+
+
+class CancellationSchema(BaseModel):
+    """Respuesta de `DELETE /enrollments/{id}`.
+
+    Devuelve una LISTA porque cancelar puede arrastrar más de una inscripción: las materias
+    unidas por correquisitos mutuos se abandonan como un bloque, igual que se cursan como un
+    bloque. El endpoint respondía `204 No Content` hasta esta iteración; con el arrastre, ese
+    silencio dejaría que dos materias desaparecieran de la pantalla tras pulsar «Cancelar» en
+    una sola, y eso se lee como una avería.
+
+    Attributes:
+        cancelled: lo que quedó cancelado, empezando por la inscripción que se pidió.
+    """
+
+    cancelled: list[CancelledEnrollmentSchema] = Field(default_factory=list)
 
 
 class StudentEnrollmentsSchema(BaseModel):

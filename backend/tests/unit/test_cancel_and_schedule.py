@@ -7,11 +7,13 @@ from uuid import uuid4
 
 import pytest
 
+from app.application.dtos.enrollment_dto import CancellationDTO
 from app.application.use_cases.catalog import catalog_cache
 from app.application.use_cases.enrollment.cancel_enrollment import CancelEnrollmentUseCase
 from app.application.use_cases.enrollment.get_student_schedule import GetStudentScheduleUseCase
 from app.domain.exceptions.catalog import NoActivePeriodError
 from app.domain.exceptions.enrollment import (
+    CorequisiteDependencyError,
     EnrollmentAlreadyCancelledError,
     EnrollmentNotFoundError,
 )
@@ -23,15 +25,18 @@ from tests.unit.doubles import (
     InMemoryEnrollmentRepository,
     InMemoryOfferingRepository,
     InMemoryPeriodRepository,
+    InMemoryStudentRepository,
 )
 from tests.unit.factories import (
     AHORA,
+    crear_estudiante,
     crear_franja,
     crear_inscripcion,
     crear_materia,
     crear_oferta,
     crear_periodo,
     crear_profesor,
+    crear_programa,
 )
 
 # ---------------------------------------------------------------------------
@@ -43,9 +48,13 @@ class EscenarioCancelacion:
     """Monta la cancelación con un estudiante ya inscrito en un grupo."""
 
     def __init__(self, *, enrolled_count: int = 10, cancelada: bool = False) -> None:
-        self.estudiante_id = uuid4()
+        self.programa = crear_programa()
+        self.estudiante = crear_estudiante(program_id=self.programa.id)
+        self.estudiante_id = self.estudiante.id
         self.periodo = crear_periodo()
+        self.materia = crear_materia(code="MAT101")
         self.grupo = crear_oferta(
+            course_id=self.materia.id,
             enrollment_period_id=self.periodo.id,
             total_capacity=40,
             enrolled_count=enrolled_count,
@@ -59,19 +68,29 @@ class EscenarioCancelacion:
 
         self.inscripciones = InMemoryEnrollmentRepository([self.inscripcion])
         self.ofertas = InMemoryOfferingRepository([self.grupo])
+        # Sin correquisitos declarados: la mayoría de estos tests van sobre el cupo y la
+        # transacción, no sobre la regla del bloque, que tiene sus propios tests más abajo.
+        self.materias = InMemoryCourseRepository([self.materia])
+        self.estudiantes = InMemoryStudentRepository([self.estudiante])
         self.uow = FakeUnitOfWork()
         self.cache = InMemoryCacheService()
 
+        self._montar()
+
+    def _montar(self) -> None:
+        """Reconstruye el caso de uso con las dependencias actuales del escenario."""
         self.caso = CancelEnrollmentUseCase(
             self.inscripciones,
             self.ofertas,
+            self.materias,
+            self.estudiantes,
             self.uow,
             self.cache,
             clock=lambda: AHORA,
         )
 
-    def cancelar(self) -> None:
-        self.caso.execute(student_id=self.estudiante_id, enrollment_id=self.inscripcion.id)
+    def cancelar(self) -> CancellationDTO:
+        return self.caso.execute(student_id=self.estudiante_id, enrollment_id=self.inscripcion.id)
 
 
 @pytest.mark.unit
@@ -177,6 +196,164 @@ def test_a_rejected_cancellation_does_not_commit() -> None:
         escenario.cancelar()
 
     assert escenario.uow.confirmadas == 0
+
+
+# ---------------------------------------------------------------------------
+# Cancelación y correquisitos: el bloque se abandona entero, o no se abandona
+# ---------------------------------------------------------------------------
+
+
+class EscenarioDeBloque:
+    """Monta un estudiante con dos materias inscritas y un correquisito entre ellas.
+
+    `mutuo=True` declara la vuelta —`MAT101` exige también a `FIS101`—, que es lo que convierte
+    la pareja en un bloque. El doble deduce la reciprocidad de las dos declaraciones, igual que
+    el adaptador SQL la deduce del autojoin, así que estos tests ejercitan la regla y no una
+    bandera puesta a mano.
+    """
+
+    def __init__(self, *, mutuo: bool) -> None:
+        self.programa = crear_programa()
+        self.estudiante = crear_estudiante(program_id=self.programa.id)
+        self.periodo = crear_periodo()
+
+        self.calculo = crear_materia(code="MAT101", name="Cálculo I")
+        self.fisica = crear_materia(code="FIS101", name="Física I")
+
+        self.grupo_calculo = crear_oferta(
+            course_id=self.calculo.id,
+            enrollment_period_id=self.periodo.id,
+            group_number="01",
+            enrolled_count=10,
+        )
+        self.grupo_fisica = crear_oferta(
+            course_id=self.fisica.id,
+            enrollment_period_id=self.periodo.id,
+            group_number="02",
+            enrolled_count=5,
+        )
+
+        self.inscripcion_calculo = crear_inscripcion(
+            student_id=self.estudiante.id,
+            course_offering_id=self.grupo_calculo.id,
+            enrollment_period_id=self.periodo.id,
+        )
+        self.inscripcion_fisica = crear_inscripcion(
+            student_id=self.estudiante.id,
+            course_offering_id=self.grupo_fisica.id,
+            enrollment_period_id=self.periodo.id,
+        )
+
+        correquisitos = {self.fisica.id: [self.calculo]}
+
+        if mutuo:
+            correquisitos[self.calculo.id] = [self.fisica]
+
+        self.ofertas = InMemoryOfferingRepository([self.grupo_calculo, self.grupo_fisica])
+        self.inscripciones = InMemoryEnrollmentRepository(
+            [self.inscripcion_calculo, self.inscripcion_fisica]
+        )
+        self.cache = InMemoryCacheService()
+        self.caso = CancelEnrollmentUseCase(
+            self.inscripciones,
+            self.ofertas,
+            InMemoryCourseRepository(
+                [self.calculo, self.fisica],
+                corequisites=correquisitos,
+                plan={self.programa.id: [(self.calculo.id, 1), (self.fisica.id, 1)]},
+            ),
+            InMemoryStudentRepository([self.estudiante]),
+            FakeUnitOfWork(),
+            self.cache,
+            clock=lambda: AHORA,
+        )
+
+    def cancelar_calculo(self) -> CancellationDTO:
+        """Cancela la materia EXIGIDA, que es la que puede dejar a la otra huérfana."""
+        return self.caso.execute(
+            student_id=self.estudiante.id, enrollment_id=self.inscripcion_calculo.id
+        )
+
+
+@pytest.mark.unit
+def test_cancelling_a_course_another_enrolled_one_requires_is_rejected() -> None:
+    """El agujero que esta iteración cierra.
+
+    Hasta ahora cancelar no miraba los correquisitos, así que inscribir `FIS101` junto a
+    `MAT101` —como exige la regla— y cancelar `MAT101` acto seguido dejaba al estudiante
+    cursando Física sin el Cálculo que la acompaña: un estado que inscribir jamás habría
+    aceptado.
+    """
+    escenario = EscenarioDeBloque(mutuo=False)
+
+    with pytest.raises(CorequisiteDependencyError) as error:
+        escenario.cancelar_calculo()
+
+    assert error.value.details["required_by"] == ["FIS101"]
+
+
+@pytest.mark.unit
+def test_a_rejected_cancellation_does_not_free_any_seat() -> None:
+    # El rechazo tiene que dejar el sistema exactamente como estaba: un cupo liberado por una
+    # cancelación que no ocurrió es un cupo fantasma que dos personas podrían tomar.
+    escenario = EscenarioDeBloque(mutuo=False)
+
+    with pytest.raises(CorequisiteDependencyError):
+        escenario.cancelar_calculo()
+
+    assert escenario.grupo_calculo.enrolled_count == 10
+    assert escenario.grupo_fisica.enrolled_count == 5
+
+
+@pytest.mark.unit
+def test_cancelling_one_of_a_mutual_block_cancels_the_whole_block() -> None:
+    escenario = EscenarioDeBloque(mutuo=True)
+
+    resultado = escenario.cancelar_calculo()
+
+    assert {c.course_code for c in resultado.items} == {"MAT101", "FIS101"}
+    assert resultado.arrastro_otras()
+    assert escenario.inscripcion_calculo.status is EnrollmentStatus.CANCELLED
+    assert escenario.inscripcion_fisica.status is EnrollmentStatus.CANCELLED
+
+
+@pytest.mark.unit
+def test_cancelling_a_mutual_block_frees_every_seat_of_the_block() -> None:
+    escenario = EscenarioDeBloque(mutuo=True)
+
+    escenario.cancelar_calculo()
+
+    assert escenario.grupo_calculo.enrolled_count == 9
+    assert escenario.grupo_fisica.enrolled_count == 4
+
+
+@pytest.mark.unit
+def test_cancelling_a_mutual_block_invalidates_the_cache_of_every_group() -> None:
+    # Los cupos de las DOS acaban de cambiar. Invalidar solo el grupo pedido dejaría al
+    # catálogo mostrando el otro lleno cuando ya tiene sitio.
+    escenario = EscenarioDeBloque(mutuo=True)
+
+    escenario.cancelar_calculo()
+
+    assert escenario.cache.get(catalog_cache.clave_grupo(escenario.grupo_calculo.id)) is None
+    assert escenario.cache.get(catalog_cache.clave_grupo(escenario.grupo_fisica.id)) is None
+
+
+@pytest.mark.unit
+def test_cancelling_the_dependent_side_first_is_always_allowed() -> None:
+    """El orden correcto existe y la regla no lo estorba: primero la que depende.
+
+    Es lo que hace que el rechazo sea una guía y no un callejón sin salida.
+    """
+    escenario = EscenarioDeBloque(mutuo=False)
+
+    resultado = escenario.caso.execute(
+        student_id=escenario.estudiante.id,
+        enrollment_id=escenario.inscripcion_fisica.id,
+    )
+
+    assert [c.course_code for c in resultado.items] == ["FIS101"]
+    assert not resultado.arrastro_otras()
 
 
 # ---------------------------------------------------------------------------
