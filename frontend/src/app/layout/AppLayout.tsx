@@ -30,10 +30,12 @@ interface AppLayoutProps {
  *
  * `soloConSesion` marca los que no tiene sentido ofrecer a quien no ha entrado: mostrarlos
  * llevaría a una redirección al login en cuanto se pulsan, que se lee como un fallo.
- * Crecerá con el catálogo, las inscripciones y el horario en las iteraciones 5.3 a 5.5.
+ * El orden sigue el recorrido de una matrícula: primero lo que puedo cursar en la carrera, luego
+ * lo que se ofrece este período, después lo inscrito y por último cuándo asistir.
  */
 const NAVEGACION = [
   { a: "/", etiqueta: "Inicio", soloConSesion: false },
+  { a: "/plan", etiqueta: "Mi plan", soloConSesion: true },
   { a: "/catalogo", etiqueta: "Catálogo", soloConSesion: true },
   { a: "/mis-materias", etiqueta: "Mis materias", soloConSesion: true },
   { a: "/horario", etiqueta: "Horario", soloConSesion: true },

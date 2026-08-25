@@ -15,6 +15,7 @@ import { LoginPage } from "@/features/auth/LoginPage";
 import { RequireAuth } from "@/features/auth/components/RequireAuth";
 import { CatalogPage } from "@/features/catalog/CatalogPage";
 import { CourseDetailPage } from "@/features/catalog/CourseDetailPage";
+import { StudyPlanPage } from "@/features/catalog/StudyPlanPage";
 import { MyEnrollmentsPage } from "@/features/enrollment/MyEnrollmentsPage";
 import { SchedulePage } from "@/features/enrollment/SchedulePage";
 import { HomePage } from "@/features/home/HomePage";
@@ -49,6 +50,15 @@ export function AppRoutes() {
           element={
             <RequireAuth>
               <CourseDetailPage />
+            </RequireAuth>
+          }
+        />
+
+        <Route
+          path="/plan"
+          element={
+            <RequireAuth>
+              <StudyPlanPage />
             </RequireAuth>
           }
         />

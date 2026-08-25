@@ -261,6 +261,7 @@ def get_my_study_plan(
         program_name=plan.program_name,
         total_semesters=plan.total_semesters,
         total_credits=plan.total_credits,
+        approved_credits=plan.approved_credits,
         courses=[
             StudyPlanEntrySchema(
                 id=e.course.id,
@@ -270,6 +271,10 @@ def get_my_study_plan(
                 description=e.course.description,
                 suggested_semester=e.suggested_semester,
                 is_mandatory=e.is_mandatory,
+                status=e.status.value,
+                missing_prerequisites=e.missing_prerequisites,
+                missing_corequisites=e.missing_corequisites,
+                corequisites=e.corequisites,
             )
             for e in plan.entries
         ],

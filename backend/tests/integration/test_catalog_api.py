@@ -359,6 +359,45 @@ def test_current_period_when_none_is_active_returns_404(
 # ---------------------------------------------------------------------------
 
 
+def _cabecera_de_estudiante(
+    client: TestClient,
+    db_session: Session,
+    catalogo: CatalogoDePrueba,
+    codigo: str,
+    correo: str,
+) -> dict[str, str]:
+    """Crea una cuenta con perfil académico en el programa de la fixture y la autentica."""
+    hasher = JWTAuthService(get_settings())
+    usuario = UserModel(
+        id=uuid4(),
+        email=f"{correo}@tdea.edu.co",
+        password_hash=hasher.hash(PASSWORD_DE_PRUEBA),
+        role="STUDENT",
+        is_active=True,
+    )
+    db_session.add(usuario)
+    db_session.flush()
+    db_session.add(
+        StudentModel(
+            id=uuid4(),
+            user_id=usuario.id,
+            student_code=codigo,
+            program_id=catalogo.program_id,
+            current_semester=2,
+            full_name=f"Estudiante {codigo}",
+            enrollment_date=date(2022, 1, 15),
+        )
+    )
+    db_session.commit()
+
+    login = client.post(
+        "/api/v1/auth/login", json={"email": usuario.email, "password": PASSWORD_DE_PRUEBA}
+    )
+    assert login.status_code == 200, login.text
+
+    return {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+
 @pytest.mark.integration
 def test_el_plan_de_estudios_trae_el_semestre_y_la_obligatoriedad(
     client: TestClient, db_session: Session, catalogo: CatalogoDePrueba
@@ -423,3 +462,76 @@ def test_el_plan_de_estudios_exige_sesion(client: TestClient) -> None:
     respuesta = client.get("/api/v1/students/me/study-plan")
 
     assert respuesta.status_code == 401, respuesta.text
+
+
+@pytest.mark.integration
+def test_el_plan_semaforiza_cada_materia_contra_el_estado_real(
+    client: TestClient, db_session: Session, catalogo: CatalogoDePrueba
+) -> None:
+    """Tres estados distintos en una sola respuesta, calculados contra PostgreSQL real.
+
+    Es donde se comprueba lo que los dobles no pueden: que las consultas que alimentan al
+    semáforo —requisitos por plan, historial aprobado, oferta del período— traen lo que deben.
+    Un resolutor impecable alimentado por un `WHERE` equivocado pinta el plan al revés.
+    """
+    cabecera = _cabecera_de_estudiante(client, db_session, catalogo, "8800002", "semaforo")
+
+    cuerpo = client.get("/api/v1/students/me/study-plan", headers=cabecera).json()
+    estados = {c["code"]: c["status"] for c in cuerpo["courses"]}
+    por_codigo = {c["code"]: c for c in cuerpo["courses"]}
+
+    # MAT101 no exige aprobar nada y tiene dos grupos abiertos.
+    assert estados["MAT101"] == "AVAILABLE"
+    # MAT102 exige aprobar MAT101, que este estudiante no ha cursado.
+    assert estados["MAT102"] == "BLOCKED"
+    assert por_codigo["MAT102"]["missing_prerequisites"] == ["MAT101"]
+    # El taller cumple requisitos —es correquisito MUTUO de MAT101, y por tanto exento— pero
+    # la fixture no le abre ningún grupo: ofrecer inscribirlo llevaría a una pantalla vacía.
+    assert estados["TAL101"] == "NOT_OFFERED"
+
+
+@pytest.mark.integration
+def test_una_materia_aprobada_cuenta_como_avance_del_plan(
+    client: TestClient, db_session: Session, catalogo: CatalogoDePrueba
+) -> None:
+    """`approved_credits` responde «cuánto llevo», y desbloquea lo que dependía de ella."""
+    cabecera = _cabecera_de_estudiante(client, db_session, catalogo, "8800003", "aprobada")
+    estudiante_id = db_session.execute(
+        text("SELECT id FROM students WHERE student_code = '8800003'")
+    ).scalar_one()
+    db_session.execute(
+        text(
+            "INSERT INTO academic_history "
+            "(student_id, course_id, academic_period, status, final_grade) "
+            "VALUES (:s, :c, '2025-1', 'APPROVED', 4.2)"
+        ),
+        {"s": estudiante_id, "c": catalogo.calculo_i_id},
+    )
+    db_session.commit()
+
+    cuerpo = client.get("/api/v1/students/me/study-plan", headers=cabecera).json()
+    estados = {c["code"]: c["status"] for c in cuerpo["courses"]}
+
+    assert estados["MAT101"] == "APPROVED"
+    # Y con ella aprobada, Cálculo II deja de estar bloqueada.
+    assert estados["MAT102"] == "NOT_OFFERED"
+    assert cuerpo["approved_credits"] == 4
+
+
+@pytest.mark.integration
+def test_una_materia_inscrita_se_distingue_de_una_disponible(
+    client: TestClient, db_session: Session, catalogo: CatalogoDePrueba
+) -> None:
+    # Sin este estado, la materia que la persona ya está cursando aparecería como «disponible»
+    # y la pantalla la invitaría a inscribir algo que ya tiene.
+    cabecera = _cabecera_de_estudiante(client, db_session, catalogo, "8800004", "inscrita")
+    inscripcion = client.post(
+        "/api/v1/enrollments",
+        json={"course_offering_id": str(catalogo.offering_grupo_02_id)},
+        headers=cabecera,
+    )
+    assert inscripcion.status_code == 201, inscripcion.text
+
+    cuerpo = client.get("/api/v1/students/me/study-plan", headers=cabecera).json()
+
+    assert {c["code"]: c["status"] for c in cuerpo["courses"]}["MAT101"] == "ENROLLED"

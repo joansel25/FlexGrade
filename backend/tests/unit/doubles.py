@@ -327,6 +327,17 @@ class InMemoryOfferingRepository(OfferingRepository):
             )
         ]
 
+    def find_course_ids_offered_in(
+        self, course_ids: Sequence[UUID], enrollment_period_id: UUID
+    ) -> set[UUID]:
+        pedidas = set(course_ids)
+
+        return {
+            o.course_id
+            for o in self._offerings.values()
+            if o.enrollment_period_id == enrollment_period_id and o.course_id in pedidas
+        }
+
     def find_by_ids(self, offering_ids: Sequence[UUID]) -> list[CourseOffering]:
         return [
             self._copia(o)
@@ -561,6 +572,11 @@ class ContadorDeConsultas(OfferingRepository):
 
     def find_by_ids(self, offering_ids: Sequence[UUID]) -> list[CourseOffering]:
         return self._interno.find_by_ids(offering_ids)
+
+    def find_course_ids_offered_in(
+        self, course_ids: Sequence[UUID], enrollment_period_id: UUID
+    ) -> set[UUID]:
+        return self._interno.find_course_ids_offered_in(course_ids, enrollment_period_id)
 
     def try_reserve_slot(self, offering_id: UUID) -> bool:
         return self._interno.try_reserve_slot(offering_id)

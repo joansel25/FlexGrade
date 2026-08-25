@@ -46,6 +46,29 @@ class OfferingRepository(ABC):
         """
 
     @abstractmethod
+    def find_course_ids_offered_in(
+        self, course_ids: Sequence[UUID], enrollment_period_id: UUID
+    ) -> set[UUID]:
+        """Indica cuáles de esas materias tienen al menos un grupo abierto en el período.
+
+        Es `find_by_course_and_period` en lote y reducido a un sí o un no. Existe para el
+        semáforo del plan de estudios, que necesita la respuesta para las decenas de materias
+        de un plan a la vez: preguntarlo materia por materia sería un N+1 sobre una pantalla
+        que se abre entera de golpe.
+
+        Devuelve solo identificadores y no los grupos porque quien pregunta no va a mostrarlos.
+        Traer los grupos con su docente y su horario para acabar comprobando si la lista está
+        vacía sería mover a la aplicación datos que nadie lee.
+
+        Args:
+            course_ids: materias por las que se pregunta.
+            enrollment_period_id: período sobre el que mirar.
+
+        Returns:
+            Las materias con oferta. Vacío si ninguna se ofrece.
+        """
+
+    @abstractmethod
     def find_by_ids(self, offering_ids: Sequence[UUID]) -> list[CourseOffering]:
         """Recupera varios grupos de una vez, con su docente y su horario resueltos.
 

@@ -186,6 +186,36 @@ export function sembrarInscripcion(offeringId = "g1", pendientes: string[] = [])
  * se comprueba que el catálogo ya no la ofrece por defecto y que su ficha bloquea la
  * inscripción.
  */
+/** Estado de cada materia en el plan de prueba, con un caso de cada tipo. */
+const SEMAFORO_DE_PRUEBA: Record<
+  string,
+  {
+    status: string;
+    missing_prerequisites: string[];
+    missing_corequisites: string[];
+    corequisites: string[];
+  }
+> = {
+  c1: {
+    status: "APPROVED",
+    missing_prerequisites: [],
+    missing_corequisites: [],
+    corequisites: [],
+  },
+  c2: {
+    status: "BLOCKED",
+    missing_prerequisites: ["MAT101"],
+    missing_corequisites: [],
+    corequisites: ["TAL101"],
+  },
+  c4: {
+    status: "AVAILABLE",
+    missing_prerequisites: [],
+    missing_corequisites: [],
+    corequisites: [],
+  },
+};
+
 export const PLAN_DE_ESTUDIOS = {
   program_id: "p1",
   program_code: "ISIS",
@@ -197,8 +227,13 @@ export const PLAN_DE_ESTUDIOS = {
     ...m,
     suggested_semester: indice + 1,
     is_mandatory: true,
+    // El semáforo lo calcula el servidor, así que el doble se limita a declararlo. Los tres
+    // estados que aquí importan son los que cambian lo que la pantalla deja hacer: uno
+    // pulsable, uno terminado y uno bloqueado con su motivo.
+    ...SEMAFORO_DE_PRUEBA[m.id],
   })),
   total_credits: 9,
+  approved_credits: 4,
 };
 
 /** Identificadores de las materias del plan, para filtrar como lo hace el backend. */

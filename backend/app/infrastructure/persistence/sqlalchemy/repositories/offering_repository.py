@@ -67,6 +67,24 @@ class SQLAlchemyOfferingRepository(OfferingRepository):
 
         return [self._a_entidad(m, docentes=docentes, horarios=horarios) for m in modelos]
 
+    def find_course_ids_offered_in(
+        self, course_ids: Sequence[UUID], enrollment_period_id: UUID
+    ) -> set[UUID]:
+        if not course_ids:
+            return set()
+
+        # `DISTINCT` sobre la columna de la materia: una materia con dos grupos abiertos daría
+        # dos filas, y quien pregunta solo quiere saber si hay alguno. Sin él, el conjunto
+        # saldría igual pero se moverían filas de más entre la base y la aplicación.
+        sentencia = (
+            select(CourseOfferingModel.course_id)
+            .where(CourseOfferingModel.enrollment_period_id == enrollment_period_id)
+            .where(CourseOfferingModel.course_id.in_(course_ids))
+            .distinct()
+        )
+
+        return set(self._session.execute(sentencia).scalars())
+
     def find_by_ids(self, offering_ids: Sequence[UUID]) -> list[CourseOffering]:
         if not offering_ids:
             return []

@@ -278,14 +278,31 @@ def get_study_plan_use_case(
     student_repository: StudentRepositoryDep,
     program_repository: ProgramRepositoryDep,
     course_repository: CourseRepositoryDep,
+    period_repository: PeriodRepositoryDep,
+    offering_repository: OfferingRepositoryDep,
+    enrollment_repository: EnrollmentRepositoryDep,
+    academic_history: AcademicHistoryReaderDep,
 ) -> GetStudyPlanUseCase:
     """Construye el caso de uso del plan de estudios.
 
-    Sin caché aunque el plan cambie una vez por semestre: la iteración 6.3 le añadirá el
-    estado de cada materia cruzando el historial del estudiante, y ese dato es personal y
-    cambia con cada inscripción. Cachearlo ahora obligaría a quitarlo enseguida.
+    SIN CACHÉ, y ahora se ve por qué. El plan de una carrera cambia una vez por semestre y
+    parecería el candidato ideal, pero desde la iteración 6.3 la respuesta ya no es el plan:
+    es el plan CRUZADO con el historial y la matrícula de quien pregunta. Dos estudiantes de
+    la misma carrera reciben cuerpos distintos, y el de cada uno cambia con cada inscripción.
+    Cachearlo pediría una clave por persona que habría que invalidar en cada matrícula.
+
+    Recibe el repositorio completo de inscripciones pero lo declara como `EnrollmentReader`:
+    aquí solo se lee, y así queda escrito en la firma.
     """
-    return GetStudyPlanUseCase(student_repository, program_repository, course_repository)
+    return GetStudyPlanUseCase(
+        student_repository,
+        program_repository,
+        course_repository,
+        period_repository,
+        offering_repository,
+        enrollment_repository,
+        academic_history,
+    )
 
 
 GetStudyPlanUseCaseDep = Annotated[GetStudyPlanUseCase, Depends(get_study_plan_use_case)]

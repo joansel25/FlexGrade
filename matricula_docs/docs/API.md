@@ -238,6 +238,34 @@ Responde «qué materias son las mías», que `GET /courses` no puede contestar:
 abría su ficha, pulsaba «Inscribir» y solo entonces recibía un `403 COURSE_NOT_IN_PROGRAM`. La
 regla del servidor era correcta; el problema era que la interfaz ofrecía algo que iba a fallar.
 
+Desde la iteración 6.3 cada materia llega además con **el punto en que está el estudiante**, y
+por eso el mismo plan responde distinto para dos personas de la misma carrera:
+
+| `status` | Significado | Qué ofrece la pantalla |
+|---|---|---|
+| `APPROVED` | Ya la aprobó | Nada; no hay acción |
+| `ENROLLED` | La cursa en el período vigente | Ir a «Mis materias» |
+| `AVAILABLE` | Puede inscribirla ahora | Entrar a la ficha y elegir grupo |
+| `NOT_OFFERED` | Cumple requisitos, pero no hay grupos | Nada; entrar llevaría a una lista vacía |
+| `BLOCKED` | Le falta algo | Nada, pero se dice QUÉ le falta |
+
+Con `BLOCKED` llegan `missing_prerequisites` —lo que hay que aprobar antes— y
+`missing_corequisites` —lo que habría que cursar a la vez y este período no tiene grupos—.
+`corequisites` llega **siempre** que existan, también en `AVAILABLE`: es una instrucción y no
+un impedimento, y esconderla hasta que la inscripción falle sería repetir el error que arregló
+la 6.1.
+
+**El cálculo va en el servidor, y no es una preferencia.** `StudyPlanStatusResolver` delega en
+`PrerequisiteValidator` y `CorequisiteValidator`, los mismos objetos que deciden si
+`POST /enrollments` acepta o rechaza. Una segunda versión de la regla en el navegador
+funcionaría el primer día y discreparía el día que una de las dos cambiara, y entonces la
+pantalla ofrecería lo que el servidor rechaza sin que nadie pudiera saber cuál de las dos
+miente.
+
+**Funciona fuera de la ventana de matrícula.** «Qué me falta para graduarme» se pregunta todo el
+año, así que no haya período activo no es un error: significa que nada se ofrece, y lo que
+cumple requisitos sale como `NOT_OFFERED` en vez de como disponible.
+
 **Response 200**
 ```json
 {
@@ -245,6 +273,7 @@ regla del servidor era correcta; el problema era que la interfaz ofrecía algo q
   "program_code": "ISIS",
   "program_name": "Ingeniería de Sistemas",
   "total_semesters": 10,
+  "approved_credits": 4,
   "courses": [
     {
       "id": "uuid",
@@ -253,7 +282,11 @@ regla del servidor era correcta; el problema era que la interfaz ofrecía algo q
       "credits": 4,
       "description": "Fundamentos de cálculo diferencial",
       "suggested_semester": 1,
-      "is_mandatory": true
+      "is_mandatory": true,
+      "status": "APPROVED",
+      "missing_prerequisites": [],
+      "missing_corequisites": [],
+      "corequisites": []
     }
   ],
   "total_credits": 29

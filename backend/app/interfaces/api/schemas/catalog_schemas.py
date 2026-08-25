@@ -127,15 +127,30 @@ class CurrentPeriodSchema(BaseModel):
 
 
 class StudyPlanEntrySchema(CourseSchema):
-    """Una materia dentro del plan de estudios.
+    """Una materia dentro del plan de estudios, con el punto en que está el estudiante.
 
-    Extiende `CourseSchema` con los dos datos que NO son de la materia sino de su relación
-    con el programa: la misma materia puede ser de primer semestre y obligatoria en una
-    carrera, y de tercero y electiva en otra.
+    Extiende `CourseSchema` con dos clases de dato que NO son de la materia. Los dos primeros
+    son de su relación con el programa —la misma materia puede ser de primer semestre y
+    obligatoria en una carrera, y de tercero y electiva en otra—; el resto es del cruce con el
+    historial y la matrícula de QUIEN consulta, así que el mismo plan responde distinto para
+    dos estudiantes.
     """
 
     suggested_semester: int = Field(ge=1, description="Semestre en que el plan la sugiere")
     is_mandatory: bool = Field(description="Obligatoria para graduarse, o electiva")
+    status: str = Field(
+        description="APPROVED, ENROLLED, AVAILABLE, NOT_OFFERED o BLOCKED",
+    )
+    missing_prerequisites: list[str] = Field(
+        default_factory=list, description="Códigos por aprobar. Solo con BLOCKED"
+    )
+    missing_corequisites: list[str] = Field(
+        default_factory=list,
+        description="Códigos que habría que cursar a la vez y no se ofrecen. Solo con BLOCKED",
+    )
+    corequisites: list[str] = Field(
+        default_factory=list, description="Códigos que hay que inscribir junto a esta materia"
+    )
 
 
 class StudyPlanSchema(BaseModel):
@@ -152,3 +167,6 @@ class StudyPlanSchema(BaseModel):
     total_semesters: int
     courses: list[StudyPlanEntrySchema] = Field(default_factory=list)
     total_credits: int
+    approved_credits: int = Field(
+        default=0, description="Créditos ya aprobados, para medir el avance del plan"
+    )

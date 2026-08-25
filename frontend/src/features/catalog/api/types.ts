@@ -102,11 +102,44 @@ export interface FiltrosCatalogo {
 }
 
 /** Una materia dentro del plan de estudios del estudiante. */
+/**
+ * En qué punto está el estudiante respecto a una materia de su plan.
+ *
+ * Lo calcula el SERVIDOR con los mismos servicios de dominio que deciden si una inscripción se
+ * acepta. El frontend no vuelve a razonar la regla: una segunda versión aquí funcionaría el
+ * primer día y discreparía el día que una de las dos cambiara, dejando la pantalla ofreciendo
+ * lo que el servidor rechaza.
+ */
+export type CourseStatus =
+  /** Ya la aprobó. No hay nada que hacer. */
+  | "APPROVED"
+  /** La está cursando en el período vigente. */
+  | "ENROLLED"
+  /** Puede inscribirla ahora mismo. Es la única sobre la que se pulsa. */
+  | "AVAILABLE"
+  /** Cumple los requisitos, pero no hay grupos este período. */
+  | "NOT_OFFERED"
+  /** Le falta algo; `missing_prerequisites` y `missing_corequisites` dicen qué. */
+  | "BLOCKED";
+
 export interface StudyPlanEntry extends Course {
   /** Semestre en que el plan la sugiere. */
   suggested_semester: number;
   /** Obligatoria para graduarse, o electiva. */
   is_mandatory: boolean;
+  status: CourseStatus;
+  /** Códigos por aprobar. Solo llega con `BLOCKED`. */
+  missing_prerequisites: string[];
+  /** Códigos que habría que cursar a la vez y no se ofrecen. Solo llega con `BLOCKED`. */
+  missing_corequisites: string[];
+  /**
+   * Códigos que hay que inscribir junto a esta materia.
+   *
+   * Llega siempre que existan, también cuando la materia está disponible: es una instrucción,
+   * no un impedimento, y esconderla hasta que la inscripción falle sería repetir el error que
+   * arregló la 6.1.
+   */
+  corequisites: string[];
 }
 
 /** Respuesta de `GET /students/me/study-plan`. */
@@ -118,4 +151,6 @@ export interface StudyPlan {
   total_semesters: number;
   courses: StudyPlanEntry[];
   total_credits: number;
+  /** Créditos ya aprobados. Responde «cuánto llevo» sin que la pantalla recorra la lista. */
+  approved_credits: number;
 }

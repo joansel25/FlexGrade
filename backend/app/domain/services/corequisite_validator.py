@@ -78,19 +78,56 @@ class CorequisiteValidator:
                 que faltan, porque la respuesta útil aquí es «inscribe también MAT101», y para
                 eso hay que decir cuál.
         """
-        faltantes = [
+        faltantes = self.missing(
+            required=required,
+            enrolled_course_ids=enrolled_course_ids,
+            approved_course_ids=approved_course_ids,
+            mutual_course_ids=mutual_course_ids,
+        )
+
+        if faltantes:
+            raise CorequisitesNotMetError(course_id, faltantes)
+
+    def missing(
+        self,
+        *,
+        required: list[Course],
+        enrolled_course_ids: set[UUID],
+        approved_course_ids: set[UUID],
+        mutual_course_ids: set[UUID],
+    ) -> list[str]:
+        """Devuelve los códigos de los correquisitos que no quedan cubiertos.
+
+        Es la regla en su forma consultable, y `validate` no es más que esto seguido de un
+        `raise`. Están separados porque tienen dos consumidores con necesidades opuestas: la
+        inscripción quiere que falle, y el semáforo del plan (iteración 6.3) quiere saber qué
+        falta en decenas de materias sin provocar una excepción por cada una.
+
+        EL SEMÁFORO LA LLAMA CON UNA SUSTITUCIÓN DELIBERADA: le pasa en `enrolled_course_ids`
+        las materias inscritas **más las que se ofrecen este período**. No es un abuso de la
+        firma, es la traducción exacta de la pregunta que hace: al inscribir importa si el
+        correquisito YA está inscrito, y al pintar el plan importa si PODRÍA estarlo. Una
+        materia cuyo correquisito ni siquiera tiene grupos abiertos no es inscribible este
+        semestre por mucho que se cumplan sus prerrequisitos, y anunciarla como disponible
+        sería ofrecer algo que va a fallar.
+
+        Args:
+            required: correquisitos directos de la materia.
+            enrolled_course_ids: materias que cuentan como cursadas a la vez.
+            approved_course_ids: materias ya aprobadas, que satisfacen el correquisito solas.
+            mutual_course_ids: materias que forman bloque mutuo con esta y por tanto quedan
+                exentas.
+
+        Returns:
+            Los códigos que faltan, ORDENADOS. Vacío si están todos cubiertos.
+        """
+        return sorted(
             materia.code.value
             for materia in required
             if materia.id not in enrolled_course_ids
             and materia.id not in approved_course_ids
             and materia.id not in mutual_course_ids
-        ]
-
-        if faltantes:
-            # Ordenados, por la misma razón que en los prerrequisitos: un orden que depende de
-            # la consulta hace que la misma petición dé dos respuestas distintas y vuelve
-            # imposible probar el mensaje.
-            raise CorequisitesNotMetError(course_id, sorted(faltantes))
+        )
 
     def resolve_cancellation(
         self,

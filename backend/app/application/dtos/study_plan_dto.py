@@ -13,21 +13,34 @@ from dataclasses import dataclass, field
 from uuid import UUID
 
 from app.domain.entities.course import Course
+from app.domain.value_objects.course_status import CourseStatus
 
 
 @dataclass(frozen=True)
 class StudyPlanEntryDTO:
-    """Una materia dentro del plan de estudios de un programa.
+    """Una materia dentro del plan de estudios, con el punto en que está el estudiante.
 
     Attributes:
         course: la materia.
         suggested_semester: semestre en el que el plan sugiere cursarla.
         is_mandatory: si es obligatoria para graduarse o electiva.
+        status: aprobada, cursándose, disponible, sin oferta o bloqueada. Se calcula en el
+            servidor con los mismos servicios de dominio que deciden si una inscripción se
+            acepta: una segunda versión de la regla en el cliente discreparía tarde o temprano.
+        missing_prerequisites: qué le falta aprobar. Solo con `BLOCKED`.
+        missing_corequisites: qué tendría que cursar a la vez y este período no puede. Solo con
+            `BLOCKED`.
+        corequisites: qué hay que inscribir junto a esta materia. Va siempre que existan,
+            también cuando está disponible: es una instrucción, no un impedimento.
     """
 
     course: Course
     suggested_semester: int
     is_mandatory: bool
+    status: CourseStatus = CourseStatus.NOT_OFFERED
+    missing_prerequisites: list[str] = field(default_factory=list)
+    missing_corequisites: list[str] = field(default_factory=list)
+    corequisites: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -48,6 +61,9 @@ class StudyPlanDTO:
         total_semesters: duración del programa, para poder mostrar los semestres vacíos.
         entries: las materias del plan, ordenadas por semestre y luego por código.
         total_credits: créditos que suma el plan completo.
+        approved_credits: créditos ya aprobados. Es la cifra que responde «cuánto llevo», y se
+            suma aquí para que la pantalla no tenga que recorrer la lista ni decidir qué estado
+            cuenta como avance.
     """
 
     program_id: UUID
@@ -56,3 +72,4 @@ class StudyPlanDTO:
     total_semesters: int
     entries: list[StudyPlanEntryDTO] = field(default_factory=list)
     total_credits: int = 0
+    approved_credits: int = 0
