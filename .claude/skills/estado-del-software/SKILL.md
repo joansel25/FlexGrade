@@ -5,9 +5,10 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al cerrar la iteración 5.1 (fundación del frontend).** Última verificación
-> real: backend con `pytest` en verde (454 tests) y `mypy --strict` limpio sobre 141 archivos;
-> frontend con `npm run lint`, `type-check`, `test` (18 tests) y `build` en verde.
+> **Actualizada al cerrar la iteración 5.2 (autenticación en el frontend).** Última
+> verificación real: backend con `pytest` en verde (454 tests) y `mypy --strict` limpio sobre
+> 141 archivos; frontend con `npm run lint`, `type-check`, `test` (34 tests) y `build` en verde.
+> Flujo de login comprobado además contra el backend real con la cuenta del seed.
 
 Este archivo es la memoria del proyecto entre sesiones. `CLAUDE.md` dice cómo se trabaja; esto
 dice **en qué punto está el software y por qué está hecho así**. Si los dos se contradicen,
@@ -99,7 +100,20 @@ donde importa.
 14. **Los tests del frontend usan `happy-dom`, no `jsdom`.** jsdom sustituye el
     `AbortController` global por el suyo y el `fetch` de Node rechaza esa señal: con jsdom
     fallan TODAS las peticiones de los tests por un problema que no existe en el navegador.
-15. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
+15. **Los tokens: access en MEMORIA, refresh en `localStorage`.** El access token firma cada
+    petición y es el que más daño hace si se filtra; al vivir en una variable de módulo, un
+    script inyectado no puede leerlo. El refresh se persiste porque, si no, recargar la pestaña
+    cerraría la sesión en plena matrícula. La cookie `httpOnly` se descartó: CloudFront y el
+    balanceador son dominios distintos, así que sería una cookie de terceros. Todo en
+    `frontend/src/features/auth/tokenStorage.ts`, el único archivo a reescribir si se unifican
+    los dominios.
+16. **La sesión se renueva un minuto ANTES de caducar**, y el refresh token se rota en cada
+    renovación: hay que guardar siempre el nuevo. Esperar al 401 haría fallar una petición
+    siempre, y si esa petición es la inscripción, falla en el peor momento.
+17. **`RequireAuth` no es seguridad**, es honestidad de la interfaz. Lo que protege de verdad
+    son los guardianes del backend. Al cerrar sesión se vacía la caché de TanStack Query: si no,
+    la siguiente persona en el mismo navegador vería un instante los datos de la anterior.
+18. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
     la API acepta credenciales y con ellas el comodín ni siquiera es válido.
 
 ## 4. Qué está construido
@@ -112,7 +126,7 @@ donde importa.
 | 3 — Inscripción | ✅ | `POST /enrollments`, `DELETE /enrollments/{id}`, `GET /students/me/schedule` |
 | 4 — Admin y reportes | ✅ | ver desglose abajo |
 | Preparación para la nube | ✅ | `/health/ready`, CORS, logs JSON, `X-Request-ID`, pool configurable, `deploy/aws/` |
-| 5 — Frontend y comprobante | 🔄 en curso | 5.1 fundación ✅ · 5.2 autenticación · 5.3 catálogo · 5.4 inscripción y horario · 5.5 comprobante PDF (incluye el endpoint `GET /students/me/receipt`, que aún no existe) |
+| 5 — Frontend y comprobante | 🔄 en curso | 5.1 fundación ✅ · 5.2 autenticación ✅ · 5.3 catálogo · 5.4 inscripción y horario · 5.5 comprobante PDF (incluye el endpoint `GET /students/me/receipt`, que aún no existe) |
 
 Desglose de la Fase 4 por iteraciones (la numeración es nuestra; los documentos solo describen
 la fase completa):

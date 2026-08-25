@@ -8,16 +8,18 @@
  */
 
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui";
+import { useProfile } from "@/features/auth/useProfile";
 import { useServiceStatus } from "@/features/health/useServiceStatus";
 
 export function HomePage() {
   const { data, isPending, isError, error } = useServiceStatus();
+  const { data: perfil } = useProfile();
 
   return (
     <div className="space-y-8">
       <section>
         <h1 className="text-ink-900 text-2xl font-semibold tracking-tight sm:text-3xl">
-          Matrícula académica
+          {perfil ? `Hola, ${primerNombre(perfil.full_name)}` : "Matrícula académica"}
         </h1>
         <p className="text-ink-600 mt-2 max-w-2xl">
           Inscribe tus materias, revisa tu horario y descarga tu comprobante. Durante la ventana
@@ -25,6 +27,26 @@ export function HomePage() {
           disponibilidad real, nunca una copia guardada.
         </p>
       </section>
+
+      {perfil && (
+        <section aria-labelledby="datos-academicos">
+          <Card className="max-w-xl">
+            <CardHeader>
+              <CardTitle id="datos-academicos">Tus datos académicos</CardTitle>
+            </CardHeader>
+            <CardBody>
+              <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
+                <dt className="text-ink-500">Código</dt>
+                <dd className="text-ink-800 font-medium">{perfil.student_code}</dd>
+                <dt className="text-ink-500">Programa</dt>
+                <dd className="text-ink-800 font-medium">{perfil.program.name}</dd>
+                <dt className="text-ink-500">Semestre</dt>
+                <dd className="text-ink-800 font-medium">{perfil.current_semester}</dd>
+              </dl>
+            </CardBody>
+          </Card>
+        </section>
+      )}
 
       <section aria-labelledby="estado-conexion">
         <Card className="max-w-xl">
@@ -63,4 +85,14 @@ export function HomePage() {
       </section>
     </div>
   );
+}
+
+/**
+ * Primer nombre de la persona, para el saludo.
+ *
+ * Saludar con el nombre completo —incluidos los dos apellidos— suena a carta oficial, no a una
+ * aplicación que la persona usa cada semestre.
+ */
+function primerNombre(nombreCompleto: string): string {
+  return nombreCompleto.trim().split(" ")[0] ?? nombreCompleto;
 }

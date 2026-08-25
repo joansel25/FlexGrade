@@ -22,6 +22,9 @@ autorizado, con un error de navegador que no dice eso en ninguna parte.
 Si en la cabecera aparece **«Sin conexión»**, el backend no está respondiendo: revísalo con
 `curl http://localhost:8000/health`.
 
+Para entrar necesitas una cuenta. Las del seed (`make seed` en la raíz) sirven:
+`estudiante01@tdea.edu.co` / `SecurePass123`.
+
 ## Comandos
 
 | Comando | Qué hace |
@@ -73,6 +76,23 @@ exactamente el problema que el sistema entero existe para evitar.
 **Los errores se deciden por `code`, nunca por el mensaje.** `API.md` garantiza estables los
 `error.code`; el `message` puede cambiar de redacción. Un `409 COURSE_CAPACITY_EXCEEDED` no es
 una avería: es "alguien se te adelantó", y la interfaz debe refrescar cupos y ofrecer otro grupo.
+
+**Los tokens: access en memoria, refresh en `localStorage`.** El access token firma cada
+petición, así que es el que más daño hace si se filtra: al vivir en una variable de módulo, un
+script inyectado no tiene forma de leerlo. El refresh token sí se persiste, porque si no,
+recargar la pestaña cerraría la sesión en mitad de la matrícula. La alternativa impecable
+—cookie `httpOnly`— se descartó porque CloudFront y el balanceador son dominios distintos y
+sería una cookie de terceros, bloqueada por defecto en Safari y Firefox. Todo esto está
+explicado en `features/auth/tokenStorage.ts`, que es el único archivo a reescribir si algún día
+se unifican los dominios.
+
+**La sesión se renueva un minuto antes de caducar.** Esperar al `401` para renovar significa que
+una petición falla siempre; si esa petición es la inscripción, falla en el peor momento.
+
+**`RequireAuth` no es seguridad.** Cualquiera puede saltárselo editando el JavaScript de su
+navegador. Lo que protege de verdad son los guardianes del backend. Existe para que la interfaz
+no mienta: sin él, alguien sin sesión vería pantallas vacías llenándose de errores 401 en vez de
+una invitación clara a entrar.
 
 **Accesibilidad desde el principio.** Elementos nativos (`button`, `nav`, `main`), foco visible
 en todo lo enfocable, enlace para saltar al contenido y estados que nunca se comunican solo con

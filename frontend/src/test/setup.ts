@@ -10,6 +10,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll } from "vitest";
 
+import { limpiarTokens } from "@/features/auth/tokenStorage";
 import { server } from "@/test/msw/server";
 
 beforeAll(() => {
@@ -23,6 +24,10 @@ afterEach(() => {
   server.resetHandlers();
   // Se desmonta el DOM del test anterior.
   cleanup();
+  // Los tokens viven fuera de React —memoria del módulo y `localStorage`—, así que no se van
+  // con el desmontaje. Sin esta limpieza, un test que inicia sesión dejaría autenticado al
+  // siguiente y la suite pasaría o fallaría según el orden.
+  limpiarTokens();
 });
 
 afterAll(() => {

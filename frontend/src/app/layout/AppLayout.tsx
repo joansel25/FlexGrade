@@ -16,6 +16,8 @@
 import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 
+import { UserMenu } from "@/features/auth/components/UserMenu";
+import { useAuth } from "@/features/auth/useAuth";
 import { ServiceStatus } from "@/features/health/components/ServiceStatus";
 import { cn } from "@/lib/cn";
 
@@ -23,10 +25,20 @@ interface AppLayoutProps {
   children: ReactNode;
 }
 
-/** Enlaces de la navegación principal. Crecerá con las pantallas de las iteraciones 5.2-5.5. */
-const NAVEGACION = [{ a: "/", etiqueta: "Inicio" }] as const;
+/**
+ * Enlaces de la navegación principal.
+ *
+ * `soloConSesion` marca los que no tiene sentido ofrecer a quien no ha entrado: mostrarlos
+ * llevaría a una redirección al login en cuanto se pulsan, que se lee como un fallo.
+ * Crecerá con el catálogo, las inscripciones y el horario en las iteraciones 5.3 a 5.5.
+ */
+const NAVEGACION = [{ a: "/", etiqueta: "Inicio", soloConSesion: false }] as const;
 
 export function AppLayout({ children }: AppLayoutProps) {
+  const { estado } = useAuth();
+  const haySesion = estado === "autenticado";
+  const enlaces = NAVEGACION.filter((enlace) => !enlace.soloConSesion || haySesion);
+
   return (
     <div className="flex min-h-screen flex-col">
       <a
@@ -46,7 +58,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
           <nav aria-label="Navegación principal" className="flex-1">
             <ul className="flex items-center gap-1">
-              {NAVEGACION.map((enlace) => (
+              {enlaces.map((enlace) => (
                 <li key={enlace.a}>
                   <NavLink
                     to={enlace.a}
@@ -66,7 +78,10 @@ export function AppLayout({ children }: AppLayoutProps) {
             </ul>
           </nav>
 
-          <ServiceStatus />
+          <div className="flex items-center gap-3">
+            <ServiceStatus />
+            <UserMenu />
+          </div>
         </div>
       </header>
 

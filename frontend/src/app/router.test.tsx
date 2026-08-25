@@ -1,8 +1,13 @@
 /**
  * Pruebas de la estructura de la aplicación.
  *
- * Verifican dos cosas que se rompen en silencio: que la pantalla de inicio se pinta con su
- * layout, y que una URL inexistente muestra el 404 en vez de una página en blanco.
+ * Verifican lo que se rompe en silencio: que el layout aporta sus puntos de referencia, que el
+ * enlace para saltar al contenido existe y que una URL inexistente muestra el 404 en vez de una
+ * página en blanco.
+ *
+ * Se montan sobre `/login` porque desde la iteración 5.2 es la única ruta pública, y lo que se
+ * comprueba aquí es el ARMAZÓN, no qué pantalla hay dentro. La protección de rutas tiene sus
+ * propias pruebas en `features/auth/sesion.test.tsx`.
  */
 
 import { screen } from "@testing-library/react";
@@ -11,21 +16,24 @@ import { describe, expect, it } from "vitest";
 import { AppRoutes } from "@/app/router";
 import { renderConProveedores } from "@/test/render";
 
-describe("rutas de la aplicación", () => {
-  it("muestra la pantalla de inicio dentro del layout", async () => {
-    renderConProveedores(<AppRoutes />, { ruta: "/" });
+describe("estructura de la aplicación", () => {
+  it("envuelve cada pantalla con el layout", async () => {
+    renderConProveedores(<AppRoutes />, { ruta: "/login" });
 
     expect(
-      await screen.findByRole("heading", { name: "Matrícula académica", level: 1 }),
+      await screen.findByRole("heading", { name: "Iniciar sesión", level: 1 }),
     ).toBeInTheDocument();
-    // El layout aporta los puntos de referencia que permiten navegar con lector de pantalla.
+    // Los puntos de referencia son los que permiten navegar con un lector de pantalla sin
+    // tener que leerlo todo.
     expect(screen.getByRole("navigation", { name: "Navegación principal" })).toBeInTheDocument();
+    expect(screen.getByRole("banner")).toBeInTheDocument();
     expect(screen.getByRole("contentinfo")).toBeInTheDocument();
+    expect(screen.getByRole("main")).toBeInTheDocument();
   });
 
   it("ofrece un enlace para saltar al contenido", () => {
     // Sin él, quien navega con teclado atraviesa toda la navegación en cada página.
-    renderConProveedores(<AppRoutes />, { ruta: "/" });
+    renderConProveedores(<AppRoutes />, { ruta: "/login" });
 
     expect(screen.getByRole("link", { name: "Saltar al contenido" })).toHaveAttribute(
       "href",

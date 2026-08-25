@@ -10,6 +10,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 
+import { AuthProvider } from "@/features/auth/AuthContext";
 import { crearQueryClient } from "@/lib/query/queryClient";
 
 interface AppProvidersProps {
@@ -24,5 +25,12 @@ export function AppProviders({ children, queryClient }: AppProvidersProps) {
   // siguiente y los haría depender del orden de ejecución.
   const [cliente] = useState(() => queryClient ?? crearQueryClient());
 
-  return <QueryClientProvider client={cliente}>{children}</QueryClientProvider>;
+  // `AuthProvider` va DENTRO de `QueryClientProvider`, y el orden no es indiferente: al
+  // cerrar sesión vacía la caché de consultas con `useQueryClient`, que solo existe si el
+  // proveedor de arriba ya está montado.
+  return (
+    <QueryClientProvider client={cliente}>
+      <AuthProvider>{children}</AuthProvider>
+    </QueryClientProvider>
+  );
 }
