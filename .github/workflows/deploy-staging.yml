@@ -50,6 +50,16 @@ jobs:
   ci:
     name: CI previo
     uses: ./.github/workflows/ci.yml
+    # `backend-ci` pide `pull-requests: write` para que gitleaks pueda comentar el hallazgo
+    # en el PR cuando encuentra un secreto. Un workflow LLAMADO no puede pedir mas permisos de
+    # los que le concede quien lo llama, y el `permissions: contents: read` de arriba lo dejaba
+    # en `pull-requests: none`: la corrida fallaba al arrancar, sin llegar a crear ningun job.
+    #
+    # Se concede aqui, en el job que hace la llamada, y NO a nivel de workflow: asi los pasos
+    # de despliegue —que son los que tocan AWS— siguen sin poder escribir en pull requests.
+    permissions:
+      contents: read
+      pull-requests: write
 
   deploy:
     name: Desplegar en STAGING
