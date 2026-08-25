@@ -5,13 +5,13 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al cerrar la iteración 6.3 (semáforo del plan de estudios).** Última
+> **Actualizada al cerrar la iteración 6.4, y con ella la FASE 6 completa.** Última
 > verificación real: backend con `pytest` en verde (535 tests) y `mypy --strict` limpio sobre
-> 154 archivos; frontend con `npm run lint`, `type-check`, `test` (93 tests) y `build` en verde.
-> El semáforo se comprobó contra la API real con dos cuentas del seed —una sin historial y otra
-> con `MAT101` aprobada, que desbloquea `MAT102`— y se verificó la promesa de la iteración:
-> `POST /enrollments` rechaza con `PREREQUISITES_NOT_MET` justo lo que el plan marca `BLOCKED`,
-> y acepta lo que marca `AVAILABLE`.
+> 154 archivos; frontend con `npm run lint`, `type-check`, `test` (94 tests) y `build` en verde.
+> El semáforo de la 6.3 se comprobó además contra la API real con dos cuentas del seed —una sin
+> historial y otra con `MAT101` aprobada, que desbloquea `MAT102`—, verificando la promesa de la
+> iteración: `POST /enrollments` rechaza con `PREREQUISITES_NOT_MET` justo lo que el plan marca
+> `BLOCKED`, y acepta lo que marca `AVAILABLE`.
 
 Este archivo es la memoria del proyecto entre sesiones. `CLAUDE.md` dice cómo se trabaja; esto
 dice **en qué punto está el software y por qué está hecho así**. Si los dos se contradicen,
@@ -207,7 +207,19 @@ donde importa.
     estudiantes de la misma carrera reciben cuerpos distintos y el de cada uno cambia con cada
     inscripción. Tampoco falla fuera de la ventana de matrícula: «qué me falta para graduarme»
     se pregunta todo el año, y sin período activo lo que cumple requisitos sale `NOT_OFFERED`.
-39. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
+39. **El estado de la API no se le muestra al estudiante.** El recuadro de la pantalla de
+    inicio y el indicador de la cabecera eran andamiaje de la 5.1, útil cuando no había
+    pantallas reales y no se distinguía «la API está caída» de «mi código está mal». Al
+    estudiante no le sirve —no puede hacer nada con un punto rojo— y ver el ambiente o un
+    número de versión en la primera pantalla de su matrícula genera desconfianza. Cuando la API
+    falla, quien lo dice es la operación que falló, con lo que hay que hacer al respecto: eso
+    ya lo resuelve `mensajes.ts` en cada flujo. La 6.4 retiró las dos y BORRÓ la funcionalidad
+    `features/health` del frontend en vez de dejarla sin renderizar, por la regla de oro de que
+    cada archivo tiene un propósito; vive en el commit `3315eeb`, del que
+    `git show 3315eeb:frontend/src/features/health/components/ServiceStatus.tsx` la recupera si
+    la 8.1 la quiere de base. El endpoint `/health` del backend no se toca: lo
+    consume el ALB.
+40. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
     la API acepta credenciales y con ellas el comodín ni siquiera es válido.
 
 ## 4. Qué está construido
@@ -221,13 +233,18 @@ donde importa.
 | 4 — Admin y reportes | ✅ | ver desglose abajo |
 | Preparación para la nube | ✅ | `/health/ready`, CORS, logs JSON, `X-Request-ID`, pool configurable, `deploy/aws/` |
 | 5 — Frontend y comprobante | ✅ | 5.1 fundación · 5.2 autenticación · 5.3 catálogo · 5.4 inscripción y horario · 5.5 comprobante PDF |
-| 6 — Reglas por carrera | en curso | `GET /students/me/study-plan` con semáforo, ruta `/plan` en el frontend |
+| 6 — Reglas por carrera | ✅ | `GET /students/me/study-plan` con semáforo, ruta `/plan` en el frontend |
 
-**Fase 6 — Reglas académicas por carrera** (en curso): 6.1 catálogo acotado ✅ (`c6782c0`) ·
+**Fase 6 — Reglas académicas por carrera: COMPLETA.** 6.1 catálogo acotado ✅ (`c6782c0`) ·
 6.2 prerrequisitos y correquisitos por plan ✅ (`0c0131b`) ·
 6.2.1 consistencia del bloque al cancelar ✅ (`f2070a5`) ·
-6.3 semáforo del plan ✅ (esta iteración) · 6.4 limpieza de la interfaz
-del estudiante.
+6.3 semáforo del plan ✅ (`3315eeb`) · 6.4 limpieza de la interfaz del
+estudiante ✅ (esta iteración).
+
+Lo siguiente es la **Fase 7 — Aulas y espacios físicos**: hoy el aula es un texto libre en
+`schedule_blocks.classroom` y nada impide la doble reserva. Se cierra con una restricción de
+exclusión GiST de PostgreSQL sobre el rango horario, la misma filosofía de dos defensas que
+impide el sobrecupo.
 
 El plan completo de las fases 6 a 10 está en el artefacto «Hoja de ruta FlexGrade».
 Aprovisionar AWS sigue pendiente (ver `deploy/aws/README.md`).

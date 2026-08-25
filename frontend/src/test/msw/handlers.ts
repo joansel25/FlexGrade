@@ -12,7 +12,15 @@ import { HttpResponse, http } from "msw";
 /** Base que usan los tests; coincide con la de `.env.example`. */
 export const API_URL = "http://localhost:8000";
 
-/** Estado del servicio con el que responde el backend cuando todo va bien. */
+/**
+ * Estado del servicio con el que responde el backend cuando todo va bien.
+ *
+ * Ninguna pantalla lo consume desde la iteración 6.4, que retiró el indicador de estado de la
+ * interfaz del estudiante. Se conserva porque `client.test.ts` usa `/health` como el GET
+ * correcto más simple que existe para probar el cliente HTTP: es un endpoint real, sin token
+ * ni parámetros, y sustituirlo por uno inventado haría que el test dejara de parecerse a una
+ * petición de verdad.
+ */
 export const ESTADO_SANO = {
   status: "ok",
   environment: "test",

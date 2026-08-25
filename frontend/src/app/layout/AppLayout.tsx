@@ -18,7 +18,6 @@ import { NavLink } from "react-router-dom";
 
 import { UserMenu } from "@/features/auth/components/UserMenu";
 import { useAuth } from "@/features/auth/useAuth";
-import { ServiceStatus } from "@/features/health/components/ServiceStatus";
 import { cn } from "@/lib/cn";
 
 interface AppLayoutProps {
@@ -85,10 +84,12 @@ export function AppLayout({ children }: AppLayoutProps) {
             </ul>
           </nav>
 
-          <div className="flex items-center gap-3">
-            <ServiceStatus />
-            <UserMenu />
-          </div>
+          {/* El indicador del estado de la API vivía aquí hasta la iteración 6.4. Se retiró por
+              la misma razón que el recuadro de la pantalla de inicio: al estudiante no le sirve
+              —no puede hacer nada con un punto rojo— y cuando la API falla es la operación que
+              falló la que tiene que decirlo, con lo que hay que hacer al respecto. Tiene
+              sentido operativo en el panel de administración de la fase 8, no aquí. */}
+          <UserMenu />
         </div>
       </header>
 
