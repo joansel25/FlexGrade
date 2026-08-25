@@ -13,6 +13,7 @@ import { Alert, Button, Card, CardBody, EmptyState, Skeleton } from "@/component
 import { ScheduleList } from "@/features/catalog/components/ScheduleList";
 import { esSinPeriodoActivo } from "@/features/catalog/hooks";
 import type { StudentEnrollment } from "@/features/enrollment/api/types";
+import { ReceiptButton } from "@/features/enrollment/components/ReceiptButton";
 import { useCancelEnrollment, useMyEnrollments } from "@/features/enrollment/hooks";
 import { mensajeDeCancelacion } from "@/features/enrollment/mensajes";
 
@@ -21,19 +22,26 @@ export function MyEnrollmentsPage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-ink-900 text-2xl font-semibold tracking-tight sm:text-3xl">
-          Mis materias
-        </h1>
-        {data && (
-          <p className="text-ink-600 mt-2">
-            {data.items.length} {data.items.length === 1 ? "materia inscrita" : "materias inscritas"}
-            {" · "}
-            {data.total_credits} {data.total_credits === 1 ? "crédito" : "créditos"}
-            {" · "}
-            período {data.period}
-          </p>
-        )}
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-ink-900 text-2xl font-semibold tracking-tight sm:text-3xl">
+            Mis materias
+          </h1>
+          {data && (
+            <p className="text-ink-600 mt-2">
+              {data.items.length}{" "}
+              {data.items.length === 1 ? "materia inscrita" : "materias inscritas"}
+              {" · "}
+              {data.total_credits} {data.total_credits === 1 ? "crédito" : "créditos"}
+              {" · "}
+              período {data.period}
+            </p>
+          )}
+        </div>
+
+        {/* Se ofrece aunque no haya nada inscrito: un comprobante vacío certifica ese estado,
+            y a veces hay que demostrarlo. */}
+        {data && <ReceiptButton />}
       </header>
 
       {isPending && <ListaCargando />}

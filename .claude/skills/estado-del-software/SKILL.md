@@ -5,11 +5,10 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al cerrar la iteración 5.4 (inscripción y horario).** Última verificación
-> real: backend con `pytest` en verde (458 tests) y `mypy --strict` limpio sobre 142 archivos;
-> frontend con `npm run lint`, `type-check`, `test` (66 tests) y `build` en verde. Recorrido
-> completo comprobado además contra el backend real: inscribir, `ALREADY_ENROLLED`,
-> `SCHEDULE_CONFLICT`, `PREREQUISITES_NOT_MET`, listar y cancelar.
+> **Actualizada al cerrar la iteración 5.5 y con ella la Fase 5.** Última verificación real:
+> backend con `pytest` en verde (475 tests) y `mypy --strict` limpio sobre 147 archivos;
+> frontend con `npm run lint`, `type-check`, `test` (71 tests) y `build` en verde. Comprobante
+> generado y leído contra el backend real, con acentos, horarios ordenados y créditos correctos.
 
 Este archivo es la memoria del proyecto entre sesiones. `CLAUDE.md` dice cómo se trabaja; esto
 dice **en qué punto está el software y por qué está hecho así**. Si los dos se contradicen,
@@ -128,7 +127,16 @@ donde importa.
     que cambiaron: mis materias, mi horario y los cupos del catálogo.
 21. **`GET /students/me/enrollments` existe aparte de `/me/schedule`** porque el horario no
     lleva el identificador de la inscripción, y sin él no se puede cancelar.
-22. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
+22. **El comprobante en PDF se genera al vuelo con ReportLab, nunca se almacena.** ReportLab
+    y no WeasyPrint/wkhtmltopdf porque esas exigen librerías del sistema (Cairo, Pango, un
+    navegador) que engordarían la imagen de Elastic Beanstalk. El renderizador es un puerto
+    (`ReceiptRenderer`), así que el contenido se prueba sin generar un byte de PDF.
+23. **El comprobante reutiliza `ListStudentEnrollmentsUseCase`**, no repite sus consultas: es
+    lo que garantiza que el PDF y la pantalla «Mis materias» sumen los mismos créditos.
+24. **La descarga del PDF va por `fetch`, no por un `<a href>`.** El endpoint exige
+    `Authorization: Bearer` y un enlace no envía cabeceras; poner el token en la URL lo dejaría
+    en el historial, en los registros del ALB y en la cabecera `Referer`.
+25. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
     la API acepta credenciales y con ellas el comodín ni siquiera es válido.
 
 ## 4. Qué está construido
@@ -141,7 +149,10 @@ donde importa.
 | 3 — Inscripción | ✅ | `POST /enrollments`, `DELETE /enrollments/{id}`, `GET /students/me/schedule` |
 | 4 — Admin y reportes | ✅ | ver desglose abajo |
 | Preparación para la nube | ✅ | `/health/ready`, CORS, logs JSON, `X-Request-ID`, pool configurable, `deploy/aws/` |
-| 5 — Frontend y comprobante | 🔄 en curso | 5.1 fundación ✅ · 5.2 autenticación ✅ · 5.3 catálogo ✅ · 5.4 inscripción y horario ✅ · 5.5 comprobante PDF (incluye el endpoint `GET /students/me/receipt`, que aún no existe) |
+| 5 — Frontend y comprobante | ✅ | 5.1 fundación · 5.2 autenticación · 5.3 catálogo · 5.4 inscripción y horario · 5.5 comprobante PDF |
+
+**Las cinco fases del plan están completas.** Lo que queda es aprovisionar AWS (ver
+`deploy/aws/README.md`) y pagar la deuda listada abajo.
 
 Desglose de la Fase 4 por iteraciones (la numeración es nuestra; los documentos solo describen
 la fase completa):

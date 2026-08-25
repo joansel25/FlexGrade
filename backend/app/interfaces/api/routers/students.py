@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Response, status
 
 from app.domain.exceptions.authentication import StudentProfileNotFoundError
 from app.interfaces.api.dependencies.auth import CurrentStudentDep, CurrentUserDep
 from app.interfaces.api.dependencies.di import (
+    GenerateReceiptUseCaseDep,
     GetStudentScheduleUseCaseDep,
     ListStudentEnrollmentsUseCaseDep,
     ProgramRepositoryDep,
@@ -171,4 +172,50 @@ def get_my_enrollments(
             )
             for i in inscripciones.items
         ],
+    )
+
+
+@router.get(
+    "/me/receipt",
+    summary="Comprobante de matrícula en PDF",
+    response_class=Response,
+    responses={
+        200: {
+            "content": {"application/pdf": {}},
+            "description": "El comprobante de matrícula",
+        },
+        401: {"model": ErrorResponseSchema, "description": "Token ausente o inválido"},
+        404: {
+            "model": ErrorResponseSchema,
+            "description": "La cuenta no tiene perfil académico, o no hay período activo",
+        },
+    },
+)
+def get_my_receipt(
+    estudiante: CurrentStudentDep,
+    use_case: GenerateReceiptUseCaseDep,
+) -> Response:
+    """Genera y descarga el comprobante de matrícula del estudiante.
+
+    El documento se genera al vuelo en cada petición y no se guarda en ningún sitio:
+    durante la ventana de matrícula el contenido cambia con cada inscripción, así que un
+    archivo almacenado quedaría obsoleto de inmediato.
+
+    Un comprobante sin materias es un documento legítimo, no un error: certifica que la
+    persona no ha inscrito nada en el período.
+    """
+    pdf, nombre = use_case.execute(estudiante.id)
+
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={
+            # `attachment` para que el navegador lo descargue con nombre propio en vez de
+            # abrirlo en una pestaña con el identificador de la ruta por título.
+            "Content-Disposition": f'attachment; filename="{nombre}"',
+            # Sin caché: el contenido cambia con cada inscripción, y un comprobante
+            # servido desde la caché del navegador mostraría materias que ya se
+            # cancelaron.
+            "Cache-Control": "no-store",
+        },
     )

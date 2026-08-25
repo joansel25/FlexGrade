@@ -488,3 +488,59 @@ def test_nadie_puede_ver_las_inscripciones_de_otro(client: TestClient) -> None:
     respuesta = client.get("/api/v1/students/me/enrollments")
 
     assert respuesta.status_code == 401, respuesta.text
+
+
+# ---------------------------------------------------------------------------
+# GET /students/me/receipt
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_el_comprobante_se_descarga_como_pdf(
+    client: TestClient, db_session: Session, catalogo: CatalogoDePrueba
+) -> None:
+    """Recorre las cuatro capas hasta ReportLab: inscribir y descargar el documento."""
+    credenciales = _crear_cuenta(db_session, catalogo.program_id, "80")
+    cabecera = {"Authorization": f"Bearer {_token(client, credenciales)}"}
+
+    inscripcion = client.post(
+        RUTA_ENROLLMENTS,
+        json={"course_offering_id": str(catalogo.offering_grupo_02_id)},
+        headers=cabecera,
+    )
+    assert inscripcion.status_code == 201, inscripcion.text
+
+    respuesta = client.get("/api/v1/students/me/receipt", headers=cabecera)
+
+    assert respuesta.status_code == 200, respuesta.text
+    assert respuesta.headers["content-type"] == "application/pdf"
+    # `attachment` para que el navegador lo descargue con nombre propio en vez de abrirlo con
+    # el identificador de la ruta por título.
+    assert "attachment" in respuesta.headers["content-disposition"]
+    assert ".pdf" in respuesta.headers["content-disposition"]
+    # Sin caché: el contenido cambia con cada inscripción, y una copia guardada mostraría
+    # materias ya canceladas.
+    assert respuesta.headers["cache-control"] == "no-store"
+    assert respuesta.content.startswith(b"%PDF-")
+
+
+@pytest.mark.integration
+def test_el_comprobante_vacio_tambien_se_genera(
+    client: TestClient, db_session: Session, catalogo: CatalogoDePrueba
+) -> None:
+    """Certifica que la persona no inscribió nada: es un documento legítimo, no un error."""
+    credenciales = _crear_cuenta(db_session, catalogo.program_id, "81")
+    cabecera = {"Authorization": f"Bearer {_token(client, credenciales)}"}
+
+    respuesta = client.get("/api/v1/students/me/receipt", headers=cabecera)
+
+    assert respuesta.status_code == 200, respuesta.text
+    assert respuesta.content.startswith(b"%PDF-")
+
+
+@pytest.mark.integration
+def test_nadie_descarga_el_comprobante_de_otro(client: TestClient) -> None:
+    """El estudiante sale del token, nunca de la petición."""
+    respuesta = client.get("/api/v1/students/me/receipt")
+
+    assert respuesta.status_code == 401, respuesta.text

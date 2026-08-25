@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.application.ports.auth_service import AuthService
 from app.application.ports.cache_service import CacheService
+from app.application.ports.document_service import ReceiptRenderer
 from app.application.ports.repositories.academic_history_repository import AcademicHistoryReader
 from app.application.ports.repositories.course_repository import CourseRepository
 from app.application.ports.repositories.enrollment_repository import EnrollmentRepository
@@ -48,6 +49,7 @@ from app.application.use_cases.catalog.get_offering_detail import GetOfferingDet
 from app.application.use_cases.catalog.list_courses import ListCoursesUseCase
 from app.application.use_cases.enrollment.cancel_enrollment import CancelEnrollmentUseCase
 from app.application.use_cases.enrollment.enroll_student import EnrollStudentUseCase
+from app.application.use_cases.enrollment.generate_receipt import GenerateReceiptUseCase
 from app.application.use_cases.enrollment.get_student_schedule import GetStudentScheduleUseCase
 from app.application.use_cases.enrollment.list_student_enrollments import (
     ListStudentEnrollmentsUseCase,
@@ -56,6 +58,7 @@ from app.infrastructure.auth.jwt_auth_service import JWTAuthService
 from app.infrastructure.cache.client import get_redis_client
 from app.infrastructure.cache.redis_cache_service import RedisCacheService
 from app.infrastructure.config.settings import Settings, get_settings
+from app.infrastructure.documents.pdf_receipt_renderer import PdfReceiptRenderer
 from app.infrastructure.persistence.sqlalchemy.repositories.academic_history_repository import (
     SQLAlchemyAcademicHistoryRepository,
 )
@@ -511,4 +514,43 @@ GenerateEnrollmentReportUseCaseDep = Annotated[
 ]
 GenerateOccupancyReportUseCaseDep = Annotated[
     GenerateOccupancyReportUseCase, Depends(get_occupancy_report_use_case)
+]
+
+
+def get_receipt_renderer() -> ReceiptRenderer:
+    """Resuelve el puerto del comprobante al adaptador de ReportLab.
+
+    Sin estado y sin dependencias: se construye en cada petición sin coste apreciable, a
+    diferencia del adaptador de caché, que guarda el cortacircuitos y por eso es único.
+    """
+    return PdfReceiptRenderer()
+
+
+ReceiptRendererDep = Annotated[ReceiptRenderer, Depends(get_receipt_renderer)]
+
+
+def get_generate_receipt_use_case(
+    enrollment_repository: EnrollmentRepositoryDep,
+    offering_repository: OfferingRepositoryDep,
+    course_repository: CourseRepositoryDep,
+    period_repository: PeriodRepositoryDep,
+    student_repository: StudentRepositoryDep,
+    program_repository: ProgramRepositoryDep,
+    renderer: ReceiptRendererDep,
+) -> GenerateReceiptUseCase:
+    """Construye el caso de uso del comprobante.
+
+    Recibe el caso de uso del listado ya montado en vez de sus repositorios sueltos: es lo
+    que garantiza que el PDF diga exactamente lo mismo que la pantalla «Mis materias»,
+    incluida la suma de créditos.
+    """
+    listado = ListStudentEnrollmentsUseCase(
+        enrollment_repository, offering_repository, course_repository, period_repository
+    )
+
+    return GenerateReceiptUseCase(listado, student_repository, program_repository, renderer)
+
+
+GenerateReceiptUseCaseDep = Annotated[
+    GenerateReceiptUseCase, Depends(get_generate_receipt_use_case)
 ]

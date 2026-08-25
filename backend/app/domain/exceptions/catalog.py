@@ -70,3 +70,19 @@ class ProfessorNotFoundError(DomainError):
             "El docente indicado no existe",
             details={"professor_id": str(professor_id)},
         )
+
+
+class ProgramNotFoundError(DomainError):
+    """El programa académico solicitado no existe.
+
+    En la práctica solo puede darse si un programa se borra mientras hay estudiantes suyos con
+    matrícula abierta. Se modela igualmente porque la alternativa —dejar que el `None` llegue a
+    la plantilla del comprobante— produciría un documento con el programa en blanco, que es
+    peor que un error explicado.
+    """
+
+    def __init__(self, program_id: UUID) -> None:
+        super().__init__(
+            "El programa académico solicitado no existe",
+            details={"program_id": str(program_id)},
+        )

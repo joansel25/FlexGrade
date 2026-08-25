@@ -241,6 +241,18 @@ export const handlers = [
     }),
   ),
 
+  http.get(`${API_URL}/api/v1/students/me/receipt`, () =>
+    // Un PDF mínimo pero con la firma real del formato: lo que se prueba es que la descarga
+    // llega y se entrega al navegador, no que ReportLab dibuje bien —eso se comprueba en el
+    // backend, que es donde se genera.
+    HttpResponse.arrayBuffer(new TextEncoder().encode("%PDF-1.4 falso").buffer as ArrayBuffer, {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": 'attachment; filename="comprobante-matricula-1234567-2025-2-V1.pdf"',
+      },
+    }),
+  ),
+
   http.get(`${API_URL}/api/v1/students/me/schedule`, () =>
     HttpResponse.json({
       period: "2025-2",

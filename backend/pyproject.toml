@@ -30,6 +30,11 @@ dependencies = [
     # Autenticacion (Fase 1): firma de tokens y hashing de contrasenas.
     "pyjwt==2.13.0",
     "bcrypt==5.0.0",
+    # Comprobante de matricula en PDF (Fase 5). Se elige reportlab y no una conversion
+    # desde HTML (weasyprint, wkhtmltopdf) porque esas exigen librerias del sistema
+    # —cairo, pango, un navegador— que engordarian la imagen y habria que mantener en
+    # Elastic Beanstalk. reportlab es Python puro: se instala con pip y ya esta.
+    "reportlab==4.2.5",
 ]
 
 [project.optional-dependencies]
@@ -87,6 +92,14 @@ exclude = ['^alembic/']
 # cada funcion de test, no la correccion de tipos.
 module = "tests.*"
 disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+# reportlab no publica anotaciones de tipos ni existen stubs mantenidos en typeshed.
+# Se silencia SOLO su import: el resto del modulo que lo usa sigue bajo modo estricto, asi
+# que un error propio se detecta igual. La alternativa —escribir stubs a mano para una
+# libreria de la que se usan ocho clases— seria mas codigo que mantener que el adaptador.
+module = ["reportlab.*"]
+ignore_missing_imports = true
 
 [tool.pydantic-mypy]
 init_forbid_extra = true

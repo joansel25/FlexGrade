@@ -617,7 +617,35 @@ el pico.
 
 Genera y descarga el comprobante de matrícula del estudiante en formato PDF.
 
-**Response 200** con `Content-Type: application/pdf`.
+**Response 200** con `Content-Type: application/pdf`, `Content-Disposition: attachment` y un
+nombre de archivo que incluye el código del estudiante y el período
+(`comprobante-matricula-1234567-2025-2-V1.pdf`), para que quien descargue varios a lo largo del
+semestre pueda distinguirlos sin abrirlos.
+
+Lleva `Cache-Control: no-store`: el contenido cambia con cada inscripción, y una copia guardada
+por el navegador mostraría materias ya canceladas.
+
+El documento se genera **al vuelo en cada petición** y no se almacena en ningún sitio. Durante
+la ventana de matrícula el contenido cambia con cada operación, así que un archivo guardado
+quedaría obsoleto de inmediato; y ponerlo en S3 obligaría a invalidarlo en cada inscripción,
+para un documento que se descarga una o dos veces por semestre.
+
+Los créditos que imprime son **los mismos** que devuelve `GET /students/me/enrollments`: el
+comprobante reutiliza ese caso de uso en vez de repetir sus consultas, precisamente para que las
+dos cifras no puedan discrepar.
+
+Un comprobante **sin materias es un documento válido**, no un error: certifica que la persona no
+inscribió nada en el período.
+
+| Código HTTP | error.code | Situación |
+|---|---|---|
+| 404 | `STUDENT_PROFILE_NOT_FOUND` | La cuenta no tiene perfil académico |
+| 404 | `NO_ACTIVE_PERIOD` | No hay ventana de matrícula activa |
+
+El comprobante incluye un **código de verificación** determinista (`{period_code}-{student_code}`)
+con el que Registro Académico puede localizar la matrícula. **No es una firma electrónica** y el
+propio documento lo dice: no prueba que el PDF no se haya alterado. Firmarlo exigiría un
+certificado y una gestión de claves que este proyecto no contempla.
 
 ## Consideraciones técnicas
 
