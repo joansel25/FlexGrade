@@ -115,6 +115,27 @@ class CourseRepository(ABC):
         """
 
     @abstractmethod
+    def find_study_plan(self, program_id: UUID) -> list[tuple[Course, int, bool]]:
+        """Recupera el plan de estudios completo de un programa.
+
+        Devuelve cada materia junto con su semestre sugerido y si es obligatoria, porque esos
+        dos datos NO son de la materia sino de su relación con el programa: la misma materia
+        puede ser de primer semestre y obligatoria en una carrera, y de tercero y electiva en
+        otra. Por eso la entidad `Course` no los lleva.
+
+        Sin paginar, al contrario que `search`. Un plan tiene decenas de materias y su valor
+        está en verse entero: responde «qué me falta para graduarme», y eso no se contesta de
+        veinte en veinte.
+
+        Args:
+            program_id: programa cuyo plan se consulta.
+
+        Returns:
+            Tríos de materia, semestre sugerido y obligatoriedad, ordenados por semestre y
+            luego por código. Vacío si el programa no tiene plan cargado.
+        """
+
+    @abstractmethod
     def save(self, course: Course) -> None:
         """Persiste una materia nueva o los cambios de una existente.
 

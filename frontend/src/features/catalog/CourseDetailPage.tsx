@@ -20,6 +20,7 @@ import {
   useCourseDetail,
   useCourseOfferings,
   useCurrentPeriod,
+  useMyProgramCourseIds,
 } from "@/features/catalog/hooks";
 import { EnrollButton } from "@/features/enrollment/components/EnrollButton";
 import { useMyEnrollments } from "@/features/enrollment/hooks";
@@ -32,6 +33,15 @@ export function CourseDetailPage() {
   const grupos = useCourseOfferings(courseId);
   const periodo = useCurrentPeriod();
   const inscripciones = useMyEnrollments();
+  const materiasDeMiPlan = useMyProgramCourseIds();
+
+  // Se llega aquí también por un enlace directo o por «todo el catálogo», así que la ficha
+  // tiene que saber por su cuenta si la materia es inscribible. El conjunto vacío mientras
+  // carga el plan NO se interpreta como «fuera»: eso bloquearía el botón un instante en cada
+  // materia propia, que se lee como un error.
+  const planCargado = materiasDeMiPlan.size > 0;
+  const fueraDeMiPlan =
+    planCargado && courseId !== undefined && !materiasDeMiPlan.has(courseId);
 
   // Los grupos que el estudiante ya tiene inscritos: el boton de esos no debe ofrecer volver
   // a inscribir, sino decir que ya esta dentro.
@@ -82,6 +92,13 @@ export function CourseDetailPage() {
         )}
       </header>
 
+      {fueraDeMiPlan && (
+        <Alert tono="advertencia" titulo="Esta materia no es de tu carrera">
+          Puedes consultarla, pero solo se pueden inscribir las materias del plan de estudios de
+          tu programa. Si crees que debería estar en tu plan, comunícate con Registro Académico.
+        </Alert>
+      )}
+
       <Prerequisitos materias={materia.data.prerequisites} />
 
       <section aria-labelledby="grupos-titulo" className="space-y-3">
@@ -113,6 +130,7 @@ export function CourseDetailPage() {
                   grupo={grupo}
                   yaInscrito={gruposInscritos.has(grupo.id)}
                   matriculaAbierta={matriculaAbierta}
+                  fueraDeMiPlan={fueraDeMiPlan}
                 />
               </li>
             ))}
@@ -127,10 +145,12 @@ function TarjetaDeGrupo({
   grupo,
   yaInscrito,
   matriculaAbierta,
+  fueraDeMiPlan,
 }: {
   grupo: Offering;
   yaInscrito: boolean;
   matriculaAbierta: boolean;
+  fueraDeMiPlan: boolean;
 }) {
   // El grupo lleno se atenua salvo que sea el que la persona ya tiene: ahi no hay nada que
   // desanimar, es informacion suya.
@@ -164,6 +184,7 @@ function TarjetaDeGrupo({
             disponibles={grupo.available_slots}
             yaInscrito={yaInscrito}
             matriculaAbierta={matriculaAbierta}
+            fueraDeMiPlan={fueraDeMiPlan}
           />
         </div>
       </CardBody>

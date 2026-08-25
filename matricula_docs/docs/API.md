@@ -219,6 +219,56 @@ comprobante en PDF. Una lista vacía es un resultado legítimo, no un error.
 
 Retorna el historial académico completo del estudiante.
 
+### GET /students/me/study-plan
+
+Retorna el plan de estudios de la carrera que cursa el estudiante.
+
+Responde «qué materias son las mías», que `GET /courses` no puede contestar: el catálogo lista
+**todas** las materias de la institución, así que un estudiante de Derecho veía Programación II,
+abría su ficha, pulsaba «Inscribir» y solo entonces recibía un `403 COURSE_NOT_IN_PROGRAM`. La
+regla del servidor era correcta; el problema era que la interfaz ofrecía algo que iba a fallar.
+
+**Response 200**
+```json
+{
+  "program_code": "ISIS",
+  "program_name": "Ingeniería de Sistemas",
+  "total_semesters": 10,
+  "courses": [
+    {
+      "id": "uuid",
+      "code": "MAT101",
+      "name": "Cálculo I",
+      "credits": 4,
+      "description": "Fundamentos de cálculo diferencial",
+      "suggested_semester": 1,
+      "is_mandatory": true
+    }
+  ],
+  "total_credits": 29
+}
+```
+
+`suggested_semester` e `is_mandatory` **no son propiedades de la materia** sino de su relación
+con el programa: Cálculo I puede ser de primer semestre y obligatoria en Ingeniería, y de tercero
+y electiva en Administración. Por eso viven en `program_courses` y solo este endpoint los expone;
+`GET /courses` no puede devolverlos porque no sabe de qué programa se habla.
+
+Va **sin paginar**, al contrario que el catálogo: un plan tiene decenas de materias y su valor
+está en verse entero. La pregunta que responde es «qué me falta para graduarme», y esa no se
+contesta de veinte en veinte.
+
+El programa **sale del token**, nunca de la petición. Aceptarlo como parámetro permitiría
+consultar el plan de otra carrera, y con él la interfaz volvería a ofrecer materias no
+inscribibles.
+
+Un plan vacío es un resultado legítimo: significa que Registro Académico todavía no lo cargó.
+
+| Código HTTP | error.code | Situación |
+|---|---|---|
+| 404 | `STUDENT_PROFILE_NOT_FOUND` | La cuenta no tiene perfil académico |
+| 404 | `PROGRAM_NOT_FOUND` | El programa del estudiante ya no existe |
+
 ## 3. Catálogo académico
 
 ### GET /courses

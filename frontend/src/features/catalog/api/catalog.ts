@@ -14,6 +14,7 @@ import type {
   FiltrosCatalogo,
   Offering,
   Page,
+  StudyPlan,
 } from "@/features/catalog/api/types";
 import { api } from "@/lib/api/client";
 
@@ -48,6 +49,19 @@ export function obtenerGrupo(offeringId: string, signal?: AbortSignal) {
   return api.get<Offering>(`/api/v1/offerings/${offeringId}`, { signal });
 }
 
+/**
+ * Plan de estudios de la carrera del estudiante.
+ *
+ * Es lo que responde «qué materias son las mías». El catálogo no puede contestarlo: lista
+ * TODAS las materias de la institución, así que un estudiante de Derecho veía Programación
+ * II y solo al pulsar «Inscribir» recibía un 403.
+ *
+ * Exige token porque el programa sale de él, no de la petición.
+ */
+export function obtenerPlanDeEstudios(token: string, signal?: AbortSignal) {
+  return api.get<StudyPlan>("/api/v1/students/me/study-plan", { token, signal });
+}
+
 /** Período de matrícula vigente. Responde 404 cuando no hay ninguno activo. */
 export function obtenerPeriodoActual(signal?: AbortSignal) {
   return api.get<CurrentPeriod>("/api/v1/enrollment-periods/current", { signal });
@@ -67,4 +81,5 @@ export const clavesCatalogo = {
   materia: (courseId: string) => ["catalogo", "materia", courseId] as const,
   grupos: (courseId: string) => ["catalogo", "grupos", courseId] as const,
   periodoActual: ["catalogo", "periodo-actual"] as const,
+  planDeEstudios: ["catalogo", "plan-de-estudios"] as const,
 };

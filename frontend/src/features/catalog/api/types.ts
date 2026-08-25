@@ -86,3 +86,20 @@ export interface FiltrosCatalogo {
   page: number;
   size: number;
 }
+
+/** Una materia dentro del plan de estudios del estudiante. */
+export interface StudyPlanEntry extends Course {
+  /** Semestre en que el plan la sugiere. */
+  suggested_semester: number;
+  /** Obligatoria para graduarse, o electiva. */
+  is_mandatory: boolean;
+}
+
+/** Respuesta de `GET /students/me/study-plan`. */
+export interface StudyPlan {
+  program_code: string;
+  program_name: string;
+  total_semesters: number;
+  courses: StudyPlanEntry[];
+  total_credits: number;
+}

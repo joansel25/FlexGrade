@@ -5,10 +5,10 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al cerrar la iteración 5.5 y con ella la Fase 5.** Última verificación real:
-> backend con `pytest` en verde (475 tests) y `mypy --strict` limpio sobre 147 archivos;
-> frontend con `npm run lint`, `type-check`, `test` (71 tests) y `build` en verde. Comprobante
-> generado y leído contra el backend real, con acentos, horarios ordenados y créditos correctos.
+> **Actualizada al cerrar la iteración 6.1 (catálogo acotado a la carrera).** Última
+> verificación real: backend con `pytest` en verde (485 tests) y `mypy --strict` limpio sobre
+> 149 archivos; frontend con `npm run lint`, `type-check`, `test` (76 tests) y `build` en verde.
+> Plan de estudios comprobado además contra el backend real.
 
 Este archivo es la memoria del proyecto entre sesiones. `CLAUDE.md` dice cómo se trabaja; esto
 dice **en qué punto está el software y por qué está hecho así**. Si los dos se contradicen,
@@ -136,7 +136,15 @@ donde importa.
 24. **La descarga del PDF va por `fetch`, no por un `<a href>`.** El endpoint exige
     `Authorization: Bearer` y un enlace no envía cabeceras; poner el token en la URL lo dejaría
     en el historial, en los registros del ALB y en la cabecera `Referer`.
-25. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
+25. **El catálogo se acota por defecto a la carrera del estudiante.** `GET /courses` sigue
+    siendo público y sin filtro, pero la interfaz consulta `GET /students/me/study-plan` y usa
+    ese programa. Antes se listaba todo y la persona descubría el `403 COURSE_NOT_IN_PROGRAM`
+    al pulsar «Inscribir»: la regla del servidor era correcta, la interfaz ofrecía algo que
+    iba a fallar.
+26. **`suggested_semester` e `is_mandatory` viven en `program_courses`, no en `Course`.** La
+    misma materia puede ser de primer semestre y obligatoria en una carrera, y de tercero y
+    electiva en otra. Por eso `GET /courses` no puede devolverlos y el plan de estudios sí.
+27. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
     la API acepta credenciales y con ellas el comodín ni siquiera es válido.
 
 ## 4. Qué está construido
@@ -151,8 +159,12 @@ donde importa.
 | Preparación para la nube | ✅ | `/health/ready`, CORS, logs JSON, `X-Request-ID`, pool configurable, `deploy/aws/` |
 | 5 — Frontend y comprobante | ✅ | 5.1 fundación · 5.2 autenticación · 5.3 catálogo · 5.4 inscripción y horario · 5.5 comprobante PDF |
 
-**Las cinco fases del plan están completas.** Lo que queda es aprovisionar AWS (ver
-`deploy/aws/README.md`) y pagar la deuda listada abajo.
+**Fase 6 — Reglas académicas por carrera** (en curso): 6.1 catálogo acotado ✅ ·
+6.2 prerrequisitos y correquisitos por plan · 6.3 semáforo del plan · 6.4 limpieza de la
+interfaz del estudiante.
+
+El plan completo de las fases 6 a 10 está en el artefacto «Hoja de ruta FlexGrade».
+Aprovisionar AWS sigue pendiente (ver `deploy/aws/README.md`).
 
 Desglose de la Fase 4 por iteraciones (la numeración es nuestra; los documentos solo describen
 la fase completa):

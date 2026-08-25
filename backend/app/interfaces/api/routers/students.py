@@ -9,11 +9,13 @@ from app.interfaces.api.dependencies.auth import CurrentStudentDep, CurrentUserD
 from app.interfaces.api.dependencies.di import (
     GenerateReceiptUseCaseDep,
     GetStudentScheduleUseCaseDep,
+    GetStudyPlanUseCaseDep,
     ListStudentEnrollmentsUseCaseDep,
     ProgramRepositoryDep,
     StudentRepositoryDep,
     UserRepositoryDep,
 )
+from app.interfaces.api.schemas.catalog_schemas import StudyPlanEntrySchema, StudyPlanSchema
 from app.interfaces.api.schemas.enrollment_schemas import (
     OfferingScheduleSchema,
     ScheduleBlockSchema,
@@ -218,4 +220,55 @@ def get_my_receipt(
             # cancelaron.
             "Cache-Control": "no-store",
         },
+    )
+
+
+@router.get(
+    "/me/study-plan",
+    response_model=StudyPlanSchema,
+    status_code=status.HTTP_200_OK,
+    summary="Plan de estudios de la carrera del estudiante",
+    responses={
+        401: {"model": ErrorResponseSchema, "description": "Token ausente o inválido"},
+        404: {
+            "model": ErrorResponseSchema,
+            "description": "La cuenta no tiene perfil académico, o su programa no existe",
+        },
+    },
+)
+def get_my_study_plan(
+    estudiante: CurrentStudentDep,
+    use_case: GetStudyPlanUseCaseDep,
+) -> StudyPlanSchema:
+    """Devuelve las materias de la carrera que cursa el estudiante.
+
+    Responde «qué materias son las mías», que `GET /courses` no puede contestar: el catálogo
+    lista TODAS las materias de la institución, así que un estudiante de Derecho ve
+    Programación II, la abre y solo al pulsar «Inscribir» recibe un 403. La interfaz estaba
+    ofreciendo algo que iba a fallar.
+
+    El programa sale del token, nunca de la petición: aceptarlo como parámetro permitiría
+    consultar el plan de otra carrera y volver a ofrecer materias no inscribibles.
+
+    Va sin paginar: un plan tiene decenas de materias y su valor está en verse entero.
+    """
+    plan = use_case.execute(estudiante.id)
+
+    return StudyPlanSchema(
+        program_code=plan.program_code,
+        program_name=plan.program_name,
+        total_semesters=plan.total_semesters,
+        total_credits=plan.total_credits,
+        courses=[
+            StudyPlanEntrySchema(
+                id=e.course.id,
+                code=e.course.code.value,
+                name=e.course.name,
+                credits=e.course.credits,
+                description=e.course.description,
+                suggested_semester=e.suggested_semester,
+                is_mandatory=e.is_mandatory,
+            )
+            for e in plan.entries
+        ],
     )

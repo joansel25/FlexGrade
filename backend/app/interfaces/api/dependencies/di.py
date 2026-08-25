@@ -46,6 +46,7 @@ from app.application.use_cases.catalog.get_course_detail import GetCourseDetailU
 from app.application.use_cases.catalog.get_course_offerings import GetCourseOfferingsUseCase
 from app.application.use_cases.catalog.get_current_period import GetCurrentPeriodUseCase
 from app.application.use_cases.catalog.get_offering_detail import GetOfferingDetailUseCase
+from app.application.use_cases.catalog.get_study_plan import GetStudyPlanUseCase
 from app.application.use_cases.catalog.list_courses import ListCoursesUseCase
 from app.application.use_cases.enrollment.cancel_enrollment import CancelEnrollmentUseCase
 from app.application.use_cases.enrollment.enroll_student import EnrollStudentUseCase
@@ -271,6 +272,23 @@ def get_current_period_use_case(period_repository: PeriodRepositoryDep) -> GetCu
     de hace treinta segundos mostraría un reloj que va atrasado y salta hacia atrás.
     """
     return GetCurrentPeriodUseCase(period_repository)
+
+
+def get_study_plan_use_case(
+    student_repository: StudentRepositoryDep,
+    program_repository: ProgramRepositoryDep,
+    course_repository: CourseRepositoryDep,
+) -> GetStudyPlanUseCase:
+    """Construye el caso de uso del plan de estudios.
+
+    Sin caché aunque el plan cambie una vez por semestre: la iteración 6.3 le añadirá el
+    estado de cada materia cruzando el historial del estudiante, y ese dato es personal y
+    cambia con cada inscripción. Cachearlo ahora obligaría a quitarlo enseguida.
+    """
+    return GetStudyPlanUseCase(student_repository, program_repository, course_repository)
+
+
+GetStudyPlanUseCaseDep = Annotated[GetStudyPlanUseCase, Depends(get_study_plan_use_case)]
 
 
 ListCoursesUseCaseDep = Annotated[ListCoursesUseCase, Depends(get_list_courses_use_case)]

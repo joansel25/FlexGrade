@@ -24,20 +24,23 @@ function montarConSesion(ruta: string) {
 }
 
 describe("listado del catálogo", () => {
-  it("muestra las materias del período", async () => {
+  it("muestra por defecto solo las materias de la carrera del estudiante", async () => {
+    // Es el arreglo de fondo de la iteración 6.1: antes se listaba el catálogo entero, así
+    // que alguien de Derecho veía Programación II y solo al pulsar «Inscribir» recibía un 403.
     montarConSesion("/catalogo");
 
     expect(await screen.findByText("Cálculo I")).toBeInTheDocument();
     expect(screen.getByText("Cálculo II")).toBeInTheDocument();
-    expect(screen.getByText("Física")).toBeInTheDocument();
+    // Física no está en el plan de estudios de prueba.
+    expect(screen.queryByText("Física")).not.toBeInTheDocument();
   });
 
-  it("filtra por el texto buscado y lo refleja en la URL", async () => {
+  it("filtra por el texto buscado dentro de la carrera", async () => {
     const usuario = userEvent.setup();
     montarConSesion("/catalogo");
     await screen.findByText("Cálculo I");
 
-    await usuario.type(screen.getByLabelText("Buscar materia"), "física");
+    await usuario.type(screen.getByLabelText("Buscar materia"), "Cálculo II");
 
     // La búsqueda espera antes de lanzarse: sin ese retardo, cada tecla sería una petición.
     await waitFor(
@@ -46,7 +49,7 @@ describe("listado del catálogo", () => {
       },
       { timeout: 3000 },
     );
-    expect(screen.getByText("Física")).toBeInTheDocument();
+    expect(screen.getByText("Cálculo II")).toBeInTheDocument();
   });
 
   it("explica el resultado vacío y ofrece limpiar los filtros", async () => {
@@ -70,11 +73,11 @@ describe("listado del catálogo", () => {
     montarConSesion("/catalogo");
     await screen.findByText("Cálculo I");
 
-    // El perfil de prueba está en sexto semestre.
+    // El perfil de prueba está en sexto semestre; solo Cálculo I está sugerida ahí.
     await usuario.click(screen.getByRole("button", { name: "Semestre 6" }));
 
     await waitFor(() => {
-      expect(screen.queryByText("Física")).not.toBeInTheDocument();
+      expect(screen.queryByText("Cálculo II")).not.toBeInTheDocument();
     });
     // `aria-pressed` es lo que comunica a un lector de pantalla que el filtro está aplicado.
     expect(screen.getByRole("button", { name: "Semestre 6" })).toHaveAttribute(
@@ -85,11 +88,41 @@ describe("listado del catálogo", () => {
 
   it("arranca con los filtros que vienen en la URL", async () => {
     // Es lo que hace que un enlace compartido lleve a la misma búsqueda.
-    montarConSesion("/catalogo?q=f%C3%ADsica");
+    montarConSesion("/catalogo?q=C%C3%A1lculo%20II");
+
+    expect(await screen.findByText("Cálculo II")).toBeInTheDocument();
+    expect(screen.queryByText("Cálculo I")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Buscar materia")).toHaveValue("Cálculo II");
+  });
+
+  it("permite ver todo el catálogo como decisión explícita", async () => {
+    // Ver el catálogo completo sigue siendo posible; lo que cambia es que no es el estado en
+    // el que la persona se encuentra sin saber cómo llegó.
+    const usuario = userEvent.setup();
+    montarConSesion("/catalogo");
+    await screen.findByText("Cálculo I");
+
+    await usuario.click(screen.getByRole("button", { name: "Todo el catálogo" }));
 
     expect(await screen.findByText("Física")).toBeInTheDocument();
-    expect(screen.queryByText("Cálculo I")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Buscar materia")).toHaveValue("física");
+  });
+
+  it("marca las materias que no pertenecen al plan de estudios", async () => {
+    // Atenuarlas sin explicar sería peor que no atenuarlas: se leería como un fallo de carga.
+    montarConSesion("/catalogo?alcance=todo");
+
+    expect(await screen.findByText("Física")).toBeInTheDocument();
+    expect(screen.getByText("No pertenece a tu plan de estudios")).toBeInTheDocument();
+  });
+
+  it("el alcance viaja en la URL y sobrevive a recargar", async () => {
+    montarConSesion("/catalogo?alcance=todo");
+
+    expect(await screen.findByText("Física")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Todo el catálogo" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 
   it("avisa cuando el catálogo no se puede cargar", async () => {
@@ -193,6 +226,23 @@ describe("detalle de una materia", () => {
     expect(await screen.findByRole("heading", { name: "Cálculo II", level: 1 })).toBeInTheDocument();
     const enlace = screen.getByRole("link", { name: /MAT101/ });
     expect(enlace).toHaveAttribute("href", "/catalogo/c1");
+  });
+
+  it("bloquea la inscripción de una materia ajena al plan de estudios", async () => {
+    // Se llega aquí por un enlace directo o desde «todo el catálogo». Ofrecer el botón sería
+    // empujar hacia un 403 que ya se sabe que va a ocurrir.
+    montarConSesion("/catalogo/c3");
+
+    expect(await screen.findByText("Esta materia no es de tu carrera")).toBeInTheDocument();
+  });
+
+  it("no bloquea las materias que sí son del plan", async () => {
+    // La comprobación no debe disparar un falso positivo mientras el plan todavía carga.
+    montarConSesion("/catalogo/c1");
+
+    await screen.findByText("Grupo 01");
+    expect(screen.queryByText("Esta materia no es de tu carrera")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Inscribir grupo 01" })).toBeEnabled();
   });
 
   it("explica que una materia no existe en vez de mostrar una pantalla rota", async () => {

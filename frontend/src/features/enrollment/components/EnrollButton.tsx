@@ -26,6 +26,13 @@ interface EnrollButtonProps {
   yaInscrito: boolean;
   /** `false` cuando la ventana de matrícula no admite inscripciones ahora mismo. */
   matriculaAbierta: boolean;
+  /**
+   * `true` si la materia no pertenece al plan de estudios del estudiante.
+   *
+   * El servidor la rechazaría con `403 COURSE_NOT_IN_PROGRAM`, así que ofrecer el botón sería
+   * empujar a la persona hacia un error que ya se sabe que va a ocurrir.
+   */
+  fueraDeMiPlan?: boolean;
 }
 
 export function EnrollButton({
@@ -34,6 +41,7 @@ export function EnrollButton({
   disponibles,
   yaInscrito,
   matriculaAbierta,
+  fueraDeMiPlan = false,
 }: EnrollButtonProps) {
   const inscripcion = useEnroll();
 
@@ -60,11 +68,13 @@ export function EnrollButton({
   const lleno = disponibles <= 0;
   // El motivo por el que no se puede pulsar se dice en voz alta: un botón gris sin explicación
   // deja a la persona buscando qué hizo mal.
-  const motivoBloqueo = !matriculaAbierta
-    ? "La matrícula no está abierta en este momento."
-    : lleno
-      ? "Este grupo no tiene cupos disponibles."
-      : null;
+  const motivoBloqueo = fueraDeMiPlan
+    ? "Esta materia no pertenece al plan de estudios de tu carrera."
+    : !matriculaAbierta
+      ? "La matrícula no está abierta en este momento."
+      : lleno
+        ? "Este grupo no tiene cupos disponibles."
+        : null;
 
   const resultado = inscripcion.isError ? mensajeDeInscripcion(inscripcion.error) : null;
 

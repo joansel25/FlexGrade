@@ -161,6 +161,30 @@ export function sembrarInscripcion(offeringId = "g1") {
   });
 }
 
+/**
+ * Plan de estudios de prueba.
+ *
+ * Solo Cálculo I y Cálculo II pertenecen al programa del estudiante. Física queda FUERA a
+ * propósito: es la materia con la que se comprueba que el catálogo ya no la ofrece por defecto
+ * y que su ficha bloquea la inscripción.
+ */
+export const PLAN_DE_ESTUDIOS = {
+  program_code: "ISIS",
+  program_name: "Ingeniería de Sistemas",
+  total_semesters: 10,
+  // Se derivan de `MATERIAS` en vez de escribirse a mano: así el plan y el catálogo no
+  // pueden divergir si alguien cambia un código o unos créditos.
+  courses: MATERIAS.filter((m) => m.id === "c1" || m.id === "c2").map((m, indice) => ({
+    ...m,
+    suggested_semester: indice + 1,
+    is_mandatory: true,
+  })),
+  total_credits: 8,
+};
+
+/** Identificadores de las materias del plan, para filtrar como lo hace el backend. */
+const IDS_DEL_PLAN = new Set(PLAN_DE_ESTUDIOS.courses.map((c) => c.id));
+
 export const handlers = [
   http.get(`${API_URL}/health`, () => HttpResponse.json(ESTADO_SANO)),
 
@@ -187,6 +211,11 @@ export const handlers = [
     const semestre = url.searchParams.get("semester");
 
     let resultado = MATERIAS;
+
+    // El backend acota por programa cuando se le pasa `program_id`; el doble hace lo mismo.
+    if (url.searchParams.get("program_id")) {
+      resultado = resultado.filter((m) => IDS_DEL_PLAN.has(m.id));
+    }
 
     if (busqueda) {
       resultado = resultado.filter(
@@ -241,11 +270,15 @@ export const handlers = [
     }),
   ),
 
+  http.get(`${API_URL}/api/v1/students/me/study-plan`, () =>
+    HttpResponse.json(PLAN_DE_ESTUDIOS),
+  ),
+
   http.get(`${API_URL}/api/v1/students/me/receipt`, () =>
     // Un PDF mínimo pero con la firma real del formato: lo que se prueba es que la descarga
     // llega y se entrega al navegador, no que ReportLab dibuje bien —eso se comprueba en el
     // backend, que es donde se genera.
-    HttpResponse.arrayBuffer(new TextEncoder().encode("%PDF-1.4 falso").buffer as ArrayBuffer, {
+    HttpResponse.arrayBuffer(new TextEncoder().encode("%PDF-1.4 falso").buffer, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": 'attachment; filename="comprobante-matricula-1234567-2025-2-V1.pdf"',

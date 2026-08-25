@@ -109,3 +109,30 @@ class CurrentPeriodSchema(BaseModel):
     is_active: bool
     is_open: bool
     time_remaining_seconds: int
+
+
+class StudyPlanEntrySchema(CourseSchema):
+    """Una materia dentro del plan de estudios.
+
+    Extiende `CourseSchema` con los dos datos que NO son de la materia sino de su relación
+    con el programa: la misma materia puede ser de primer semestre y obligatoria en una
+    carrera, y de tercero y electiva en otra.
+    """
+
+    suggested_semester: int = Field(ge=1, description="Semestre en que el plan la sugiere")
+    is_mandatory: bool = Field(description="Obligatoria para graduarse, o electiva")
+
+
+class StudyPlanSchema(BaseModel):
+    """Respuesta de `GET /students/me/study-plan`.
+
+    Va sin paginar, al contrario que el catálogo: un plan tiene decenas de materias y su
+    valor está en verse entero. La pregunta que responde es «qué me falta para graduarme», y
+    esa no se contesta de veinte en veinte.
+    """
+
+    program_code: str
+    program_name: str
+    total_semesters: int
+    courses: list[StudyPlanEntrySchema] = Field(default_factory=list)
+    total_credits: int

@@ -20,6 +20,14 @@ import { renderConProveedores } from "@/test/render";
 /** Enlaces cuyo `click` se interceptó, para poder afirmar sobre la descarga. */
 let descargas: { nombre: string; href: string }[] = [];
 
+/** El doble de `revokeObjectURL`, guardado aparte para no separarlo de su objeto.
+ *
+ * `expect(URL.revokeObjectURL)` pasaría el método suelto, sin su objeto: es lo que
+ * advierte la regla `unbound-method`, y en un caso real sería la causa de un `this`
+ * indefinido dentro de la llamada.
+ */
+let revocar: ReturnType<typeof vi.fn>;
+
 beforeEach(() => {
   descargas = [];
 
@@ -33,7 +41,8 @@ beforeEach(() => {
 
   // `createObjectURL` no existe en el entorno de pruebas; se sustituye por una URL falsa.
   URL.createObjectURL = vi.fn(() => "blob:falso");
-  URL.revokeObjectURL = vi.fn();
+  revocar = vi.fn();
+  URL.revokeObjectURL = revocar;
 });
 
 function montarConSesion() {
@@ -99,7 +108,7 @@ describe("descarga del comprobante", () => {
     await usuario.click(screen.getByRole("button", { name: /Descargar comprobante/ }));
 
     await waitFor(() => {
-      expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:falso");
+      expect(revocar).toHaveBeenCalledWith("blob:falso");
     });
   });
 

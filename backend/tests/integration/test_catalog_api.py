@@ -11,6 +11,7 @@ de la caché. Es el criterio de terminado de la Fase 2.
 
 from __future__ import annotations
 
+from datetime import date
 from uuid import uuid4
 
 import pytest
@@ -18,7 +19,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from tests.integration.conftest import CatalogoDePrueba
+from app.infrastructure.auth.jwt_auth_service import JWTAuthService
+from app.infrastructure.config.settings import get_settings
+from app.infrastructure.persistence.sqlalchemy.models.student import StudentModel
+from app.infrastructure.persistence.sqlalchemy.models.user import UserModel
+from tests.integration.conftest import PASSWORD_DE_PRUEBA, CatalogoDePrueba
 
 RUTA_COURSES = "/api/v1/courses"
 RUTA_OFFERINGS = "/api/v1/offerings"
@@ -307,3 +312,73 @@ def test_current_period_when_none_is_active_returns_404(
 
     assert respuesta.status_code == 404
     assert respuesta.json()["error"]["code"] == "NO_ACTIVE_PERIOD"
+
+
+# ---------------------------------------------------------------------------
+# GET /students/me/study-plan  (iteración 6.1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_el_plan_de_estudios_trae_el_semestre_y_la_obligatoriedad(
+    client: TestClient, db_session: Session, catalogo: CatalogoDePrueba
+) -> None:
+    """Son los dos datos que la entidad `Course` no tiene, porque no son suyos.
+
+    Viven en `program_courses`, la relación entre el programa y la materia, y solo este
+    endpoint los expone.
+    """
+    hasher = JWTAuthService(get_settings())
+    usuario = UserModel(
+        id=uuid4(),
+        email="plan.estudios@tdea.edu.co",
+        password_hash=hasher.hash(PASSWORD_DE_PRUEBA),
+        role="STUDENT",
+        is_active=True,
+    )
+    db_session.add(usuario)
+    db_session.flush()
+    db_session.add(
+        StudentModel(
+            id=uuid4(),
+            user_id=usuario.id,
+            student_code="8800001",
+            program_id=catalogo.program_id,
+            current_semester=2,
+            full_name="Estudiante Plan",
+            enrollment_date=date(2022, 1, 15),
+        )
+    )
+    db_session.commit()
+
+    login = client.post(
+        "/api/v1/auth/login", json={"email": usuario.email, "password": PASSWORD_DE_PRUEBA}
+    )
+    assert login.status_code == 200, login.text
+    cabecera = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    respuesta = client.get("/api/v1/students/me/study-plan", headers=cabecera)
+
+    assert respuesta.status_code == 200, respuesta.text
+    cuerpo = respuesta.json()
+    assert cuerpo["program_code"] == "ISIS"
+
+    codigos = [c["code"] for c in cuerpo["courses"]]
+    # La fixture `catalogo` pone Cálculo I y Cálculo II en el plan; Física queda FUERA a
+    # propósito, y es justo lo que este endpoint no debe devolver.
+    assert codigos == ["MAT101", "MAT102"]
+    assert "FIS101" not in codigos
+
+    calculo_i = cuerpo["courses"][0]
+    assert calculo_i["suggested_semester"] == 1
+    assert calculo_i["is_mandatory"] is True
+    # Los créditos se suman en el servidor: 4 + 4.
+    assert cuerpo["total_credits"] == 8
+
+
+@pytest.mark.integration
+def test_el_plan_de_estudios_exige_sesion(client: TestClient) -> None:
+    """El programa sale del token: sin él no hay plan que devolver."""
+    respuesta = client.get("/api/v1/students/me/study-plan")
+
+    assert respuesta.status_code == 401, respuesta.text

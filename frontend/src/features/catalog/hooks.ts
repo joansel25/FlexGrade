@@ -14,12 +14,15 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+import { useAuth } from "@/features/auth/useAuth";
+
 import {
   clavesCatalogo,
   listarMaterias,
   obtenerGrupos,
   obtenerMateria,
   obtenerPeriodoActual,
+  obtenerPlanDeEstudios,
 } from "@/features/catalog/api/catalog";
 import type { FiltrosCatalogo } from "@/features/catalog/api/types";
 import { ApiError } from "@/lib/api/errors";
@@ -97,4 +100,45 @@ export function useCurrentPeriod() {
 /** Indica si el error corresponde a «no hay período de matrícula abierto». */
 export function esSinPeriodoActivo(error: unknown): boolean {
   return error instanceof ApiError && error.is("NO_ACTIVE_PERIOD");
+}
+
+/**
+ * Plan de estudios de la carrera del estudiante.
+ *
+ * Se consulta una vez y sirve para dos cosas a la vez: acotar el catálogo a las materias
+ * de la carrera, y saber si una materia concreta pertenece al plan cuando se llega a su
+ * ficha por un enlace directo.
+ *
+ * Se considera fresco cinco minutos: un plan de estudios cambia una vez por semestre, no
+ * durante la ventana de matrícula.
+ */
+export function useStudyPlan() {
+  const { accessToken, estado } = useAuth();
+
+  return useQuery({
+    queryKey: clavesCatalogo.planDeEstudios,
+    queryFn: ({ signal }) => {
+      if (accessToken === null) {
+        throw new Error("No hay sesión activa");
+      }
+
+      return obtenerPlanDeEstudios(accessToken, signal);
+    },
+    enabled: estado === "autenticado" && accessToken !== null,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/**
+ * Conjunto de identificadores de las materias del plan del estudiante.
+ *
+ * Se devuelve como `Set` y no como lista porque quien lo usa pregunta «¿está esta materia
+ * dentro?», no la recorre. Con un plan de sesenta materias, buscar en una lista en cada
+ * tarjeta del catálogo sería trabajo repetido en cada render.
+ */
+export function useMyProgramCourseIds(): Set<string> {
+  const { data } = useStudyPlan();
+
+  return new Set(data?.courses.map((c) => c.id) ?? []);
 }

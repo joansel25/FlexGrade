@@ -99,6 +99,26 @@ class SQLAlchemyCourseRepository(CourseRepository):
 
         return Page(items=materias, total=total, page=page, size=size)
 
+    def find_study_plan(self, program_id: UUID) -> list[tuple[Course, int, bool]]:
+        # Un solo join: el plan entero cabe en una consulta porque `program_courses` ya
+        # lleva el semestre y la obligatoriedad. Traer las materias y luego preguntar por
+        # cada relación sería un N+1 sobre una pantalla que se abre entera de golpe.
+        sentencia = (
+            select(
+                CourseModel,
+                ProgramCourseModel.suggested_semester,
+                ProgramCourseModel.is_mandatory,
+            )
+            .join(ProgramCourseModel, ProgramCourseModel.course_id == CourseModel.id)
+            .where(ProgramCourseModel.program_id == program_id)
+            .order_by(ProgramCourseModel.suggested_semester, CourseModel.code)
+        )
+
+        return [
+            (self._a_entidad(modelo), semestre, obligatoria)
+            for modelo, semestre, obligatoria in self._session.execute(sentencia).all()
+        ]
+
     def save(self, course: Course) -> None:
         # `merge` y no `add`: sirve tanto para una materia nueva como para una que ya existe,
         # que es lo que promete el puerto. Con `add`, guardar una materia leída antes en esta

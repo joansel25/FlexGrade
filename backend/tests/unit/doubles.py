@@ -183,6 +183,16 @@ class InMemoryCourseRepository(CourseRepository):
 
         return any(cid == course_id for cid, _ in self._plan.get(program_id, []))
 
+    def find_study_plan(self, program_id: UUID) -> list[tuple[Course, int, bool]]:
+        """Reproduce el orden del adaptador SQL: por semestre y luego por código."""
+        entradas = [
+            (self._courses[cid], semestre, True)
+            for cid, semestre in self._plan.get(program_id, [])
+            if cid in self._courses
+        ]
+
+        return sorted(entradas, key=lambda e: (e[1], e[0].code.value))
+
     def save(self, course: Course) -> None:
         self._courses[course.id] = course
 
