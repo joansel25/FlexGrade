@@ -32,7 +32,10 @@ interface AppLayoutProps {
  * llevaría a una redirección al login en cuanto se pulsan, que se lee como un fallo.
  * Crecerá con el catálogo, las inscripciones y el horario en las iteraciones 5.3 a 5.5.
  */
-const NAVEGACION = [{ a: "/", etiqueta: "Inicio", soloConSesion: false }] as const;
+const NAVEGACION = [
+  { a: "/", etiqueta: "Inicio", soloConSesion: false },
+  { a: "/catalogo", etiqueta: "Catálogo", soloConSesion: true },
+] as const;
 
 export function AppLayout({ children }: AppLayoutProps) {
   const { estado } = useAuth();

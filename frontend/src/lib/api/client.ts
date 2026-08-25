@@ -13,13 +13,57 @@
 import { ApiError, NetworkError, esCuerpoDeError } from "@/lib/api/errors";
 
 /**
+ * URL de la API cuando se desarrolla en local sin configuración explícita.
+ *
+ * Coincide con el puerto que publica `docker-compose.yml`, que es donde corre el backend en
+ * todas las máquinas del equipo.
+ */
+const API_LOCAL_POR_DEFECTO = "http://localhost:8000";
+
+/**
  * URL base de la API, fijada en tiempo de build.
  *
  * El frontend compilado son archivos estáticos en CloudFront: no hay proceso donde leer una
  * variable de entorno al arrancar, así que Vite la incrusta al construir. Cada ambiente se
  * construye con su propio valor.
+ *
+ * QUÉ PASA SI FALTA. Antes se caía a cadena vacía, y el resultado era desconcertante: las
+ * peticiones iban a `http://localhost:5173/health`, Vite respondía con el `index.html` de la
+ * SPA, y el intento de leerlo como JSON acababa en un «Sin conexión» que señalaba al backend
+ * cuando el problema era no haber copiado `.env.example` a `.env.local`.
+ *
+ * Ahora se distingue por ambiente, porque el fallo significa cosas distintas:
+ *
+ * - **En desarrollo** se usa el puerto de `docker-compose` y se avisa por consola. Que la
+ *   aplicación funcione recién clonada, sin un paso previo que nadie recuerda, vale más que la
+ *   pureza de exigir la variable.
+ * - **En producción** se falla al arrancar. Ahí no hay valor razonable que adivinar, y una URL
+ *   inventada convertiría un error de despliegue en una aplicación que parece viva pero no
+ *   hace nada. Es la misma regla que sigue el backend con `DATABASE_URL`.
  */
-const BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? "";
+const BASE_URL: string = resolverBaseUrl();
+
+function resolverBaseUrl(): string {
+  const configurada = import.meta.env.VITE_API_BASE_URL;
+
+  if (configurada) {
+    return configurada;
+  }
+
+  if (import.meta.env.DEV) {
+    console.warn(
+      `[FlexGrade] Falta VITE_API_BASE_URL; se usará ${API_LOCAL_POR_DEFECTO}. ` +
+        "Copia frontend/.env.example a frontend/.env.local para fijarla.",
+    );
+
+    return API_LOCAL_POR_DEFECTO;
+  }
+
+  throw new Error(
+    "VITE_API_BASE_URL no está definida. El frontend se construye con la URL de la API de su " +
+      "ambiente; sin ella, la aplicación no puede hablar con el backend.",
+  );
+}
 
 /**
  * Tope de espera por petición.

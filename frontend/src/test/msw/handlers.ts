@@ -53,6 +53,72 @@ export function parDeTokens(sufijo = "1") {
   };
 }
 
+/** Catálogo de prueba: tres materias, una de ellas con prerrequisito. */
+export const MATERIAS = [
+  {
+    id: "c1",
+    code: "MAT101",
+    name: "Cálculo I",
+    credits: 4,
+    description: "Fundamentos de cálculo diferencial",
+  },
+  { id: "c2", code: "MAT102", name: "Cálculo II", credits: 4, description: "Cálculo integral" },
+  { id: "c3", code: "FIS101", name: "Física", credits: 3, description: null },
+];
+
+/** Grupos de Cálculo I: uno con holgura, otro a punto de llenarse y otro lleno. */
+export const GRUPOS = {
+  course_id: "c1",
+  course_code: "MAT101",
+  period_code: "2025-2-V1",
+  offerings: [
+    {
+      id: "g1",
+      group_number: "01",
+      professor: "Ana Pérez",
+      total_capacity: 40,
+      enrolled_count: 10,
+      available_slots: 30,
+      schedule: [
+        { day_of_week: 1, start_time: "08:00:00", end_time: "10:00:00", classroom: "A-201" },
+      ],
+    },
+    {
+      id: "g2",
+      group_number: "02",
+      professor: null,
+      total_capacity: 30,
+      enrolled_count: 28,
+      available_slots: 2,
+      schedule: [],
+    },
+    {
+      id: "g3",
+      group_number: "03",
+      professor: "Luis Gómez",
+      total_capacity: 25,
+      enrolled_count: 25,
+      available_slots: 0,
+      schedule: [
+        { day_of_week: 3, start_time: "14:00:00", end_time: "16:00:00", classroom: "B-101" },
+      ],
+    },
+  ],
+};
+
+/** Período de matrícula abierto. */
+export const PERIODO_ABIERTO = {
+  id: "p1",
+  code: "2025-2-V1",
+  academic_period: "2025-2",
+  name: "Matrícula 2025-2 primera vuelta",
+  starts_at: "2025-11-15T08:00:00Z",
+  ends_at: "2025-11-17T18:00:00Z",
+  is_active: true,
+  is_open: true,
+  time_remaining_seconds: 172_800,
+};
+
 export const handlers = [
   http.get(`${API_URL}/health`, () => HttpResponse.json(ESTADO_SANO)),
 
@@ -72,6 +138,57 @@ export const handlers = [
   http.post(`${API_URL}/api/v1/auth/refresh`, () => HttpResponse.json(parDeTokens("renovado"))),
 
   http.post(`${API_URL}/api/v1/auth/logout`, () => new HttpResponse(null, { status: 204 })),
+
+  http.get(`${API_URL}/api/v1/courses`, ({ request }) => {
+    const url = new URL(request.url);
+    const busqueda = url.searchParams.get("search")?.toLowerCase() ?? "";
+    const semestre = url.searchParams.get("semester");
+
+    let resultado = MATERIAS;
+
+    if (busqueda) {
+      resultado = resultado.filter(
+        (m) => m.name.toLowerCase().includes(busqueda) || m.code.toLowerCase().includes(busqueda),
+      );
+    }
+
+    // El plan de estudios de prueba: solo Cálculo I está sugerido en el semestre 6.
+    if (semestre === "6") {
+      resultado = resultado.filter((m) => m.id === "c1");
+    }
+
+    return HttpResponse.json({
+      items: resultado,
+      total: resultado.length,
+      page: Number(url.searchParams.get("page") ?? "1"),
+      size: Number(url.searchParams.get("size") ?? "20"),
+    });
+  }),
+
+  http.get(`${API_URL}/api/v1/courses/:courseId/offerings`, ({ params }) => {
+    if (params.courseId !== "c1") {
+      return HttpResponse.json({ ...GRUPOS, course_id: String(params.courseId), offerings: [] });
+    }
+
+    return HttpResponse.json(GRUPOS);
+  }),
+
+  http.get(`${API_URL}/api/v1/courses/:courseId`, ({ params }) => {
+    const materia = MATERIAS.find((m) => m.id === params.courseId);
+
+    if (!materia) {
+      return respuestaDeError(404, "COURSE_NOT_FOUND", "La materia solicitada no existe");
+    }
+
+    // Cálculo II exige Cálculo I; el resto no tiene prerrequisitos.
+    const prerequisites = materia.id === "c2" ? [MATERIAS[0]] : [];
+
+    return HttpResponse.json({ ...materia, prerequisites });
+  }),
+
+  http.get(`${API_URL}/api/v1/enrollment-periods/current`, () =>
+    HttpResponse.json(PERIODO_ABIERTO),
+  ),
 
   http.get(`${API_URL}/api/v1/students/me`, ({ request }) => {
     // Se comprueba la cabecera de verdad: es lo que demuestra que el token viaja en cada

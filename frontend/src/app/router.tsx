@@ -13,6 +13,8 @@ import { NotFoundPage } from "@/app/NotFoundPage";
 import { AppLayout } from "@/app/layout/AppLayout";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { RequireAuth } from "@/features/auth/components/RequireAuth";
+import { CatalogPage } from "@/features/catalog/CatalogPage";
+import { CourseDetailPage } from "@/features/catalog/CourseDetailPage";
 import { HomePage } from "@/features/home/HomePage";
 
 export function AppRoutes() {
@@ -27,6 +29,24 @@ export function AppRoutes() {
           element={
             <RequireAuth>
               <HomePage />
+            </RequireAuth>
+          }
+        />
+
+        <Route
+          path="/catalogo"
+          element={
+            <RequireAuth>
+              <CatalogPage />
+            </RequireAuth>
+          }
+        />
+
+        <Route
+          path="/catalogo/:courseId"
+          element={
+            <RequireAuth>
+              <CourseDetailPage />
             </RequireAuth>
           }
         />

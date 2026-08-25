@@ -5,10 +5,10 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al cerrar la iteración 5.2 (autenticación en el frontend).** Última
-> verificación real: backend con `pytest` en verde (454 tests) y `mypy --strict` limpio sobre
-> 141 archivos; frontend con `npm run lint`, `type-check`, `test` (34 tests) y `build` en verde.
-> Flujo de login comprobado además contra el backend real con la cuenta del seed.
+> **Actualizada al cerrar la iteración 5.3 (catálogo en el frontend).** Última verificación
+> real: backend con `pytest` en verde (454 tests) y `mypy --strict` limpio sobre 141 archivos;
+> frontend con `npm run lint`, `type-check`, `test` (50 tests) y `build` en verde. Endpoints del
+> catálogo comprobados además contra el backend real con los datos del seed.
 
 Este archivo es la memoria del proyecto entre sesiones. `CLAUDE.md` dice cómo se trabaja; esto
 dice **en qué punto está el software y por qué está hecho así**. Si los dos se contradicen,
@@ -26,7 +26,7 @@ la raíz). Nada se ejecuta en el host: los comandos van por `docker-compose exec
 | Redis | contenedor `matricula-redis-1`, `localhost:6379` | Imagen `redis:7`, base lógica **0** en desarrollo y **1** en los tests (`tests/conftest.py` reescribe la URL) |
 | Migraciones | Alembic, dentro del backend | Los tests corren `alembic upgrade head`, nunca `create_all`: así prueban el esquema real, con triggers, índices parciales y `CHECK` |
 | Configuración | `app/infrastructure/config/settings.py` (Pydantic Settings) | `DATABASE_URL`, `REDIS_URL` y `JWT_SECRET` son obligatorios; sin ellos la app no arranca. En AWS los inyecta Elastic Beanstalk desde Secrets Manager |
-| Frontend | `frontend/`, `http://localhost:5173` | React 18 + TS + Vite. Corre en la máquina, NO en Docker. `npm run dev`. Habla con la API por `VITE_API_BASE_URL` (`.env.local`); el 5173 es el único origen que la API autoriza por CORS en desarrollo |
+| Frontend | `frontend/`, `http://localhost:5173` | React 18 + TS + Vite. Corre en la máquina, NO en Docker. `npm run dev`. Habla con la API por `VITE_API_BASE_URL`; **hay que copiar `.env.example` a `.env.local`** (sin él, en desarrollo cae a `http://localhost:8000` con un aviso por consola; en un build de producción falla al arrancar). El 5173 es el único origen que la API autoriza por CORS en desarrollo |
 | Despliegue en AWS | `deploy/aws/` | `Dockerrun.aws.json` (lo que lee Elastic Beanstalk) y el README con variables por ambiente, health checks, cuenta de conexiones a RDS y grupos de seguridad |
 
 Comandos que se usan de verdad (equivalentes en el `Makefile`):
@@ -113,7 +113,10 @@ donde importa.
 17. **`RequireAuth` no es seguridad**, es honestidad de la interfaz. Lo que protege de verdad
     son los guardianes del backend. Al cerrar sesión se vacía la caché de TanStack Query: si no,
     la siguiente persona en el mismo navegador vería un instante los datos de la anterior.
-18. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
+18. **Los filtros del catálogo viven en la URL, no en `useState`.** Es lo que hace que el
+    botón de atrás vuelva a la búsqueda anterior, que recargar no pierda lo escrito y que un
+    enlace filtrado se pueda compartir. La búsqueda espera 300 ms antes de lanzarse.
+19. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
     la API acepta credenciales y con ellas el comodín ni siquiera es válido.
 
 ## 4. Qué está construido
@@ -126,7 +129,7 @@ donde importa.
 | 3 — Inscripción | ✅ | `POST /enrollments`, `DELETE /enrollments/{id}`, `GET /students/me/schedule` |
 | 4 — Admin y reportes | ✅ | ver desglose abajo |
 | Preparación para la nube | ✅ | `/health/ready`, CORS, logs JSON, `X-Request-ID`, pool configurable, `deploy/aws/` |
-| 5 — Frontend y comprobante | 🔄 en curso | 5.1 fundación ✅ · 5.2 autenticación ✅ · 5.3 catálogo · 5.4 inscripción y horario · 5.5 comprobante PDF (incluye el endpoint `GET /students/me/receipt`, que aún no existe) |
+| 5 — Frontend y comprobante | 🔄 en curso | 5.1 fundación ✅ · 5.2 autenticación ✅ · 5.3 catálogo ✅ · 5.4 inscripción y horario · 5.5 comprobante PDF (incluye el endpoint `GET /students/me/receipt`, que aún no existe) |
 
 Desglose de la Fase 4 por iteraciones (la numeración es nuestra; los documentos solo describen
 la fase completa):
