@@ -327,6 +327,15 @@ El CI del frontend (`frontend-ci` en `ci.yml`) se activa solo porque existe
 `frontend/package.json`, y ejecuta `lint`, `type-check`, `test` y `build`. Si se renombra
 alguno de esos scripts, el job falla.
 
+**`deploy-dev.yml` y `deploy-staging.yml` llaman a `ci.yml` con `uses:`, y eso les obliga a
+conceder permisos.** Un workflow llamado no puede pedir más de lo que le da quien lo llama:
+`backend-ci` necesita `pull-requests: write` para que gitleaks comente el hallazgo en el PR, y
+mientras el llamador solo declaró `contents: read` la corrida fallaba **al arrancar**, sin
+crear un solo job. Ese fallo es el peor de todos para diagnosticar: no hay logs, no hay check
+runs, y `gh run view` solo dice «likely failed because of a workflow file issue». El mensaje
+real está en la página web de la corrida. El permiso se concede en el job `ci:` y no a nivel de
+workflow, para que los pasos de despliegue sigan sin poder escribir en pull requests.
+
 Al añadir un puerto hay que tocar cuatro sitios: el puerto, el adaptador SQL, `di.py` y el
 doble en `tests/unit/doubles.py`. Olvidar el último rompe todos los tests que instancian ese
 doble, porque la clase abstracta deja de poder construirse.
