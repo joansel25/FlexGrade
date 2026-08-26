@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+from decimal import Decimal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -42,3 +44,52 @@ class ProfessorOfferingsSchema(BaseModel):
     academic_period: str | None = None
     items: list[ProfessorOfferingSchema] = Field(default_factory=list)
     total: int
+
+
+class GradeEntrySchema(BaseModel):
+    """Una fila de la lista del grupo.
+
+    `final_grade` en `null` significa «todavía sin calificar», y es distinto de `0.00`. Son
+    estados opuestos —uno es que falta trabajo, el otro es una nota reprobatoria— y con un cero
+    por defecto se verían igual. Es la misma razón por la que la columna es NULLABLE.
+    """
+
+    student_id: UUID
+    student_code: str
+    full_name: str
+    final_grade: Decimal | None = None
+    graded_at: datetime | None = None
+
+
+class OfferingRosterSchema(BaseModel):
+    """Respuesta de `GET /professors/me/offerings/{id}/roster`."""
+
+    offering_id: UUID
+    course_code: str
+    course_name: str
+    group_number: str
+    entries: list[GradeEntrySchema] = Field(default_factory=list)
+    total: int
+    #: Cuántas quedan sin calificar. Viene calculado para que la interfaz no recorra la lista, y
+    #: es la cifra que le dice al docente si ya terminó.
+    pending: int
+
+
+class SetGradeSchema(BaseModel):
+    """Cuerpo de `PUT /professors/me/offerings/{id}/grades/{student_id}`.
+
+    El rango se declara aquí Y en el value object `Grade` Y en un `CHECK` de la base. No es
+    redundancia por descuido: Pydantic da el error de formato antes de tocar el dominio, `Grade`
+    protege cualquier otro camino que escriba una nota —el seed, una migración, un caso de uso
+    futuro— y el `CHECK` es la red final. Es la misma filosofía de defensas superpuestas que
+    sostiene el control de cupos.
+    """
+
+    final_grade: Decimal = Field(
+        ge=0,
+        le=5,
+        max_digits=3,
+        decimal_places=2,
+        description="Nota final en la escala de 0.0 a 5.0. Aprueba desde 3.0",
+        examples=["4.20"],
+    )

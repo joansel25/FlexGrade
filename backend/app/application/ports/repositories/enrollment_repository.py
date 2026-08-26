@@ -71,6 +71,25 @@ class EnrollmentWriter(ABC):
     """Contrato de escritura de inscripciones."""
 
     @abstractmethod
+    def find_by_offering(self, offering_id: UUID) -> list[Enrollment]:
+        """Devuelve las inscripciones VIVAS de un grupo, en orden de inscripción.
+
+        Las canceladas no salen: quien dio de baja la materia no la cursó, y sacarla en la lista
+        del docente invitaría a calificar una fila que el dominio va a rechazar.
+        """
+
+    @abstractmethod
+    def find_by_student_and_offering_any_status(
+        self, student_id: UUID, offering_id: UUID
+    ) -> Enrollment | None:
+        """Devuelve la inscripción de un estudiante en un grupo, esté como esté.
+
+        Se distingue de `find_by_student_and_offering`, que solo devuelve las vivas. Calificar
+        necesita ver también las canceladas para poder decir «canceló la materia» —que es lo que
+        pasó— en vez de «no está inscrito», que suena a error de tecleo.
+        """
+
+    @abstractmethod
     def count_active_in_program(
         self, *, course_id: UUID, program_id: UUID, enrollment_period_id: UUID
     ) -> int:

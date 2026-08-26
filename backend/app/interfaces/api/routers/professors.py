@@ -7,15 +7,25 @@ la 9.2, las notas— de otro, y la única defensa sería recordar comprobarlo en
 
 from __future__ import annotations
 
-from fastapi import APIRouter, status
+from uuid import UUID
 
+from fastapi import APIRouter, Response, status
+
+from app.domain.value_objects.grade import Grade
 from app.interfaces.api.dependencies.auth import CurrentProfessorDep
-from app.interfaces.api.dependencies.di import ListProfessorOfferingsUseCaseDep
+from app.interfaces.api.dependencies.di import (
+    GetOfferingRosterUseCaseDep,
+    ListProfessorOfferingsUseCaseDep,
+    SetGradeUseCaseDep,
+)
 from app.interfaces.api.schemas.catalog_schemas import ScheduleBlockSchema
 from app.interfaces.api.schemas.error_schemas import ErrorResponseSchema
 from app.interfaces.api.schemas.teaching_schemas import (
+    GradeEntrySchema,
+    OfferingRosterSchema,
     ProfessorOfferingSchema,
     ProfessorOfferingsSchema,
+    SetGradeSchema,
 )
 
 router = APIRouter(prefix="/professors", tags=["Docentes"])
@@ -70,3 +80,97 @@ def my_offerings(
             for entrada in carga.offerings
         ],
     )
+
+
+@router.get(
+    "/me/offerings/{offering_id}/roster",
+    response_model=OfferingRosterSchema,
+    status_code=status.HTTP_200_OK,
+    summary="La lista de un grupo, con las notas que ya tiene",
+    responses={
+        403: {"model": ErrorResponseSchema, "description": "Ese grupo lo dicta otra persona"},
+        404: {"model": ErrorResponseSchema, "description": "El grupo no existe"},
+        409: {"model": ErrorResponseSchema, "description": "El grupo es de un periodo cerrado"},
+    },
+)
+def offering_roster(
+    offering_id: UUID,
+    docente: CurrentProfessorDep,
+    use_case: GetOfferingRosterUseCaseDep,
+) -> OfferingRosterSchema:
+    """Devuelve quién está inscrito en el grupo y qué nota lleva cada uno.
+
+    Solo salen las inscripciones VIVAS. Quien canceló no cursó la materia, y ofrecerla en la
+    lista invitaría a calificar una fila que el servidor va a rechazar.
+
+    `final_grade` en `null` es «todavía sin calificar», que NO es lo mismo que `0.00`: son
+    estados opuestos y con un cero por defecto se verían igual.
+    """
+    lista = use_case.execute(offering_id=offering_id, professor_id=docente.id)
+
+    return OfferingRosterSchema(
+        offering_id=lista.offering.id,
+        course_code=lista.course.code.value,
+        course_name=lista.course.name,
+        group_number=lista.offering.group_number,
+        total=len(lista.entries),
+        pending=lista.pending,
+        entries=[
+            GradeEntrySchema(
+                student_id=entrada.student.id,
+                student_code=entrada.student.student_code.value,
+                full_name=entrada.student.full_name,
+                final_grade=(
+                    None
+                    if entrada.enrollment.final_grade is None
+                    else entrada.enrollment.final_grade.value
+                ),
+                graded_at=entrada.enrollment.graded_at,
+            )
+            for entrada in lista.entries
+        ],
+    )
+
+
+@router.put(
+    "/me/offerings/{offering_id}/grades/{student_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Registrar o corregir la nota de un estudiante",
+    responses={
+        403: {"model": ErrorResponseSchema, "description": "Ese grupo lo dicta otra persona"},
+        404: {
+            "model": ErrorResponseSchema,
+            "description": "El grupo no existe, o el estudiante no está inscrito en él",
+        },
+        409: {
+            "model": ErrorResponseSchema,
+            "description": "El período está cerrado, o la inscripción fue cancelada",
+        },
+    },
+)
+def set_grade(
+    offering_id: UUID,
+    student_id: UUID,
+    payload: SetGradeSchema,
+    docente: CurrentProfessorDep,
+    use_case: SetGradeUseCaseDep,
+) -> Response:
+    """Deja la nota registrada. **Response 204.**
+
+    `PUT` porque es idempotente: volver a poner la misma nota deja el mismo estado. Por eso
+    corregir una nota mal tecleada es esta misma llamada y no una operación aparte que quien
+    califica tenga que recordar.
+
+    **La nota se guarda en la inscripción, no en el historial académico.** El historial es un
+    registro consolidado: lo que hay ahí decide prerrequisitos y aparece en el expediente.
+    Escribir cada tecleo directamente allí haría irreversible una corrección tan normal como
+    equivocarse de fila. La consolidación es una operación aparte, de Registro Académico.
+    """
+    use_case.execute(
+        offering_id=offering_id,
+        professor_id=docente.id,
+        student_id=student_id,
+        grade=Grade(payload.final_grade),
+    )
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

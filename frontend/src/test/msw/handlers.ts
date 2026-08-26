@@ -326,6 +326,44 @@ export const CARGA_DOCENTE = {
   ],
 };
 
+/**
+ * La lista de un grupo, tal como la devuelve el roster.
+ *
+ * Una con nota y dos sin ella: es lo que permite comprobar que la pantalla distingue «sin
+ * calificar» de un cero, que son estados opuestos y con un cero por defecto se verían igual.
+ */
+export const LISTA_DEL_GRUPO = {
+  offering_id: "g1",
+  course_code: "MAT101",
+  course_name: "Cálculo I",
+  group_number: "01",
+  total: 3,
+  pending: 2,
+  entries: [
+    {
+      student_id: "e1",
+      student_code: "202500001",
+      full_name: "Ada Álvarez",
+      final_grade: "4.25",
+      graded_at: "2025-11-16T09:00:00Z",
+    },
+    {
+      student_id: "e2",
+      student_code: "202500002",
+      full_name: "Beto Bernal",
+      final_grade: null,
+      graded_at: null,
+    },
+    {
+      student_id: "e3",
+      student_code: "202500003",
+      full_name: "Zoe Zapata",
+      final_grade: null,
+      graded_at: null,
+    },
+  ],
+};
+
 /** Cifras del panel de administración. */
 export const REPORTE_INSCRIPCIONES = {
   period_code: "2025-2-V1",
@@ -620,6 +658,36 @@ export const handlers = [
 
     return HttpResponse.json(CARGA_DOCENTE);
   }),
+
+  http.get(`${API_URL}/api/v1/professors/me/offerings/:offeringId/roster`, ({ params }) => {
+    // `g2` es el grupo de otro docente: el servidor lo rechaza por permiso y no por
+    // inexistencia, que se corrigen en sitios distintos.
+    if (params.offeringId === "g2") {
+      return respuestaDeError(403, "OFFERING_NOT_ASSIGNED", "No es tuyo", {
+        offering_id: "g2",
+      });
+    }
+
+    return HttpResponse.json(LISTA_DEL_GRUPO);
+  }),
+
+  http.put(
+    `${API_URL}/api/v1/professors/me/offerings/:offeringId/grades/:studentId`,
+    ({ params }) => {
+      // `e3` canceló después de que el docente abriera la lista. Es el caso real que la
+      // pantalla tiene que explicar en vez de mostrar un fallo genérico.
+      if (params.studentId === "e3") {
+        return respuestaDeError(
+          409,
+          "ENROLLMENT_CANCELLED_CANNOT_GRADE",
+          "Canceló la materia",
+          { enrollment_id: "i3" },
+        );
+      }
+
+      return new HttpResponse(null, { status: 204 });
+    },
+  ),
 
   http.get(`${API_URL}/api/v1/admin/reports/enrollments`, ({ request }) => {
     if (!request.headers.get("Authorization")?.startsWith("Bearer ")) {

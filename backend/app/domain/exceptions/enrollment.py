@@ -170,3 +170,68 @@ class EnrollmentAlreadyCancelledError(DomainError):
             "Esta inscripción ya fue cancelada",
             details={"enrollment_id": str(enrollment_id)},
         )
+
+
+class StudentNotEnrolledError(DomainError):
+    """Ese estudiante no aparece en ese grupo.
+
+    No se reutiliza `EnrollmentNotFoundError` porque aquel habla de una inscripción por su
+    identificador, y aquí lo que se conoce son dos: el estudiante y el grupo. Devolver el
+    primero obligaría a inventar un identificador que nadie tiene, y el mensaje diría que no
+    existe algo que quien pregunta nunca nombró.
+    """
+
+    def __init__(self, *, student_id: UUID, offering_id: UUID) -> None:
+        super().__init__(
+            "Ese estudiante no está inscrito en este grupo",
+            details={"student_id": str(student_id), "offering_id": str(offering_id)},
+        )
+
+
+class CannotGradeCancelledEnrollmentError(DomainError):
+    """Se intentó calificar una inscripción cancelada.
+
+    Una materia que se dio de baja no se cursó, así que no hay nada que calificar. Y no es un
+    detalle formal: la nota que se guardara aquí viajaría a `academic_history` en la
+    consolidación de la 9.3 como si la materia se hubiera cursado, y contaría —o dejaría de
+    contar— como prerrequisito.
+
+    Ocurre de verdad: alguien cancela después de que el docente descargue la lista, y al subir
+    las notas la fila sigue en su copia.
+    """
+
+    def __init__(self, enrollment_id: UUID) -> None:
+        super().__init__(
+            "Esa inscripción está cancelada, así que no hay materia que calificar",
+            details={"enrollment_id": str(enrollment_id)},
+        )
+
+
+class OfferingNotAssignedError(DomainError):
+    """El grupo existe, pero no lo dicta quien intenta calificarlo.
+
+    Es 403 y no 404: decir que no existe cuando sí existe manda a buscar un error de tecleo
+    donde el problema es de permiso. Un docente que ve este mensaje sabe que tiene que hablar
+    con Registro Académico, no revisar la URL.
+    """
+
+    def __init__(self, offering_id: UUID) -> None:
+        super().__init__(
+            "Ese grupo no está entre los que dictas",
+            details={"offering_id": str(offering_id)},
+        )
+
+
+class GradingPeriodClosedError(DomainError):
+    """El grupo pertenece a un período que ya no es el activo.
+
+    Las notas de un semestre cerrado son historia: cambiarlas recalcularía prerrequisitos que ya
+    se usaron para matricular, y alguien podría estar cursando ahora mismo una materia que
+    dejaría de poder cursar.
+    """
+
+    def __init__(self, offering_id: UUID) -> None:
+        super().__init__(
+            "Ese grupo es de un período que ya no está activo, y sus notas ya no se cambian",
+            details={"offering_id": str(offering_id)},
+        )

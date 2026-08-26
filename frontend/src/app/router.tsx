@@ -18,6 +18,7 @@ import { OfferingsPage } from "@/features/admin/OfferingsPage";
 import { PeriodsPage } from "@/features/admin/PeriodsPage";
 import { ReportsPage } from "@/features/admin/ReportsPage";
 import { RequireProfessor } from "@/features/auth/components/RequireProfessor";
+import { RosterPage } from "@/features/teaching/RosterPage";
 import { TeachingPage } from "@/features/teaching/TeachingPage";
 import { SpacesPage } from "@/features/admin/SpacesPage";
 import { StudyPlansPage } from "@/features/admin/StudyPlansPage";
@@ -178,6 +179,15 @@ export function AppRoutes() {
           element={
             <RequireProfessor>
               <TeachingPage />
+            </RequireProfessor>
+          }
+        />
+
+        <Route
+          path="/docencia/:offeringId"
+          element={
+            <RequireProfessor>
+              <RosterPage />
             </RequireProfessor>
           }
         />

@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 
 from app.domain.entities.course import Course
 from app.domain.entities.course_offering import CourseOffering
+from app.domain.entities.enrollment import Enrollment
+from app.domain.entities.student import Student
 
 
 @dataclass(frozen=True)
@@ -43,3 +45,37 @@ class ProfessorOfferingsDTO:
     period_code: str | None
     academic_period: str | None
     offerings: list[ProfessorOfferingDTO] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class GradeEntryDTO:
+    """Una fila de la lista del grupo: quién es y qué nota lleva.
+
+    Lleva la INSCRIPCIÓN entera y no solo la nota porque el docente necesita distinguir «aún no
+    la he puesto» de «le puse 0.0», que son cosas opuestas y con el número suelto se ven igual.
+
+    Attributes:
+        student: el perfil, con su código y su nombre.
+        enrollment: la inscripción, con la nota si la tiene y cuándo se puso.
+    """
+
+    student: Student
+    enrollment: Enrollment
+
+
+@dataclass(frozen=True)
+class OfferingRosterDTO:
+    """La lista completa de un grupo.
+
+    Attributes:
+        offering: el grupo.
+        course: la materia que se dicta.
+        entries: los inscritos, ordenados por nombre. Solo los vivos: quien canceló no cursó.
+        pending: cuántos quedan sin calificar. Es la cifra que le dice al docente si terminó, y
+            se cuenta aquí para que la interfaz no tenga que recorrer la lista para saberlo.
+    """
+
+    offering: CourseOffering
+    course: Course
+    entries: list[GradeEntryDTO] = field(default_factory=list)
+    pending: int = 0

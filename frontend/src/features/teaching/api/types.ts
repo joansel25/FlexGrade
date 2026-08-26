@@ -35,3 +35,34 @@ export interface ProfessorOfferings {
   items: ProfessorOffering[];
   total: number;
 }
+
+/**
+ * Una fila de la lista del grupo.
+ *
+ * `final_grade` en `null` es «todavía sin calificar», y es distinto de `"0.00"`. Son estados
+ * opuestos —uno es que falta trabajo, el otro es una nota reprobatoria— y con un cero por
+ * defecto se verían igual.
+ *
+ * Llega como `string` y no como `number` porque el servidor la manda con dos decimales exactos
+ * y `JSON.parse` la convertiría en un `double`: `4.25` sobrevive, pero el redondeo de la
+ * frontera de aprobación no es algo que convenga dejar en manos de la coma flotante.
+ */
+export interface GradeEntry {
+  student_id: string;
+  student_code: string;
+  full_name: string;
+  final_grade: string | null;
+  graded_at: string | null;
+}
+
+/** Respuesta de `GET /professors/me/offerings/{id}/roster`. */
+export interface OfferingRoster {
+  offering_id: string;
+  course_code: string;
+  course_name: string;
+  group_number: string;
+  entries: GradeEntry[];
+  total: number;
+  /** Cuántas quedan sin calificar. Es la cifra que dice si el trabajo terminó. */
+  pending: number;
+}

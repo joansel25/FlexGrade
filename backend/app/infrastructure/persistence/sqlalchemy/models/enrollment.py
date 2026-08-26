@@ -14,8 +14,18 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, String, UniqueConstraint, func, text
+from sqlalchemy import (
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Numeric,
+    String,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -79,6 +89,8 @@ class EnrollmentModel(Base):
         TIMESTAMP(timezone=True),
         nullable=True,
     )
+    final_grade: Mapped[Decimal | None] = mapped_column(Numeric(3, 2), nullable=True)
+    graded_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         nullable=False,
@@ -103,6 +115,22 @@ class EnrollmentModel(Base):
         # Índices con nombre explícito, según el DDL de `docs/DATA_MODEL.md`.
         Index("ix_enrollments_offering", "course_offering_id"),
         Index("ix_enrollments_period", "enrollment_period_id"),
+        # La nota, en su escala. Red final con la misma filosofía que el control de cupos:
+        # `Grade` da el mensaje útil y esto impide que entre por cualquier otro camino.
+        CheckConstraint(
+            "final_grade IS NULL OR (final_grade >= 0 AND final_grade <= 5)",
+            name="final_grade_range",
+        ),
+        # La nota y su instante van juntas o no van: una nota sin fecha no dice cuándo se puso,
+        # y una fecha sin nota no significa nada.
+        CheckConstraint("(final_grade IS NULL) = (graded_at IS NULL)", name="graded_at_with_grade"),
+        # Lo que falta por calificar. Es la consulta que la 9.3 ejecuta antes de consolidar.
+        # Parcial porque al final del semestre casi todas están calificadas.
+        Index(
+            "ix_enrollments_pending_grade",
+            "enrollment_period_id",
+            postgresql_where=text("final_grade IS NULL AND status = 'ENROLLED'"),
+        ),
         # Índice PARCIAL de las inscripciones activas de un estudiante. Resuelve la consulta
         # que el caso de uso ejecuta en CADA intento de inscripción durante el pico: «qué
         # tiene inscrito ahora esta persona», necesaria para detectar choques de horario y

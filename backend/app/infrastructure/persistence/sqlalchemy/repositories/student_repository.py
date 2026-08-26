@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy import select
@@ -29,6 +30,16 @@ class SQLAlchemyStudentRepository(StudentRepository):
         sentencia = select(StudentModel).where(StudentModel.user_id == user_id)
         modelo = self._session.execute(sentencia).scalar_one_or_none()
         return self._a_entidad(modelo) if modelo is not None else None
+
+    def find_by_ids(self, student_ids: Sequence[UUID]) -> list[Student]:
+        if not student_ids:
+            # `IN ()` no es SQL válido, y aunque lo fuera sería un viaje a la base para no
+            # preguntar nada.
+            return []
+
+        sentencia = select(StudentModel).where(StudentModel.id.in_(student_ids))
+
+        return [self._a_entidad(m) for m in self._session.execute(sentencia).scalars()]
 
     def find_by_student_code(self, student_code: StudentCode) -> Student | None:
         sentencia = select(StudentModel).where(StudentModel.student_code == student_code.value)

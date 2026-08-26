@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from uuid import UUID
 
 from app.domain.entities.student import Student
@@ -35,6 +36,22 @@ class StudentRepository(ABC):
 
         Returns:
             El perfil, o `None` si la cuenta no es de un estudiante.
+        """
+
+    @abstractmethod
+    def find_by_ids(self, student_ids: Sequence[UUID]) -> list[Student]:
+        """Devuelve los perfiles de varios estudiantes de una vez.
+
+        Existe para la lista del grupo, que necesita el nombre de cada inscrito. Pedirlos uno a
+        uno serían cuarenta viajes a la base para pintar una pantalla, y con cinco mil
+        estudiantes matriculándose a la vez esa diferencia deja de ser teórica.
+
+        Args:
+            student_ids: identificadores a resolver. Los que no existan simplemente no salen.
+
+        Returns:
+            Los perfiles encontrados, sin orden garantizado: quien los pide sabe con qué
+            criterio quiere ordenarlos.
         """
 
     @abstractmethod

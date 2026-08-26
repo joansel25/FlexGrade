@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.application.ports.repositories.enrollment_repository import EnrollmentRepository
 from app.domain.entities.enrollment import Enrollment
 from app.domain.value_objects.enrollment_status import EnrollmentStatus
+from app.domain.value_objects.grade import Grade
 from app.infrastructure.persistence.sqlalchemy.models.course_offering import CourseOfferingModel
 from app.infrastructure.persistence.sqlalchemy.models.enrollment import EnrollmentModel
 from app.infrastructure.persistence.sqlalchemy.models.student import StudentModel
@@ -54,6 +55,46 @@ class SQLAlchemyEnrollmentRepository(EnrollmentRepository):
         return self._a_entidad(modelo) if modelo is not None else None
 
     # ----------------------------------------------------------------- escritura
+
+    def find_by_offering(self, offering_id: UUID) -> list[Enrollment]:
+        """Todas las inscripciones VIVAS de un grupo, para pasar lista y calificar.
+
+        Filtra las canceladas: quien dio de baja la materia no la cursó, y sacarla en la lista
+        del docente invitaría a calificar una fila que el dominio va a rechazar.
+
+        Ordena por identificador de estudiante y no por nombre: el nombre lo resuelve el caso de
+        uso, que es quien tiene los perfiles, y ordenar aquí por un dato que no está obligaría a
+        un `JOIN` solo para eso.
+        """
+        sentencia = (
+            select(EnrollmentModel)
+            .where(EnrollmentModel.course_offering_id == offering_id)
+            .where(EnrollmentModel.status == EnrollmentStatus.ENROLLED.value)
+            .order_by(EnrollmentModel.enrolled_at)
+        )
+
+        return [self._a_entidad(m) for m in self._session.execute(sentencia).scalars()]
+
+    def find_by_student_and_offering_any_status(
+        self, student_id: UUID, offering_id: UUID
+    ) -> Enrollment | None:
+        """La inscripción de un estudiante en un grupo, ESTÉ COMO ESTÉ.
+
+        Se distingue de `find_by_student_and_offering`, que solo devuelve las vivas. Calificar
+        necesita ver también las canceladas: sin ellas, intentar calificar a quien se dio de
+        baja respondería «no está inscrito», que suena a error de tecleo, en vez de «canceló la
+        materia», que es lo que pasó.
+        """
+        sentencia = (
+            select(EnrollmentModel)
+            .where(EnrollmentModel.student_id == student_id)
+            .where(EnrollmentModel.course_offering_id == offering_id)
+            .order_by(EnrollmentModel.enrolled_at.desc())
+            .limit(1)
+        )
+        modelo = self._session.execute(sentencia).scalar_one_or_none()
+
+        return None if modelo is None else self._a_entidad(modelo)
 
     def count_active_in_program(
         self, *, course_id: UUID, program_id: UUID, enrollment_period_id: UUID
@@ -102,6 +143,10 @@ class SQLAlchemyEnrollmentRepository(EnrollmentRepository):
 
         modelo.status = enrollment.status.value
         modelo.cancelled_at = enrollment.cancelled_at
+        modelo.final_grade = (
+            None if enrollment.final_grade is None else enrollment.final_grade.value
+        )
+        modelo.graded_at = enrollment.graded_at
 
     # ------------------------------------------------------------------ mapeo
 
@@ -116,6 +161,8 @@ class SQLAlchemyEnrollmentRepository(EnrollmentRepository):
             status=EnrollmentStatus(modelo.status),
             enrolled_at=modelo.enrolled_at,
             cancelled_at=modelo.cancelled_at,
+            final_grade=None if modelo.final_grade is None else Grade(modelo.final_grade),
+            graded_at=modelo.graded_at,
         )
 
     @staticmethod

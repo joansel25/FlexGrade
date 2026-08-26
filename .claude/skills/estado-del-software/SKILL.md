@@ -5,7 +5,7 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al cerrar la iteración 9.1 (el docente como actor).**
+> **Actualizada al cerrar la iteración 9.2 (registro de notas).**
 > Última verificación real: frontend con `npm run lint`, `type-check`, `test` (113 tests) y
 > `build` en verde; backend sin cambios desde la 8.1 (579 tests, `mypy --strict` limpio sobre
 > 162 archivos). Antes de esto:
@@ -301,9 +301,33 @@ donde importa.
 | 5 — Frontend y comprobante | ✅ | 5.1 fundación · 5.2 autenticación · 5.3 catálogo · 5.4 inscripción y horario · 5.5 comprobante PDF |
 | 6 — Reglas por carrera | ✅ | `GET /students/me/study-plan` con semáforo, ruta `/plan` en el frontend |
 
-**Fase 9 — Cierre del ciclo académico** (en curso): 9.1 el docente como actor ✅ (esta
-iteración) · 9.2 registro de notas · 9.3 cierre y consolidación del período · 9.4 expediente del
-estudiante · 9.5 prueba de integración del ciclo completo.
+**Fase 9 — Cierre del ciclo académico** (en curso): 9.1 el docente como actor ✅
+(`8fe425c`) · 9.2 registro de notas ✅ (esta iteración) · 9.3 cierre y consolidación del período ·
+9.4 expediente del estudiante · 9.5 prueba de integración del ciclo completo.
+
+De la 9.2, lo que no se vuelve a discutir:
+
+- **La nota vive en `enrollments.final_grade`, no en `academic_history`.** El historial es un
+  registro consolidado —decide prerrequisitos y aparece en el expediente— y escribir cada tecleo
+  del docente allí haría irreversible una corrección tan normal como equivocarse de fila. La nota
+  nace como BORRADOR y la 9.3 la consolida en una sola operación transaccional.
+- **`Grade` es un value object con `Decimal`, no un `float`.** `0.1 + 0.2` no es `0.3` en coma
+  flotante, y una nota en la frontera de aprobación decidiría el semestre de alguien según un
+  error de redondeo binario. El redondeo es HALF_UP y no el bancario de Python: `2.995` sube a
+  `3.00` y aprueba.
+- **`CHECK (final_grade IS NULL) = (graded_at IS NULL)`**: la nota y su instante van juntas o no
+  van. Sin eso, un `UPDATE` a mano dejaría una nota sin fecha —y la 9.3 no sabría si se
+  calificó— o una fecha sin nota, que no significa nada.
+- **Cinco rechazos separados** al calificar (`OFFERING_NOT_FOUND`, `OFFERING_NOT_ASSIGNED`,
+  `GRADING_PERIOD_CLOSED`, `STUDENT_NOT_ENROLLED`, `ENROLLMENT_CANCELLED_CANNOT_GRADE`) porque se
+  corrigen en cinco sitios distintos. `_AccesoAlGrupo` es una pieza compartida entre las dos
+  operaciones para que la comprobación no pueda separarse: es el tipo de código que se corrige
+  en un sitio y se olvida en el otro, dejando un endpoint abierto sin que nada falle.
+
+**Bug que la 9.2 destapó y conviene no repetir:** un `<input type="number" step="0.01">` bloquea
+el envío del formulario EN SILENCIO —sin error ni mensaje— para valores como `3.5`, porque la
+validación nativa comprueba el paso con aritmética de coma flotante y `3.5 / 0.01` no da un
+entero exacto. Se usa `step="any"`; el rango sigue en `min`/`max`, en `Grade` y en el `CHECK`.
 
 **EL HALLAZGO QUE DETERMINA LA FASE 9: `academic_history` solo la escribe el seed.** Ningún caso
 de uso la crea. Con esa tabla vacía en producción, `find_approved_course_ids` devuelve vacío,
@@ -477,8 +501,12 @@ Ausencias que sí son deuda, pendientes de decidir cuándo se pagan:
   MAT102 con reglas distintas—, que es donde se comprueba que los requisitos dependen del
   plan.
 - **El rol `PROFESSOR` no tiene todavía pantalla de administración.** Se enlaza una cuenta a un
-  docente por el seed o a mano; no hay endpoint que lo haga. Entra con la 9.2 o después, según
-  haga falta.
+  docente por el seed o a mano; no hay endpoint que lo haga.
+- **EL SEED NO CREA INSCRIPCIONES.** Pone `course_offerings.enrolled_count` a mano para simular
+  ocupación, pero no hay filas en `enrollments`. Los reportes de ocupación cuadran; la lista del
+  docente sale vacía y la consolidación de la 9.3 no tendría nada que consolidar. Para probar a
+  mano hay que inscribir por la API. Conviene resolverlo antes o durante la 9.3, que es cuando
+  deja de ser una molestia y pasa a impedir la verificación.
 
 ## 5. Mapa rápido del código
 

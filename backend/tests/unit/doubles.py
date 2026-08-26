@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import replace
-from datetime import time
+from datetime import UTC, datetime, time
 from uuid import UUID
 
 from app.application.dtos.auth_dto import TokenPayload, TokenType
@@ -82,6 +82,14 @@ class InMemoryStudentRepository(StudentRepository):
 
     def find_by_user_id(self, user_id: UUID) -> Student | None:
         return next((s for s in self._students.values() if s.user_id == user_id), None)
+
+    def find_by_ids(self, student_ids: Sequence[UUID]) -> list[Student]:
+        """Sin orden garantizado, igual que el adaptador SQL.
+
+        Devolverlos ordenados aquí escondería que quien los pide tiene que ordenarlos, y el
+        primer test que dependiera del orden pasaría con el doble y fallaría contra PostgreSQL.
+        """
+        return [self._students[i] for i in student_ids if i in self._students]
 
     def find_by_student_code(self, student_code: StudentCode) -> Student | None:
         return next((s for s in self._students.values() if s.student_code == student_code), None)
@@ -847,6 +855,33 @@ class InMemoryEnrollmentRepository(EnrollmentRepository):
             and e.enrollment_period_id == enrollment_period_id
             and e.is_active()
         ]
+
+    def find_by_offering(self, offering_id: UUID) -> list[Enrollment]:
+        """Solo las VIVAS, como el adaptador: quien canceló no cursó la materia."""
+        vivas = [
+            e
+            for e in self._enrollments.values()
+            if e.course_offering_id == offering_id and e.status is EnrollmentStatus.ENROLLED
+        ]
+
+        return sorted(vivas, key=lambda e: e.enrolled_at or datetime.min.replace(tzinfo=UTC))
+
+    def find_by_student_and_offering_any_status(
+        self, student_id: UUID, offering_id: UUID
+    ) -> Enrollment | None:
+        """Incluye las canceladas, al contrario que el método de abajo.
+
+        Es lo que permite responder «canceló la materia» en vez de «no está inscrito», que son
+        cosas distintas: una suena a error de tecleo y la otra es lo que de verdad pasó.
+        """
+        return next(
+            (
+                e
+                for e in self._enrollments.values()
+                if e.student_id == student_id and e.course_offering_id == offering_id
+            ),
+            None,
+        )
 
     def find_by_student_and_offering(
         self, student_id: UUID, course_offering_id: UUID, enrollment_period_id: UUID

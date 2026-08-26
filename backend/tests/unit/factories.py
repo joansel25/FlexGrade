@@ -22,6 +22,7 @@ from app.domain.entities.user import User
 from app.domain.value_objects.course_code import CourseCode
 from app.domain.value_objects.email import Email
 from app.domain.value_objects.enrollment_status import EnrollmentStatus
+from app.domain.value_objects.grade import Grade
 from app.domain.value_objects.schedule_block import ScheduleBlock
 from app.domain.value_objects.space_type import SpaceType
 from app.domain.value_objects.student_code import StudentCode
@@ -250,8 +251,13 @@ def crear_inscripcion(
     enrollment_period_id: UUID | None = None,
     status: EnrollmentStatus = EnrollmentStatus.ENROLLED,
     cancelled_at: datetime | None = None,
+    final_grade: Grade | None = None,
 ) -> Enrollment:
-    """Construye un `Enrollment`."""
+    """Construye un `Enrollment`.
+
+    `final_grade` en `None` por defecto: sin calificar es el estado normal de una inscripción
+    durante casi todo el semestre.
+    """
     return Enrollment(
         id=enrollment_id or uuid4(),
         student_id=student_id or uuid4(),
@@ -260,4 +266,6 @@ def crear_inscripcion(
         status=status,
         enrolled_at=AHORA,
         cancelled_at=cancelled_at,
+        final_grade=final_grade,
+        graded_at=None if final_grade is None else AHORA,
     )

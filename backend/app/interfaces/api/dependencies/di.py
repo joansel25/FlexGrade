@@ -68,6 +68,10 @@ from app.application.use_cases.enrollment.list_student_enrollments import (
 from app.application.use_cases.teaching.list_professor_offerings import (
     ListProfessorOfferingsUseCase,
 )
+from app.application.use_cases.teaching.manage_grades import (
+    GetOfferingRosterUseCase,
+    SetGradeUseCase,
+)
 from app.infrastructure.auth.jwt_auth_service import JWTAuthService
 from app.infrastructure.cache.client import get_redis_client
 from app.infrastructure.cache.redis_cache_service import RedisCacheService
@@ -429,6 +433,41 @@ def get_list_professor_offerings_use_case(
 ListProfessorOfferingsUseCaseDep = Annotated[
     ListProfessorOfferingsUseCase, Depends(get_list_professor_offerings_use_case)
 ]
+
+
+def get_offering_roster_use_case(
+    offering_repository: OfferingRepositoryDep,
+    enrollment_repository: EnrollmentRepositoryDep,
+    student_repository: StudentRepositoryDep,
+    course_repository: CourseRepositoryDep,
+    period_repository: PeriodRepositoryDep,
+) -> GetOfferingRosterUseCase:
+    """Construye el caso de uso de la lista de un grupo."""
+    return GetOfferingRosterUseCase(
+        offering_repository,
+        enrollment_repository,
+        student_repository,
+        course_repository,
+        period_repository,
+    )
+
+
+def get_set_grade_use_case(
+    offering_repository: OfferingRepositoryDep,
+    enrollment_repository: EnrollmentRepositoryDep,
+    period_repository: PeriodRepositoryDep,
+    unit_of_work: UnitOfWorkDep,
+) -> SetGradeUseCase:
+    """Construye el caso de uso de registro de notas."""
+    return SetGradeUseCase(
+        offering_repository, enrollment_repository, period_repository, unit_of_work
+    )
+
+
+GetOfferingRosterUseCaseDep = Annotated[
+    GetOfferingRosterUseCase, Depends(get_offering_roster_use_case)
+]
+SetGradeUseCaseDep = Annotated[SetGradeUseCase, Depends(get_set_grade_use_case)]
 
 CreateSpaceUseCaseDep = Annotated[CreateSpaceUseCase, Depends(get_create_space_use_case)]
 ListSpacesUseCaseDep = Annotated[ListSpacesUseCase, Depends(get_list_spaces_use_case)]

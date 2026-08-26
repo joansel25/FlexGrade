@@ -1069,6 +1069,85 @@ Los dos últimos se separan porque **se corrigen en sitios distintos**: el 403 c
 404 dando de alta al docente y enlazando su cuenta. Un único código mandaría a la mitad de los
 casos al sitio equivocado.
 
+### GET /professors/me/offerings/{offering_id}/roster
+
+La lista del grupo: quién está inscrito y qué nota lleva cada uno.
+
+**Response 200**
+```json
+{
+  "offering_id": "uuid",
+  "course_code": "MAT101",
+  "course_name": "Cálculo I",
+  "group_number": "01",
+  "entries": [
+    {
+      "student_id": "uuid",
+      "student_code": "202500001",
+      "full_name": "Ada Álvarez",
+      "final_grade": "4.25",
+      "graded_at": "2026-08-26T20:31:27Z"
+    }
+  ],
+  "total": 1,
+  "pending": 0
+}
+```
+
+**`final_grade` en `null` es «todavía sin calificar», y NO es lo mismo que `"0.00"`.** Son
+estados opuestos —uno es que falta trabajo, el otro es una nota reprobatoria— y con un cero por
+defecto se verían igual. Es la misma razón por la que la columna es nullable.
+
+Solo salen las inscripciones **vivas**. Quien canceló no cursó la materia, y ofrecerla en la
+lista invitaría a calificar una fila que el servidor va a rechazar.
+
+`pending` viene calculado para que la interfaz no tenga que recorrer la lista, y sobre todo para
+que la pantalla del docente y el cierre del período de la 9.3 usen el mismo número.
+
+### PUT /professors/me/offerings/{offering_id}/grades/{student_id}
+
+Registra o corrige la nota final. **Response 204.**
+
+**Request**
+```json
+{ "final_grade": "4.25" }
+```
+
+Escala de 0.0 a 5.0; aprueba desde 3.0. El rango se valida en tres capas —el schema de Pydantic,
+el value object `Grade` y un `CHECK` de PostgreSQL— y no es redundancia por descuido: Pydantic da
+el error de formato antes de tocar el dominio, `Grade` protege cualquier otro camino que escriba
+una nota (el seed, una migración, un caso de uso futuro) y el `CHECK` es la red final. Es la misma
+filosofía de defensas superpuestas que sostiene el control de cupos.
+
+El redondeo es **HALF_UP**: `2.995` sube a `3.00` y aprueba. El redondeo bancario que Python trae
+por defecto es correcto para promediar dinero y equivocado para decidir el semestre de alguien.
+
+**LA NOTA SE GUARDA EN LA INSCRIPCIÓN, NO EN `academic_history`.** El historial es un registro
+consolidado: lo que hay ahí decide prerrequisitos y aparece en el expediente. Escribir cada tecleo
+del docente directamente allí haría irreversible una corrección tan normal como equivocarse de
+fila. La consolidación es una operación aparte, de Registro Académico (iteración 9.3).
+
+`PUT` porque es idempotente: volver a poner la misma nota deja el mismo estado. Por eso corregir
+una nota mal tecleada es esta misma llamada y no una operación aparte que quien califica tenga que
+recordar.
+
+| Código HTTP | error.code | Situación |
+|---|---|---|
+| 403 | `OFFERING_NOT_ASSIGNED` | El grupo existe pero lo dicta otra persona |
+| 404 | `OFFERING_NOT_FOUND` | El grupo no existe |
+| 404 | `STUDENT_NOT_ENROLLED` | Ese estudiante no está en ese grupo |
+| 409 | `GRADING_PERIOD_CLOSED` | El grupo es de un período que ya no es el activo |
+| 409 | `ENROLLMENT_CANCELLED_CANNOT_GRADE` | Esa persona canceló la materia |
+| 422 | — | La nota está fuera de la escala |
+
+**Los cinco rechazos van separados a propósito**, y los dos primeros son el ejemplo claro: `403`
+manda a hablar con Registro Académico y `404` manda a revisar la URL. Un único código dejaría a
+cuatro de los cinco casos buscando donde no está el problema.
+
+`GRADING_PERIOD_CLOSED` protege algo concreto: las notas de un semestre cerrado ya se usaron para
+calcular prerrequisitos, y cambiarlas podría dejar a alguien cursando ahora mismo una materia que
+dejaría de poder cursar.
+
 ## 7. Comprobantes
 
 ### GET /students/me/receipt

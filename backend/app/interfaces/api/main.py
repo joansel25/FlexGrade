@@ -51,6 +51,7 @@ from app.domain.exceptions.catalog import (
 )
 from app.domain.exceptions.enrollment import (
     AlreadyEnrolledError,
+    CannotGradeCancelledEnrollmentError,
     CapacityExceededError,
     CorequisiteDependencyError,
     CorequisitesNotMetError,
@@ -58,8 +59,11 @@ from app.domain.exceptions.enrollment import (
     EnrollmentAlreadyCancelledError,
     EnrollmentNotFoundError,
     EnrollmentPeriodInactiveError,
+    GradingPeriodClosedError,
+    OfferingNotAssignedError,
     PrerequisitesNotMetError,
     ScheduleConflictError,
+    StudentNotEnrolledError,
 )
 from app.domain.exceptions.invalid_value import InvalidScheduleBlockError
 from app.infrastructure.config.settings import get_settings
@@ -192,6 +196,13 @@ _MAPEO_ERRORES: dict[type[DomainError], tuple[int, str]] = {
     # corresponde hacer.
     CourseNotInProgramError: (403, "COURSE_NOT_IN_PROGRAM"),
     EnrollmentNotFoundError: (404, "ENROLLMENT_NOT_FOUND"),
+    # Fase 9.2. Los cuatro rechazos de calificar van separados porque se corrigen en sitios
+    # distintos: revisando la URL, hablando con Registro Academico, o aceptando que las notas
+    # de un semestre cerrado ya son historia.
+    StudentNotEnrolledError: (404, "STUDENT_NOT_ENROLLED"),
+    OfferingNotAssignedError: (403, "OFFERING_NOT_ASSIGNED"),
+    GradingPeriodClosedError: (409, "GRADING_PERIOD_CLOSED"),
+    CannotGradeCancelledEnrollmentError: (409, "ENROLLMENT_CANCELLED_CANNOT_GRADE"),
     # Administración (Fase 4). Son 409 por la misma razón: la petición está bien formada y
     # quien la envía tiene permiso; lo que impide la operación es el estado del sistema.
     DuplicatePeriodCodeError: (409, "DUPLICATE_PERIOD_CODE"),

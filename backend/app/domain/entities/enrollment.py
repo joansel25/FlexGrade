@@ -6,8 +6,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from app.domain.exceptions.enrollment import EnrollmentAlreadyCancelledError
+from app.domain.exceptions.enrollment import (
+    CannotGradeCancelledEnrollmentError,
+    EnrollmentAlreadyCancelledError,
+)
 from app.domain.value_objects.enrollment_status import EnrollmentStatus
+from app.domain.value_objects.grade import Grade
 
 
 @dataclass
@@ -22,6 +26,11 @@ class Enrollment:
         status: estado actual.
         enrolled_at: instante de la inscripción.
         cancelled_at: instante de la cancelación, si la hubo.
+        final_grade: nota final, o `None` mientras no se haya calificado. Es un BORRADOR: vive
+            aquí y no en `academic_history` para que corregirla siga siendo posible hasta que
+            la 9.3 consolide el período.
+        graded_at: instante de la última calificación. Va con la nota o no va: una nota sin
+            fecha no dice cuándo se puso, y una fecha sin nota no significa nada.
     """
 
     id: UUID
@@ -31,6 +40,30 @@ class Enrollment:
     status: EnrollmentStatus = EnrollmentStatus.ENROLLED
     enrolled_at: datetime | None = field(default=None)
     cancelled_at: datetime | None = field(default=None)
+    final_grade: Grade | None = field(default=None)
+    graded_at: datetime | None = field(default=None)
+
+    def grade(self, nota: Grade, *, now: datetime) -> None:
+        """Registra o corrige la nota final.
+
+        Args:
+            nota: la calificación, ya validada en su rango por el value object.
+            now: instante que queda registrado.
+
+        Raises:
+            CannotGradeCancelledEnrollmentError: si la inscripción está cancelada. Una materia
+                que se dio de baja no se cursó, así que no hay nada que calificar, y una nota
+                sobre ella viajaría al historial en la consolidación como si se hubiera cursado.
+        """
+        if self.status is not EnrollmentStatus.ENROLLED:
+            raise CannotGradeCancelledEnrollmentError(self.id)
+
+        self.final_grade = nota
+        self.graded_at = now
+
+    def esta_calificada(self) -> bool:
+        """Indica si ya tiene nota."""
+        return self.final_grade is not None
 
     @classmethod
     def create(

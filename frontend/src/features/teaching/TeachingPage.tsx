@@ -9,6 +9,8 @@
  * número distinto aunque salga de los mismos datos.
  */
 
+import { Link } from "react-router-dom";
+
 import { Alert, Card, CardBody, EmptyState, Skeleton } from "@/components/ui";
 import { ScheduleList } from "@/features/catalog/components/ScheduleList";
 import type { ProfessorOffering } from "@/features/teaching/api/types";
@@ -91,6 +93,13 @@ function TarjetaDeGrupo({ grupo }: { grupo: ProfessorOffering }) {
         </p>
 
         <ScheduleList franjas={grupo.schedule} />
+
+        <Link
+          to={`/docencia/${grupo.offering_id}`}
+          className="text-brand-700 hover:text-brand-800 inline-block text-sm font-medium"
+        >
+          Ver la lista y calificar →
+        </Link>
       </CardBody>
     </Card>
   );
