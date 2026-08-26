@@ -103,10 +103,13 @@ export function CatalogPage() {
   };
 
   // Sin el perfil todavía no se sabe qué programa acotar, y lanzar la consulta sin él traería
-  // el catálogo entero un instante antes de corregirse. Esperar evita ese parpadeo.
+  // el CATÁLOGO ENTERO un instante antes de corregirse: alguien de Derecho vería Programación
+  // II, que es justo lo que la iteración 6.1 vino a impedir. No es un parpadeo cosmético.
   const listoParaConsultar = verTodo || perfil !== undefined;
 
-  const { data, isPending, isError, error, isFetching } = useCourses(filtros);
+  const { data, isPending, isError, error, isFetching } = useCourses(filtros, {
+    enabled: listoParaConsultar,
+  });
 
   const hayFiltros = busquedaEnUrl !== "" || semestre !== null;
 

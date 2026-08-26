@@ -324,7 +324,18 @@ De la 9.2, lo que no se vuelve a discutir:
   operaciones para que la comprobación no pueda separarse: es el tipo de código que se corrige
   en un sitio y se olvida en el otro, dejando un endpoint abierto sin que nada falle.
 
-**Bug que la 9.2 destapó y conviene no repetir:** un `<input type="number" step="0.01">` bloquea
+**Dos bugs que la 9.2 destapó y conviene no repetir:**
+
+El catálogo se pedía SIN `program_id` mientras el perfil del estudiante no había llegado, y esa
+consulta devuelve el catálogo entero: durante ese instante alguien de Derecho veía Programación
+II, que es exactamente lo que la iteración 6.1 vino a impedir. La guarda `listoParaConsultar`
+estaba escrita en `CatalogPage` y **nunca se cableó** —era una variable calculada que no usaba
+nadie—; ahora se pasa como `enabled` a `useCourses`. Lo destapó un test que fallaba de forma
+intermitente en CI, y que se leía como flaky cuando era un fallo real que dependía de qué
+respuesta llegara primero. Hay un test que lo fija: comprueba que NINGUNA consulta del catálogo
+sale sin `program_id`.
+
+El segundo: un `<input type="number" step="0.01">` bloquea
 el envío del formulario EN SILENCIO —sin error ni mensaje— para valores como `3.5`, porque la
 validación nativa comprueba el paso con aritmética de coma flotante y `3.5 / 0.01` no da un
 entero exacto. Se usa `step="any"`; el rango sigue en `min`/`max`, en `Grade` y en el `CHECK`.

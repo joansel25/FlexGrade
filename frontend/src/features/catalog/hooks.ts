@@ -32,10 +32,15 @@ import { TIEMPO_FRESCO_CATALOGO_MS, TIEMPO_FRESCO_CUPOS_MS } from "@/lib/query/q
 const INTERVALO_REFRESCO_CUPOS_MS = 15_000;
 
 /** Listado paginado de materias. */
-export function useCourses(filtros: FiltrosCatalogo) {
+export function useCourses(filtros: FiltrosCatalogo, { enabled = true }: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: clavesCatalogo.materias(filtros),
     queryFn: ({ signal }) => listarMaterias(filtros, signal),
+    // `enabled` existe para esperar al perfil del estudiante. Sin esa espera, la primera
+    // consulta sale sin `program_id` y el doble —y el backend— devuelven el CATÁLOGO ENTERO:
+    // durante ese instante alguien de Derecho ve Programación II, que es exactamente lo que la
+    // iteración 6.1 vino a impedir.
+    enabled,
     staleTime: TIEMPO_FRESCO_CATALOGO_MS,
     // Conserva la página anterior mientras llega la siguiente. Sin esto, cada tecla escrita en
     // el buscador vaciaría la lista y la pantalla parpadearía entre resultados y vacío.

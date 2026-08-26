@@ -35,6 +35,25 @@ describe("listado del catálogo", () => {
     expect(screen.queryByText("Física")).not.toBeInTheDocument();
   });
 
+  it("nunca pide el catálogo sin acotar a la carrera", async () => {
+    // Es la garantía de fondo, y el test anterior no la da: aquel mira lo que se ve DESPUÉS de
+    // que todo asiente. Una consulta sin `program_id` devuelve el catálogo entero, y aunque se
+    // corrija un instante después, durante ese instante alguien de Derecho ve Programación II.
+    const consultas: (string | null)[] = [];
+    server.use(
+      http.get(`${API_URL}/api/v1/courses`, ({ request }) => {
+        consultas.push(new URL(request.url).searchParams.get("program_id"));
+        return HttpResponse.json({ items: [], total: 0, page: 1, size: 20 });
+      }),
+    );
+
+    montarConSesion("/catalogo");
+    await screen.findByText("Materias de mi carrera");
+    await waitFor(() => expect(consultas.length).toBeGreaterThan(0));
+
+    expect(consultas.every((programa) => programa !== null)).toBe(true);
+  });
+
   it("filtra por el texto buscado dentro de la carrera", async () => {
     const usuario = userEvent.setup();
     montarConSesion("/catalogo");
