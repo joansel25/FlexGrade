@@ -762,6 +762,114 @@ Aquí ese mecanismo sí es el adecuado, al contrario que en el descuento de cupo
 administradores ajustando el mismo grupo a la vez es excepcional, y cuando ocurre es mejor
 rechazar la segunda escritura que dejar que pise en silencio la decisión de la primera.
 
+### POST /admin/spaces
+
+Da de alta un espacio físico en el inventario.
+
+**Request**
+```json
+{
+  "code": "A-201",
+  "space_type": "CLASSROOM",
+  "name": "Aula magna",
+  "capacity": 60,
+  "campus": "Sede Principal",
+  "building": "A"
+}
+```
+
+Solo `code` y `space_type` son obligatorios. **`capacity` puede quedar en `null`** y no es un
+campo que se olvidó marcar obligatorio: un aula cuyo aforo nadie ha medido es un dato legítimo, y
+un número inventado contamina la comprobación de aforo de la iteración 7.2 sin que nadie vuelva
+a revisarlo.
+
+El `code` se guarda recortado y en mayúsculas, y la comprobación de duplicado se hace **sobre el
+código ya normalizado**. Sin eso, `a-201` y `A-201` serían dos filas para el mismo salón, y con
+dos filas la restricción de doble reserva de la 7.2 no puede impedir nada: cree que son sitios
+distintos.
+
+**Response 201** — el espacio creado.
+
+| Código HTTP | error.code | Situación |
+|---|---|---|
+| 409 | `DUPLICATE_SPACE_CODE` | Ya existe un espacio con ese código. `details.code` trae el código normalizado |
+
+### GET /admin/spaces
+
+Devuelve el inventario completo. Acepta `?space_type=CLASSROOM|LABORATORY|AUDITORIUM`.
+
+**Sin paginar**, al contrario que el catálogo de materias: una institución tiene decenas o pocos
+cientos de espacios, no miles, y quien va a asignar un aula necesita verlos todos.
+
+### GET /admin/programs
+
+Lista los programas académicos, para poder elegir cuál plan editar.
+
+**Response 200**
+```json
+{
+  "items": [
+    { "id": "uuid", "code": "ISIS", "name": "Ingeniería de Sistemas", "total_semesters": 10 }
+  ],
+  "total": 1
+}
+```
+
+### GET /admin/programs/{program_id}/plan
+
+El plan de estudios de un programa cualquiera.
+
+Se distingue de `GET /students/me/study-plan` en **quién elige el programa**, y esa diferencia
+es de autorización: aquel devuelve siempre el plan de quien pregunta, y por eso no necesita rol.
+
+**No trae el semáforo.** Aquel cruza el plan con el historial y la matrícula de una persona
+concreta, y en esta pantalla no hay persona; `approved_credits` viene en `0`.
+
+| Código HTTP | error.code | Situación |
+|---|---|---|
+| 404 | `PROGRAM_NOT_FOUND` | El programa no existe |
+
+### PUT /admin/programs/{program_id}/plan/{course_id}
+
+Deja la materia en el plan con esos datos, esté o no.
+
+**Request**
+```json
+{ "suggested_semester": 3, "is_mandatory": true }
+```
+
+Es un `PUT` y no un `POST` porque la operación es **idempotente**: la clave de `program_courses`
+es la pareja `(programa, materia)`. Si añadir y editar fueran operaciones distintas, quien
+administra tendría que saber de antemano cuál pedir, y la interfaz consultar el plan antes de
+cada guardado solo para acertar con el verbo.
+
+**Response 200** — el plan completo ya actualizado.
+
+| Código HTTP | error.code | Situación |
+|---|---|---|
+| 404 | `PROGRAM_NOT_FOUND` | El programa no existe |
+| 404 | `COURSE_NOT_FOUND` | La materia no existe en el catálogo |
+
+### DELETE /admin/programs/{program_id}/plan/{course_id}
+
+Retira la materia del plan.
+
+**Se rechaza si otra materia del plan la exige**, y esa es la razón de ser del endpoint. La clave
+foránea de `program_course_requirements` apunta al plan con `ON DELETE CASCADE`, así que sacar
+`MAT101` borraría en silencio el requisito «`MAT102` exige `MAT101`». La base no daría error;
+nadie se enteraría hasta que alguien inscribiera Cálculo II sin haber visto Cálculo I.
+
+**Response 204.**
+
+| Código HTTP | error.code | Situación |
+|---|---|---|
+| 404 | `COURSE_NOT_FOUND` | La materia no estaba en ese plan. Confirmar una operación que no hizo nada esconde el malentendido de quien la pidió |
+| 409 | `COURSE_REQUIRED_BY_OTHERS` | Otras materias la exigen. `details.required_by` trae sus códigos, que es lo que permite saber qué requisito retirar primero |
+
+Los **requisitos** —añadir y quitar prerrequisitos y correquisitos— todavía no tienen endpoint de
+escritura: falta decidir si un cambio de requisito es retroactivo, y si la respuesta es que no,
+el plan de estudios necesita versionarse, lo que cambia el modelo de datos.
+
 ### GET /admin/reports/enrollments
 
 Retorna el reporte de inscripciones del período activo. Las cifras se calculan **en vivo** en

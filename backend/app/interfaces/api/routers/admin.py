@@ -13,12 +13,13 @@ from datetime import time
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from app.application.dtos.admin_dto import ScheduleBlockRequest
 from app.application.dtos.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.domain.entities.course_offering import CourseOffering
 from app.domain.entities.enrollment_period import EnrollmentPeriod
+from app.domain.entities.space import Space
 from app.domain.value_objects.space_type import SpaceType
 from app.interfaces.api.dependencies.auth import require_admin
 from app.interfaces.api.dependencies.di import (
@@ -27,15 +28,27 @@ from app.interfaces.api.dependencies.di import (
     CreateCourseOfferingUseCaseDep,
     CreateCourseUseCaseDep,
     CreateEnrollmentPeriodUseCaseDep,
+    CreateSpaceUseCaseDep,
     FindAvailableSpacesUseCaseDep,
+    GetProgramStudyPlanUseCaseDep,
+    ListSpacesUseCaseDep,
+    ProgramRepositoryDep,
+    RemovePlanCourseUseCaseDep,
+    SetPlanCourseUseCaseDep,
     GenerateEnrollmentReportUseCaseDep,
     GenerateOccupancyReportUseCaseDep,
     ListEnrollmentPeriodsUseCaseDep,
 )
 from app.interfaces.api.routers.courses import a_schema_de_grupo
+from app.interfaces.api.schemas.catalog_schemas import StudyPlanEntrySchema, StudyPlanSchema
 from app.interfaces.api.schemas.admin_schemas import (
     AvailableSpacesSchema,
     CreateCourseSchema,
+    CreateSpaceSchema,
+    ProgramSchema,
+    ProgramsSchema,
+    SetPlanCourseSchema,
+    SpacesSchema,
     CreateEnrollmentPeriodSchema,
     CreateOfferingSchema,
     EnrollmentPeriodSchema,
@@ -286,6 +299,203 @@ def _a_schema_de_grupo(offering: CourseOffering) -> OfferingDetailSchema:
         **base.model_dump(),
         course_id=offering.course_id,
         enrollment_period_id=offering.enrollment_period_id,
+    )
+
+
+@router.post(
+    "/spaces",
+    response_model=SpaceSchema,
+    status_code=status.HTTP_201_CREATED,
+    summary="Dar de alta un espacio físico",
+    responses={
+        409: {"model": ErrorResponseSchema, "description": "Ya existe un espacio con ese código"},
+    },
+)
+def create_space(payload: CreateSpaceSchema, use_case: CreateSpaceUseCaseDep) -> SpaceSchema:
+    """Crea un aula, un laboratorio o un auditorio.
+
+    Hasta la iteración 8.3 el inventario solo se poblaba con el seed: dar de alta un aula nueva
+    exigía un `INSERT` escrito por alguien con acceso a PostgreSQL.
+
+    El código se guarda NORMALIZADO, en mayúsculas y sin espacios. Sin eso, `a-201` y `A-201`
+    convivirían como dos aulas distintas y la restricción de doble reserva no podría impedir
+    nada, porque creería que son sitios diferentes.
+    """
+    return _a_schema_de_espacio(
+        use_case.execute(
+            code=payload.code,
+            space_type=payload.space_type,
+            name=payload.name,
+            capacity=payload.capacity,
+            campus=payload.campus,
+            building=payload.building,
+        )
+    )
+
+
+@router.get(
+    "/spaces",
+    response_model=SpacesSchema,
+    status_code=status.HTTP_200_OK,
+    summary="Inventario de espacios físicos",
+)
+def list_spaces(
+    use_case: ListSpacesUseCaseDep,
+    space_type: Annotated[SpaceType | None, Query(description="Filtra por tipo")] = None,
+    campus: Annotated[str | None, Query(max_length=100, description="Filtra por sede")] = None,
+) -> SpacesSchema:
+    """Lista el inventario completo, con filtros opcionales.
+
+    Sin paginar: son decenas o pocos cientos, y quien asigna un aula necesita verlos todos.
+    """
+    espacios = use_case.execute(space_type=space_type, campus=campus)
+
+    return SpacesSchema(
+        items=[_a_schema_de_espacio(e) for e in espacios], total=len(espacios)
+    )
+
+
+@router.get(
+    "/programs",
+    response_model=ProgramsSchema,
+    status_code=status.HTTP_200_OK,
+    summary="Programas académicos",
+)
+def list_programs(repositorio: ProgramRepositoryDep) -> ProgramsSchema:
+    """Lista los programas, para poder elegir cuál plan editar.
+
+    Es la única lectura de este router que no pasa por un caso de uso, y no por descuido: no hay
+    ninguna decisión que tomar —ni filtros, ni orden que elegir, ni reglas— y envolverla en una
+    clase que solo delega añadiría una capa sin nada dentro.
+    """
+    programas = repositorio.find_all()
+
+    return ProgramsSchema(
+        items=[
+            ProgramSchema(
+                id=p.id, code=p.code, name=p.name, total_semesters=p.total_semesters
+            )
+            for p in programas
+        ],
+        total=len(programas),
+    )
+
+
+@router.get(
+    "/programs/{program_id}/plan",
+    response_model=StudyPlanSchema,
+    status_code=status.HTTP_200_OK,
+    summary="Plan de estudios de un programa",
+    responses={404: {"model": ErrorResponseSchema, "description": "El programa no existe"}},
+)
+def program_study_plan(
+    program_id: UUID, use_case: GetProgramStudyPlanUseCaseDep
+) -> StudyPlanSchema:
+    """Devuelve el plan de un programa cualquiera.
+
+    Se distingue de `GET /students/me/study-plan` en QUIÉN elige el programa, y esa diferencia
+    es una regla de autorización: allí sale del token y no puede elegirse, porque un estudiante
+    que pasara el identificador de otra carrera vería materias que no puede inscribir. Aquí lo
+    elige quien administra, que tiene que poder editar cualquiera.
+
+    No trae el semáforo: aquel cruza el plan con el historial de una persona concreta, y aquí se
+    está editando la carrera, no consultando el avance de nadie.
+    """
+    plan = use_case.execute(program_id)
+
+    return StudyPlanSchema(
+        program_id=plan.program_id,
+        program_code=plan.program_code,
+        program_name=plan.program_name,
+        total_semesters=plan.total_semesters,
+        total_credits=plan.total_credits,
+        approved_credits=plan.approved_credits,
+        courses=[
+            StudyPlanEntrySchema(
+                id=e.course.id,
+                code=e.course.code.value,
+                name=e.course.name,
+                credits=e.course.credits,
+                description=e.course.description,
+                suggested_semester=e.suggested_semester,
+                is_mandatory=e.is_mandatory,
+                status=e.status.value,
+                missing_prerequisites=e.missing_prerequisites,
+                missing_corequisites=e.missing_corequisites,
+                corequisites=e.corequisites,
+            )
+            for e in plan.entries
+        ],
+    )
+
+
+@router.put(
+    "/programs/{program_id}/plan/{course_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Poner una materia en el plan de un programa",
+    responses={
+        404: {"model": ErrorResponseSchema, "description": "El programa o la materia no existen"},
+    },
+)
+def set_plan_course(
+    program_id: UUID,
+    course_id: UUID,
+    payload: SetPlanCourseSchema,
+    use_case: SetPlanCourseUseCaseDep,
+) -> Response:
+    """Añade la materia al plan, o cambia sus datos si ya estaba.
+
+    `PUT` porque es idempotente: la clave de `program_courses` es la pareja `(programa,
+    materia)`, así que no hay diferencia entre añadir y editar que quien administra tenga que
+    conocer de antemano.
+    """
+    use_case.execute(
+        program_id=program_id,
+        course_id=course_id,
+        suggested_semester=payload.suggested_semester,
+        is_mandatory=payload.is_mandatory,
+    )
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete(
+    "/programs/{program_id}/plan/{course_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Sacar una materia del plan de un programa",
+    responses={
+        404: {"model": ErrorResponseSchema, "description": "La materia no estaba en ese plan"},
+        409: {
+            "model": ErrorResponseSchema,
+            "description": "Otras materias del plan la exigen",
+        },
+    },
+)
+def remove_plan_course(
+    program_id: UUID, course_id: UUID, use_case: RemovePlanCourseUseCaseDep
+) -> Response:
+    """Retira la materia del plan.
+
+    Se rechaza si otra materia del plan la exige. La clave foránea de los requisitos apunta a
+    `program_courses` con `ON DELETE CASCADE`, así que sacarla borraría en silencio el requisito
+    que la nombra, y nadie se enteraría hasta que un estudiante inscribiera la materia que
+    dependía de ella.
+    """
+    use_case.execute(program_id=program_id, course_id=course_id)
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def _a_schema_de_espacio(espacio: Space) -> SpaceSchema:
+    """Traduce la entidad `Space` a su representación pública."""
+    return SpaceSchema(
+        id=espacio.id,
+        code=espacio.code,
+        name=espacio.name,
+        space_type=espacio.space_type.value,
+        capacity=espacio.capacity,
+        campus=espacio.campus,
+        building=espacio.building,
     )
 
 

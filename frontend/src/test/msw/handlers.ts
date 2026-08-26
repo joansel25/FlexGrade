@@ -324,6 +324,48 @@ export function resetearPeriodos() {
 // test de la suite correría con la lista vacía y fallaría por un motivo que no es el suyo.
 resetearPeriodos();
 
+/** Programas académicos de los tests. */
+export const PROGRAMAS = [
+  { id: "p1", code: "ISIS", name: "Ingeniería de Sistemas", total_semesters: 10 },
+  { id: "p2", code: "DERE", name: "Derecho", total_semesters: 8 },
+];
+
+/**
+ * Inventario de espacios de los tests.
+ *
+ * `SIN-AFORO` existe para la regla que la Fase 7 decidió y la 8.3 hereda: un aula sin aforo
+ * medido NO se descarta al pedir un mínimo, porque «no sé» no es «no cabe».
+ */
+export const ESPACIOS = [
+  {
+    id: "s1",
+    code: "A-201",
+    name: null,
+    space_type: "CLASSROOM",
+    capacity: 40,
+    campus: "Sede Principal",
+    building: "A",
+  },
+  {
+    id: "s2",
+    code: "LAB-01",
+    name: "Laboratorio de Redes",
+    space_type: "LABORATORY",
+    capacity: 24,
+    campus: "Sede Principal",
+    building: "C",
+  },
+  {
+    id: "s3",
+    code: "SIN-AFORO",
+    name: null,
+    space_type: "CLASSROOM",
+    capacity: null,
+    campus: null,
+    building: null,
+  },
+];
+
 export const handlers = [
   http.get(`${API_URL}/health`, () => HttpResponse.json(ESTADO_SANO)),
 
@@ -403,6 +445,62 @@ export const handlers = [
     }
 
     return HttpResponse.json({ ...GRUPOS.offerings[0], total_capacity: cuerpo.total_capacity });
+  }),
+
+  http.get(`${API_URL}/api/v1/admin/programs`, () =>
+    HttpResponse.json({ items: PROGRAMAS, total: PROGRAMAS.length }),
+  ),
+
+  http.get(`${API_URL}/api/v1/admin/programs/:programId/plan`, () =>
+    HttpResponse.json({ ...PLAN_DE_ESTUDIOS, program_id: "p1" }),
+  ),
+
+  http.put(`${API_URL}/api/v1/admin/programs/:programId/plan/:courseId`, () =>
+    new HttpResponse(null, { status: 204 }),
+  ),
+
+  http.delete(`${API_URL}/api/v1/admin/programs/:programId/plan/:courseId`, ({ params }) => {
+    // `c1` es MAT101, que en el plan de prueba exige MAT102: sacarla borraría ese requisito en
+    // cascada, así que el servidor lo rechaza nombrando quién depende.
+    if (params.courseId === "c1") {
+      return respuestaDeError(409, "COURSE_REQUIRED_BY_OTHERS", "Otras la exigen", {
+        course_id: "c1",
+        required_by: ["MAT102"],
+      });
+    }
+
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.get(`${API_URL}/api/v1/admin/spaces`, () =>
+    HttpResponse.json({ items: ESPACIOS, total: ESPACIOS.length }),
+  ),
+
+  http.post(`${API_URL}/api/v1/admin/spaces`, async ({ request }) => {
+    const cuerpo = (await request.json()) as { code: string };
+    const normalizado = cuerpo.code.trim().toUpperCase();
+
+    if (ESPACIOS.some((e) => e.code === normalizado)) {
+      return respuestaDeError(409, "DUPLICATE_SPACE_CODE", "Ya existe", { code: normalizado });
+    }
+
+    return HttpResponse.json({ ...ESPACIOS[0], id: "s-nuevo", code: normalizado }, { status: 201 });
+  }),
+
+  http.get(`${API_URL}/api/v1/admin/spaces/available`, ({ request }) => {
+    const url = new URL(request.url);
+    const minimo = Number(url.searchParams.get("min_capacity") ?? "0");
+
+    // Reproduce la regla que importa: el aforo DESCONOCIDO no descarta el aula.
+    const libres = ESPACIOS.filter((e) => !minimo || e.capacity === null || e.capacity >= minimo);
+
+    return HttpResponse.json({
+      day_of_week: Number(url.searchParams.get("day_of_week")),
+      start_time: `${url.searchParams.get("start_time")}:00`,
+      end_time: `${url.searchParams.get("end_time")}:00`,
+      items: libres,
+      total: libres.length,
+    });
   }),
 
   http.get(`${API_URL}/api/v1/admin/reports/enrollments`, ({ request }) => {

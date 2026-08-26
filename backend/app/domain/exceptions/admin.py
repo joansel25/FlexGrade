@@ -24,6 +24,40 @@ class InvalidPeriodRangeError(DomainError):
         )
 
 
+class DuplicateSpaceCodeError(DomainError):
+    """Ya existe un espacio con ese código.
+
+    El código se compara NORMALIZADO —mayúsculas, sin espacios—, así que `a-201` choca con
+    `A-201`. Sin esa normalización volvería el problema que la iteración 7.1 vino a resolver:
+    dos filas para el mismo salón, y una restricción de doble reserva incapaz de impedir nada
+    porque cree que son sitios distintos.
+    """
+
+    def __init__(self, code: str) -> None:
+        super().__init__(
+            f"Ya existe un espacio con el código '{code}'",
+            details={"code": code},
+        )
+
+
+class CourseRequiredByOthersError(DomainError):
+    """No se puede sacar la materia del plan: otras del mismo plan la exigen.
+
+    La clave foránea de `program_course_requirements` apunta a `program_courses` con
+    `ON DELETE CASCADE`, así que sacarla borraría en silencio los requisitos que la nombran.
+    Nadie se enteraría hasta que un estudiante inscribiera la materia que dependía de ella.
+
+    Lleva los códigos de las que dependen porque la salida es concreta —quitar antes ese
+    requisito— y sin nombrarlas no hay forma de saber cuál.
+    """
+
+    def __init__(self, *, course_id: UUID, required_by: list[str]) -> None:
+        super().__init__(
+            "Otras materias del plan exigen esta, así que no se puede quitar todavía",
+            details={"course_id": str(course_id), "required_by": required_by},
+        )
+
+
 class SpaceDoubleBookedError(DomainError):
     """El aula ya está ocupada por otro grupo a esa hora.
 

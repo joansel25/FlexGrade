@@ -12,7 +12,6 @@ import type {
   CurrentPeriod,
   Course,
   FiltrosCatalogo,
-  Offering,
   Page,
   StudyPlan,
 } from "@/features/catalog/api/types";
@@ -57,11 +56,6 @@ export function obtenerMateria(
 /** Grupos de una materia en el período activo. */
 export function obtenerGrupos(courseId: string, signal?: AbortSignal) {
   return api.get<CourseOfferings>(`/api/v1/courses/${courseId}/offerings`, { signal });
-}
-
-/** Detalle de un grupo. */
-export function obtenerGrupo(offeringId: string, signal?: AbortSignal) {
-  return api.get<Offering>(`/api/v1/offerings/${offeringId}`, { signal });
 }
 
 /**

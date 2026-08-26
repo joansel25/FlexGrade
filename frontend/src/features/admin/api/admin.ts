@@ -7,15 +7,18 @@
  */
 
 import type {
+  AvailableSpace,
   AvailableSpaces,
   EnrollmentPeriod,
   EnrollmentReport,
   NewCourse,
   NewEnrollmentPeriod,
   NewOffering,
+  NewSpace,
   OccupancyReport,
+  Program,
 } from "@/features/admin/api/types";
-import type { Course, Offering } from "@/features/catalog/api/types";
+import type { Course, Offering, StudyPlan } from "@/features/catalog/api/types";
 import { api } from "@/lib/api/client";
 
 /** Cifras de matrícula del período activo, calculadas en vivo. */
@@ -46,6 +49,9 @@ export function obtenerReporteDeOcupacion(
 export const clavesAdmin = {
   todo: ["admin"] as const,
   periodos: ["admin", "periodos"] as const,
+  programas: ["admin", "programas"] as const,
+  plan: (programId: string) => ["admin", "plan", programId] as const,
+  espacios: (filtros: object) => ["admin", "espacios", filtros] as const,
   disponibilidad: (c: object) => ["admin", "disponibilidad", c] as const,
   inscripciones: ["admin", "reporte-inscripciones"] as const,
   ocupacion: (size: number) => ["admin", "reporte-ocupacion", size] as const,
@@ -109,6 +115,61 @@ export function consultarDisponibilidad(
 ) {
   return api.get<AvailableSpaces>("/api/v1/admin/spaces/available", {
     query: consulta,
+    token,
+    signal,
+  });
+}
+
+/** Programas académicos, para elegir cuál plan editar. */
+export function listarProgramas(token: string, signal?: AbortSignal) {
+  return api.get<{ items: Program[]; total: number }>("/api/v1/admin/programs", {
+    token,
+    signal,
+  });
+}
+
+/**
+ * Plan de estudios de un programa cualquiera.
+ *
+ * Es distinto de `GET /students/me/study-plan`, y no por capricho: allí el programa sale del
+ * token y no puede elegirse. Aquí lo elige quien administra, que tiene que poder editar
+ * cualquiera, y por eso vive tras el rol de administración.
+ */
+export function obtenerPlanDePrograma(programId: string, token: string, signal?: AbortSignal) {
+  return api.get<StudyPlan>(`/api/v1/admin/programs/${programId}/plan`, { token, signal });
+}
+
+/** Pone una materia en el plan, o cambia sus datos si ya estaba. Idempotente. */
+export function ponerMateriaEnPlan(
+  programId: string,
+  courseId: string,
+  datos: { suggested_semester: number; is_mandatory: boolean },
+  token: string,
+) {
+  return api.put<void>(`/api/v1/admin/programs/${programId}/plan/${courseId}`, {
+    body: datos,
+    token,
+  });
+}
+
+/** Saca una materia del plan. Se rechaza si otras del plan la exigen. */
+export function quitarMateriaDelPlan(programId: string, courseId: string, token: string) {
+  return api.delete<void>(`/api/v1/admin/programs/${programId}/plan/${courseId}`, { token });
+}
+
+/** Da de alta un espacio físico. El código se guarda normalizado. */
+export function crearEspacio(payload: NewSpace, token: string) {
+  return api.post<AvailableSpace>("/api/v1/admin/spaces", { body: payload, token });
+}
+
+/** Inventario completo de espacios, con filtros opcionales. */
+export function listarEspacios(
+  filtros: { space_type?: string; campus?: string },
+  token: string,
+  signal?: AbortSignal,
+) {
+  return api.get<{ items: AvailableSpace[]; total: number }>("/api/v1/admin/spaces", {
+    query: filtros,
     token,
     signal,
   });

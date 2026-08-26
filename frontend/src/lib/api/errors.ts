@@ -49,6 +49,9 @@ export const API_ERROR_CODES = [
   "SPACE_DOUBLE_BOOKED",
   "SPACE_CAPACITY_EXCEEDED",
   "INVALID_SCHEDULE_BLOCK",
+  // Administración de planes y espacios (Fase 8).
+  "DUPLICATE_SPACE_CODE",
+  "COURSE_REQUIRED_BY_OTHERS",
   "CONCURRENT_MODIFICATION",
   // Genéricos.
   "DOMAIN_ERROR",

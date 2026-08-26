@@ -215,6 +215,66 @@ class CourseRepository(ABC):
         """
 
     @abstractmethod
+    def find_requirement_dependents(self, course_id: UUID, program_id: UUID) -> list[Course]:
+        """Recupera las materias del plan que exigen a esta, de CUALQUIER tipo.
+
+        Se distingue de `find_corequisite_dependents`, que solo mira los correquisitos, porque
+        responde a otra pregunta: allí importa quién exige cursarla A LA VEZ —para decidir si
+        una cancelación rompe algo—, y aquí importa quién la exige de cualquier manera, para
+        impedir que sacarla del plan borre en silencio los requisitos que la nombran.
+
+        Args:
+            course_id: la materia exigida.
+            program_id: plan sobre el que se pregunta.
+
+        Returns:
+            Las materias que la exigen, ordenadas por código. Vacío si no la exige ninguna.
+        """
+
+    @abstractmethod
+    def save_plan_entry(
+        self,
+        *,
+        program_id: UUID,
+        course_id: UUID,
+        suggested_semester: int,
+        is_mandatory: bool,
+    ) -> None:
+        """Deja una materia en el plan de un programa con esos datos.
+
+        Es un alta O una actualización, no dos operaciones: la clave de `program_courses` es la
+        pareja `(programa, materia)`, así que una materia está en el plan o no está, y si está
+        solo puede estar una vez.
+
+        Vive en este puerto y no en uno propio porque las LECTURAS de `program_courses` ya están
+        aquí —`find_study_plan`, `belongs_to_program` y las consultas de requisitos—. Repartir
+        la misma tabla entre dos repositorios daría dos sitios donde buscarla y dos ocasiones
+        para que divergieran.
+
+        Args:
+            program_id: programa cuyo plan se edita.
+            course_id: materia que entra en el plan.
+            suggested_semester: semestre sugerido; nunca inferior a 1.
+            is_mandatory: si es obligatoria para graduarse o electiva.
+        """
+
+    @abstractmethod
+    def remove_plan_entry(self, *, program_id: UUID, course_id: UUID) -> bool:
+        """Saca una materia del plan de un programa.
+
+        Devuelve si había algo que quitar, en vez de fallar cuando no lo hay. Quien llama
+        necesita distinguir «se quitó» de «no estaba» para responder lo segundo como un 404: una
+        operación que no hizo nada y responde que sí esconde el malentendido de quien la pidió.
+
+        Args:
+            program_id: programa cuyo plan se edita.
+            course_id: materia que sale.
+
+        Returns:
+            `True` si la materia estaba en el plan y se quitó.
+        """
+
+    @abstractmethod
     def save(self, course: Course) -> None:
         """Persiste una materia nueva o los cambios de una existente.
 

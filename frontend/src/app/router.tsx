@@ -16,6 +16,8 @@ import { AdminLayout } from "@/features/admin/AdminLayout";
 import { CoursesPage as AdminCoursesPage } from "@/features/admin/CoursesPage";
 import { OfferingsPage } from "@/features/admin/OfferingsPage";
 import { PeriodsPage } from "@/features/admin/PeriodsPage";
+import { SpacesPage } from "@/features/admin/SpacesPage";
+import { StudyPlansPage } from "@/features/admin/StudyPlansPage";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { RequireAdmin } from "@/features/auth/components/RequireAdmin";
 import { RequireAuth } from "@/features/auth/components/RequireAuth";
@@ -130,6 +132,28 @@ export function AppRoutes() {
             <RequireAdmin>
               <AdminLayout>
                 <OfferingsPage />
+              </AdminLayout>
+            </RequireAdmin>
+          }
+        />
+
+        <Route
+          path="/admin/planes"
+          element={
+            <RequireAdmin>
+              <AdminLayout>
+                <StudyPlansPage />
+              </AdminLayout>
+            </RequireAdmin>
+          }
+        />
+
+        <Route
+          path="/admin/espacios"
+          element={
+            <RequireAdmin>
+              <AdminLayout>
+                <SpacesPage />
               </AdminLayout>
             </RequireAdmin>
           }

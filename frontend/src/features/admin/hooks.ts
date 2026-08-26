@@ -13,10 +13,17 @@ import {
   activarPeriodo,
   ajustarCupo,
   clavesAdmin,
+  consultarDisponibilidad,
+  crearEspacio,
   crearGrupo,
   crearMateria,
   crearPeriodo,
+  listarEspacios,
   listarPeriodos,
+  listarProgramas,
+  obtenerPlanDePrograma,
+  ponerMateriaEnPlan,
+  quitarMateriaDelPlan,
   obtenerReporteDeInscripciones,
   obtenerReporteDeOcupacion,
 } from "@/features/admin/api/admin";
@@ -24,6 +31,7 @@ import type {
   NewCourse,
   NewEnrollmentPeriod,
   NewOffering,
+  NewSpace,
 } from "@/features/admin/api/types";
 import { clavesCatalogo } from "@/features/catalog/api/catalog";
 import { useAuth } from "@/features/auth/useAuth";
@@ -173,6 +181,127 @@ export function useAdjustCapacity() {
   return useMutation({
     mutationFn: ({ offeringId, totalCapacity }: { offeringId: string; totalCapacity: number }) =>
       ajustarCupo(offeringId, totalCapacity, token()),
+    onSuccess: invalidar,
+  });
+}
+
+/** Programas académicos, para elegir cuál plan editar. */
+export function usePrograms() {
+  const { accessToken, habilitado } = useSesion();
+
+  return useQuery({
+    queryKey: clavesAdmin.programas,
+    queryFn: ({ signal }) => {
+      if (accessToken === null) {
+        throw new Error("No hay sesión activa");
+      }
+
+      return listarProgramas(accessToken, signal);
+    },
+    enabled: habilitado,
+    // Los programas cambian una vez cada varios años, al contrario que todo lo demás de este
+    // panel. Cinco minutos evita pedirlos en cada render de la pantalla.
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** Plan de estudios de un programa concreto. */
+export function useProgramPlan(programId: string | null) {
+  const { accessToken, habilitado } = useSesion();
+
+  return useQuery({
+    queryKey: clavesAdmin.plan(programId ?? ""),
+    queryFn: ({ signal }) => {
+      if (accessToken === null) {
+        throw new Error("No hay sesión activa");
+      }
+
+      return obtenerPlanDePrograma(programId ?? "", accessToken, signal);
+    },
+    enabled: habilitado && programId !== null,
+    staleTime: 0,
+  });
+}
+
+/** Inventario de espacios. */
+export function useSpaces(filtros: { space_type?: string } = {}) {
+  const { accessToken, habilitado } = useSesion();
+
+  return useQuery({
+    queryKey: clavesAdmin.espacios(filtros),
+    queryFn: ({ signal }) => {
+      if (accessToken === null) {
+        throw new Error("No hay sesión activa");
+      }
+
+      return listarEspacios(filtros, accessToken, signal);
+    },
+    enabled: habilitado,
+    staleTime: 0,
+  });
+}
+
+/**
+ * Espacios libres en una franja.
+ *
+ * Solo consulta cuando hay una franja completa: sin día y horas no hay pregunta que hacer, y
+ * lanzar la consulta con valores a medias devolvería una lista que no responde a nada.
+ */
+export function useAvailableSpaces(
+  consulta: { day_of_week: number; start_time: string; end_time: string; min_capacity?: number } | null,
+) {
+  const { accessToken, habilitado } = useSesion();
+
+  return useQuery({
+    queryKey: clavesAdmin.disponibilidad(consulta ?? {}),
+    queryFn: ({ signal }) => {
+      if (accessToken === null || consulta === null) {
+        throw new Error("Consulta incompleta");
+      }
+
+      return consultarDisponibilidad(consulta, accessToken, signal);
+    },
+    enabled: habilitado && consulta !== null,
+    staleTime: 0,
+  });
+}
+
+/** Pone una materia en el plan, o cambia sus datos si ya estaba. */
+export function useSetPlanCourse(programId: string) {
+  const token = useTokenObligatorio();
+  const invalidar = useInvalidarAdmin();
+
+  return useMutation({
+    mutationFn: ({
+      courseId,
+      ...datos
+    }: {
+      courseId: string;
+      suggested_semester: number;
+      is_mandatory: boolean;
+    }) => ponerMateriaEnPlan(programId, courseId, datos, token()),
+    onSuccess: invalidar,
+  });
+}
+
+/** Saca una materia del plan. */
+export function useRemovePlanCourse(programId: string) {
+  const token = useTokenObligatorio();
+  const invalidar = useInvalidarAdmin();
+
+  return useMutation({
+    mutationFn: (courseId: string) => quitarMateriaDelPlan(programId, courseId, token()),
+    onSuccess: invalidar,
+  });
+}
+
+/** Da de alta un espacio físico. */
+export function useCreateSpace() {
+  const token = useTokenObligatorio();
+  const invalidar = useInvalidarAdmin();
+
+  return useMutation({
+    mutationFn: (payload: NewSpace) => crearEspacio(payload, token()),
     onSuccess: invalidar,
   });
 }

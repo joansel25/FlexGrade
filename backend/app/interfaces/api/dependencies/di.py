@@ -37,6 +37,12 @@ from app.application.use_cases.admin.create_course import CreateCourseUseCase
 from app.application.use_cases.admin.create_course_offering import CreateCourseOfferingUseCase
 from app.application.use_cases.admin.create_enrollment_period import CreateEnrollmentPeriodUseCase
 from app.application.use_cases.admin.find_available_spaces import FindAvailableSpacesUseCase
+from app.application.use_cases.admin.manage_spaces import CreateSpaceUseCase, ListSpacesUseCase
+from app.application.use_cases.admin.manage_study_plan import (
+    GetProgramStudyPlanUseCase,
+    RemovePlanCourseUseCase,
+    SetPlanCourseUseCase,
+)
 from app.application.use_cases.admin.generate_enrollment_report import (
     GenerateEnrollmentReportUseCase,
 )
@@ -336,6 +342,52 @@ def get_find_available_spaces_use_case(
 
 FindAvailableSpacesUseCaseDep = Annotated[
     FindAvailableSpacesUseCase, Depends(get_find_available_spaces_use_case)
+]
+
+
+def get_create_space_use_case(
+    space_repository: SpaceRepositoryDep, unit_of_work: UnitOfWorkDep
+) -> CreateSpaceUseCase:
+    """Construye el caso de uso de alta de espacios."""
+    return CreateSpaceUseCase(space_repository, unit_of_work)
+
+
+def get_list_spaces_use_case(space_reader: SpaceReaderDep) -> ListSpacesUseCase:
+    """Construye el caso de uso del inventario de espacios."""
+    return ListSpacesUseCase(space_reader)
+
+
+def get_program_study_plan_use_case(
+    program_repository: ProgramRepositoryDep, course_repository: CourseRepositoryDep
+) -> GetProgramStudyPlanUseCase:
+    """Construye el caso de uso del plan de un programa, para administración."""
+    return GetProgramStudyPlanUseCase(program_repository, course_repository)
+
+
+def get_set_plan_course_use_case(
+    program_repository: ProgramRepositoryDep,
+    course_repository: CourseRepositoryDep,
+    unit_of_work: UnitOfWorkDep,
+) -> SetPlanCourseUseCase:
+    """Construye el caso de uso de edición del plan."""
+    return SetPlanCourseUseCase(program_repository, course_repository, unit_of_work)
+
+
+def get_remove_plan_course_use_case(
+    course_repository: CourseRepositoryDep, unit_of_work: UnitOfWorkDep
+) -> RemovePlanCourseUseCase:
+    """Construye el caso de uso de retirada de una materia del plan."""
+    return RemovePlanCourseUseCase(course_repository, unit_of_work)
+
+
+CreateSpaceUseCaseDep = Annotated[CreateSpaceUseCase, Depends(get_create_space_use_case)]
+ListSpacesUseCaseDep = Annotated[ListSpacesUseCase, Depends(get_list_spaces_use_case)]
+GetProgramStudyPlanUseCaseDep = Annotated[
+    GetProgramStudyPlanUseCase, Depends(get_program_study_plan_use_case)
+]
+SetPlanCourseUseCaseDep = Annotated[SetPlanCourseUseCase, Depends(get_set_plan_course_use_case)]
+RemovePlanCourseUseCaseDep = Annotated[
+    RemovePlanCourseUseCase, Depends(get_remove_plan_course_use_case)
 ]
 
 

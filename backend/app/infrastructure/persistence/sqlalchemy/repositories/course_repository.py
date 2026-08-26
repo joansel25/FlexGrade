@@ -7,7 +7,7 @@ from collections import defaultdict
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, Select, and_, func, or_, select
+from sqlalchemy import ColumnElement, Select, and_, delete, func, or_, select
 from sqlalchemy.orm import Session, aliased
 
 from app.application.dtos.pagination import Page
@@ -211,6 +211,51 @@ class SQLAlchemyCourseRepository(CourseRepository):
             (self._a_entidad(modelo), semestre, obligatoria)
             for modelo, semestre, obligatoria in self._session.execute(sentencia).all()
         ]
+
+    def find_requirement_dependents(self, course_id: UUID, program_id: UUID) -> list[Course]:
+        # Sin filtrar por tipo, al contrario que `find_corequisite_dependents`: aquí importa
+        # quién la exige de cualquier manera. Lo resuelve el mismo índice inverso de la
+        # migración 0008.
+        sentencia = (
+            select(CourseModel)
+            .join(
+                ProgramCourseRequirementModel,
+                ProgramCourseRequirementModel.course_id == CourseModel.id,
+            )
+            .where(ProgramCourseRequirementModel.program_id == program_id)
+            .where(ProgramCourseRequirementModel.required_course_id == course_id)
+            .order_by(CourseModel.code)
+        )
+
+        return [self._a_entidad(m) for m in self._session.execute(sentencia).scalars()]
+
+    def save_plan_entry(
+        self,
+        *,
+        program_id: UUID,
+        course_id: UUID,
+        suggested_semester: int,
+        is_mandatory: bool,
+    ) -> None:
+        # `merge` y no `add`: la clave primaria es compuesta y ya puede existir. Con `add`,
+        # cambiar el semestre de una materia que ya está en el plan fallaría por clave
+        # duplicada en vez de actualizarla.
+        self._session.merge(
+            ProgramCourseModel(
+                program_id=program_id,
+                course_id=course_id,
+                suggested_semester=suggested_semester,
+                is_mandatory=is_mandatory,
+            )
+        )
+
+    def remove_plan_entry(self, *, program_id: UUID, course_id: UUID) -> bool:
+        sentencia = delete(ProgramCourseModel).where(
+            ProgramCourseModel.program_id == program_id,
+            ProgramCourseModel.course_id == course_id,
+        )
+
+        return self._session.execute(sentencia).rowcount > 0
 
     def save(self, course: Course) -> None:
         # `merge` y no `add`: sirve tanto para una materia nueva como para una que ya existe,

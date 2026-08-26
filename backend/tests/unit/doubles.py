@@ -254,6 +254,43 @@ class InMemoryCourseRepository(CourseRepository):
 
         return sorted(entradas, key=lambda e: (e[1], e[0].code.value))
 
+    def find_requirement_dependents(self, course_id: UUID, program_id: UUID) -> list[Course]:
+        """Quién exige esta materia, de CUALQUIER tipo.
+
+        Se deduce de `prerequisites` y `corequisites` juntos, al contrario que
+        `find_corequisite_dependents`, que solo mira los segundos.
+        """
+        dependientes = [
+            self._courses[dependiente_id]
+            for tabla in (self._prerequisites, self._corequisites)
+            for dependiente_id, exigidas in tabla.items()
+            if any(c.id == course_id for c in exigidas) and dependiente_id in self._courses
+        ]
+
+        return sorted({d.id: d for d in dependientes}.values(), key=lambda c: c.code.value)
+
+    def save_plan_entry(
+        self,
+        *,
+        program_id: UUID,
+        course_id: UUID,
+        suggested_semester: int,
+        is_mandatory: bool,
+    ) -> None:
+        entradas = [e for e in self._plan.get(program_id, []) if e[0] != course_id]
+        entradas.append((course_id, suggested_semester))
+        self._plan[program_id] = entradas
+
+    def remove_plan_entry(self, *, program_id: UUID, course_id: UUID) -> bool:
+        entradas = self._plan.get(program_id, [])
+        quedan = [e for e in entradas if e[0] != course_id]
+
+        if len(quedan) == len(entradas):
+            return False
+
+        self._plan[program_id] = quedan
+        return True
+
     def save(self, course: Course) -> None:
         self._courses[course.id] = course
 

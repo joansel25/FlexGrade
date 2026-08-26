@@ -110,7 +110,17 @@ const TRADUCCIONES: Record<string, Traductor> = {
       "el mismo valor a ciegas podría deshacer el cambio de la otra persona.",
   }),
 
+  // --------------------------------------------------------------- planes
+  COURSE_REQUIRED_BY_OTHERS: (error) => ({
+    titulo: "Otras materias del plan exigen esta",
+    detalle: describirDependientes(error.details),
+  }),
+
   // --------------------------------------------------------------- espacios
+  DUPLICATE_SPACE_CODE: (error) => ({
+    titulo: "Ya existe un espacio con ese código",
+    detalle: describirAula(error.details, "Ya está en el inventario"),
+  }),
   SPACE_NOT_FOUND: (error) => ({
     titulo: "Ese aula no está en el inventario",
     detalle: describirAula(error.details, "No encontramos"),
@@ -134,6 +144,29 @@ const TRADUCCIONES: Record<string, Traductor> = {
     detalle: "Los grupos se abren siempre en el período activo. Activa uno antes de continuar.",
   }),
 };
+
+/**
+ * Nombra las materias que dependen de la que se intenta quitar.
+ *
+ * Sin ellas el rechazo es un muro. Con los códigos delante, quien administra sabe qué requisito
+ * retirar primero, que es la única salida.
+ */
+function describirDependientes(details: Record<string, unknown>): string {
+  const dependientes = details.required_by;
+
+  if (Array.isArray(dependientes) && dependientes.length > 0) {
+    const codigos = dependientes.filter((c): c is string => typeof c === "string");
+
+    if (codigos.length > 0) {
+      return (
+        `${codigos.join(", ")} la exigen. Quitarla borraría esos requisitos sin avisar, así ` +
+        "que primero hay que retirarlos."
+      );
+    }
+  }
+
+  return "Retira antes los requisitos que la nombran.";
+}
 
 /** Dice cuántos hay inscritos, que es el número por debajo del cual no se puede bajar. */
 function describirCupo(details: Record<string, unknown>): string {

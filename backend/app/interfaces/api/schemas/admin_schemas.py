@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from datetime import datetime
 from datetime import time as _time
+
+from app.domain.value_objects.space_type import SpaceType
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -125,6 +127,73 @@ class AvailableSpacesSchema(BaseModel):
     end_time: _time
     items: list[SpaceSchema] = Field(default_factory=list)
     total: int
+
+
+class CreateSpaceSchema(BaseModel):
+    """Cuerpo de `POST /admin/spaces`.
+
+    `capacity` es opcional a propósito, y no un campo que se olvidó marcar obligatorio: un aula
+    cuyo aforo nadie ha medido es un dato legítimo. Forzar un número inventaría la cifra contra
+    la que la iteración 7.2 valida que un grupo quepa, y esos números no los revisa nadie.
+    """
+
+    code: str = Field(
+        min_length=1,
+        max_length=20,
+        description="Código institucional. Se guarda en mayúsculas y sin espacios",
+        examples=["A-201"],
+    )
+    space_type: SpaceType = Field(description="Aula, laboratorio o auditorio")
+    name: str | None = Field(default=None, max_length=150, examples=["Laboratorio de Redes"])
+    capacity: int | None = Field(
+        default=None, gt=0, description="Aforo. Puede quedar sin registrar"
+    )
+    campus: str | None = Field(default=None, max_length=100, examples=["Sede Principal"])
+    building: str | None = Field(default=None, max_length=50, examples=["A"])
+
+
+class SpacesSchema(BaseModel):
+    """Respuesta de `GET /admin/spaces`.
+
+    Sin paginar, al contrario que el catálogo de materias: una institución tiene decenas o pocos
+    cientos de espacios, no miles, y quien va a asignar un aula necesita verlos todos.
+    """
+
+    items: list[SpaceSchema] = Field(default_factory=list)
+    total: int
+
+
+class ProgramSchema(BaseModel):
+    """Un programa académico."""
+
+    id: UUID
+    code: str
+    name: str
+    total_semesters: int
+
+
+class ProgramsSchema(BaseModel):
+    """Respuesta de `GET /admin/programs`."""
+
+    items: list[ProgramSchema] = Field(default_factory=list)
+    total: int
+
+
+class SetPlanCourseSchema(BaseModel):
+    """Cuerpo de `PUT /admin/programs/{id}/plan/{course_id}`.
+
+    Es un `PUT` y no un `POST` porque la operación es idempotente: deja la materia en el plan
+    con esos datos, esté o no. La clave de `program_courses` es la pareja `(programa, materia)`,
+    así que no hay diferencia entre añadir y editar que quien administra tenga que conocer de
+    antemano.
+    """
+
+    suggested_semester: int = Field(
+        ge=1, description="Semestre en que el plan la sugiere", examples=[1]
+    )
+    is_mandatory: bool = Field(
+        default=True, description="Obligatoria para graduarse, o electiva"
+    )
 
 
 class NewScheduleBlockSchema(BaseModel):

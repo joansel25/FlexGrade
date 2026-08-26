@@ -5,7 +5,7 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al cerrar la iteración 8.2 (formularios de períodos, materias y grupos).**
+> **Actualizada al cerrar la iteración 8.3 fase A (planes de estudio y espacios).**
 > Última verificación real: frontend con `npm run lint`, `type-check`, `test` (113 tests) y
 > `build` en verde; backend sin cambios desde la 8.1 (579 tests, `mypy --strict` limpio sobre
 > 162 archivos). Antes de esto:
@@ -302,8 +302,30 @@ donde importa.
 | 6 — Reglas por carrera | ✅ | `GET /students/me/study-plan` con semáforo, ruta `/plan` en el frontend |
 
 **Fase 8 — Interfaz de administración** (en curso): 8.1 estructura, acceso y panel ✅
-(`ca86677`) · 8.2 períodos, materias y grupos ✅ (esta iteración) · 8.3 planes de estudio y
-espacios · 8.4 reportes visuales.
+(`ca86677`) · 8.2 períodos, materias y grupos ✅ (`aed5063`) · 8.3 planes de estudio y espacios
+✅ **fase A** (esta iteración) · 8.4 reportes visuales.
+
+La 8.3 se partió en dos a propósito. La **fase A** —lo que hay— cubre lo que no depende de la
+decisión pendiente sobre retroactividad: seis endpoints (`POST`/`GET /admin/spaces`,
+`GET /admin/programs`, `GET`/`PUT`/`DELETE` del plan de un programa) y sus dos pantallas,
+`/admin/planes` y `/admin/espacios`. La **fase B** —el editor de prerrequisitos y
+correquisitos— está bloqueada por esa decisión, que ahora sí toca tomar: la fase A construyó
+todo lo que se podía construir sin ella.
+
+Dos hallazgos de la fase A, que son el valor real de la iteración:
+
+- **Quitar una materia del plan es destructivo sin parecerlo.** La clave foránea de
+  `program_course_requirements` apunta al plan con `ON DELETE CASCADE`: sacar `MAT101` borraría
+  en silencio el requisito «`MAT102` exige `MAT101`» y la base no daría error. `DELETE` lo
+  rechaza con `COURSE_REQUIRED_BY_OTHERS` **nombrando quién depende**, porque «no se pudo»
+  dejaría a quien administra sin saber qué corregir.
+- **El código del aula se normaliza ANTES de comprobar el duplicado.** Sin eso, `a-201` y
+  `A-201` serían dos filas para el mismo salón, y con dos filas la restricción de doble reserva
+  de la 7.2 no impide nada: cree que son sitios distintos. Es el problema que la 7.1 vino a
+  resolver, volviendo por la puerta de atrás.
+
+La 8.3 también consumió `GET /admin/spaces/available`, que la 7.3 dejó sin interfaz, y retiró
+`obtenerGrupo` del cliente del catálogo, que no llamaba nadie.
 
 **Fase 7 — Aulas y espacios físicos: COMPLETA.** 7.1 el espacio como entidad ✅ (`804fe31`) ·
 7.2 doble reserva imposible ✅ (`642ee0a`) · 7.3 consulta de disponibilidad ✅ (esta iteración).
@@ -343,7 +365,8 @@ de espera automática — `WAITLISTED` existe en el enum pero ninguna operación
 
 Ausencias que sí son deuda, pendientes de decidir cuándo se pagan:
 
-- **DECISIÓN DE NEGOCIO PENDIENTE, para la iteración 8.3: ¿los requisitos son retroactivos?**
+- **DECISIÓN DE NEGOCIO PENDIENTE, que BLOQUEA la fase B de la 8.3: ¿los requisitos son
+  retroactivos?**
   Cuando exista la pantalla para editar el plan de estudios, alguien podrá añadir un
   correquisito a mitad de semestre y dejar incompletas matrículas ya hechas. Hoy no puede
   ocurrir por el producto —ningún endpoint de administración toca
@@ -353,8 +376,9 @@ Ausencias que sí son deuda, pendientes de decidir cuándo se pagan:
   **retroactivo** —la regla nueva aplica a todos, y hay que notificar a quien quede
   incompleto, lo que depende del canal de avisos de la fase 10— y **no retroactivo** —quien ya
   matriculó conserva las reglas del momento, lo que obliga a versionar el plan de estudios y
-  es un cambio de modelo, no un aviso—. 8.3 crea la forma de provocar el problema, así que es
-  la iteración que debe traer la decisión tomada.
+  es un cambio de modelo, no un aviso—. La fase A de la 8.3 se construyó entera sin tocar
+  `program_course_requirements` precisamente para no anticipar la respuesta; la fase B no puede
+  empezar sin ella, porque cada opción lleva a una pantalla distinta.
 
 - **Rate limiting.** `API.md` fija límites por endpoint (login 5/min por IP, inscripción 30/min,
   catálogo 120/min, admin 60/min) y no hay nada implementado. Con varias instancias detrás del

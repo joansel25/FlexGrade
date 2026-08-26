@@ -118,3 +118,21 @@ export interface AvailableSpaces {
   items: AvailableSpace[];
   total: number;
 }
+
+/** Un programa académico. */
+export interface Program {
+  id: string;
+  code: string;
+  name: string;
+  total_semesters: number;
+}
+
+/** Cuerpo de `POST /admin/spaces`. */
+export interface NewSpace {
+  code: string;
+  space_type: string;
+  name?: string | null;
+  capacity?: number | null;
+  campus?: string | null;
+  building?: string | null;
+}
