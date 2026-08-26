@@ -127,6 +127,41 @@ export interface Program {
   total_semesters: number;
 }
 
+/** Un requisito declarado en el plan, tal como lo ve quien lo edita. */
+export interface PlanRequirement {
+  course_id: string;
+  code: string;
+  name: string;
+  requirement_type: "PREREQUISITE" | "COREQUISITE";
+}
+
+/**
+ * Una materia del plan, vista desde administración.
+ *
+ * No trae los campos del semáforo que sí lleva `StudyPlanEntry`. Aquí no hay persona sobre la
+ * que calcularlos, y un `status` con su valor por defecto en todas las materias se lee como un
+ * hecho sobre la oferta cuando solo significa «no se calculó».
+ */
+export interface ProgramPlanEntry {
+  id: string;
+  code: string;
+  name: string;
+  credits: number;
+  suggested_semester: number;
+  is_mandatory: boolean;
+  requirements: PlanRequirement[];
+}
+
+/** Respuesta de `GET /admin/programs/{id}/plan`. */
+export interface ProgramPlan {
+  program_id: string;
+  program_code: string;
+  program_name: string;
+  total_semesters: number;
+  total_credits: number;
+  courses: ProgramPlanEntry[];
+}
+
 /** Cuerpo de `POST /admin/spaces`. */
 export interface NewSpace {
   code: string;

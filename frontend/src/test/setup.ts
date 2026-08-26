@@ -7,12 +7,19 @@
  */
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll } from "vitest";
 
 import { limpiarTokens } from "@/features/auth/tokenStorage";
 import { resetearInscripciones, resetearPeriodos } from "@/test/msw/handlers";
 import { server } from "@/test/msw/server";
+
+// El defecto de `findBy*` es 1 s, y esta suite monta el router completo en cada test. Con los
+// ficheros corriendo en paralelo, una máquina cargada tarda más de un segundo en pintar una
+// lista que llega de MSW, y el test falla por lentitud y no por un fallo real. Subirlo NO
+// esconde nada: un test roto sigue agotando el plazo y fallando igual, solo que ahora hace
+// falta que esté roto de verdad.
+configure({ asyncUtilTimeout: 5000 });
 
 beforeAll(() => {
   // `error` y no `warn`: una petición no declarada en los handlers es un test que está

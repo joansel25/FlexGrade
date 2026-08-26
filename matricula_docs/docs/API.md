@@ -843,7 +843,7 @@ es la pareja `(programa, materia)`. Si añadir y editar fueran operaciones disti
 administra tendría que saber de antemano cuál pedir, y la interfaz consultar el plan antes de
 cada guardado solo para acertar con el verbo.
 
-**Response 200** — el plan completo ya actualizado.
+**Response 204.**
 
 | Código HTTP | error.code | Situación |
 |---|---|---|
@@ -866,9 +866,65 @@ nadie se enteraría hasta que alguien inscribiera Cálculo II sin haber visto C�
 | 404 | `COURSE_NOT_FOUND` | La materia no estaba en ese plan. Confirmar una operación que no hizo nada esconde el malentendido de quien la pidió |
 | 409 | `COURSE_REQUIRED_BY_OTHERS` | Otras materias la exigen. `details.required_by` trae sus códigos, que es lo que permite saber qué requisito retirar primero |
 
-Los **requisitos** —añadir y quitar prerrequisitos y correquisitos— todavía no tienen endpoint de
-escritura: falta decidir si un cambio de requisito es retroactivo, y si la respuesta es que no,
-el plan de estudios necesita versionarse, lo que cambia el modelo de datos.
+La respuesta de `GET .../plan` **no lleva los campos del semáforo** —`status`,
+`missing_prerequisites`, `missing_corequisites`— aunque el del estudiante sí. Aquí no hay persona
+sobre la que calcularlos, así que saldrían siempre con su valor por defecto, y un
+`status: "NOT_OFFERED"` en todas las materias se lee como un hecho sobre la oferta cuando solo
+significa «no se calculó». Lleva en cambio `requirements` por materia, con el código, el nombre y
+el tipo de cada requisito, que es lo que la pantalla de administración edita.
+
+### PUT /admin/programs/{program_id}/plan/{course_id}/requirements/{required_course_id}
+
+Deja el requisito cargado, o le cambia el tipo si ya estaba.
+
+**Request**
+```json
+{ "requirement_type": "PREREQUISITE" }
+```
+
+`PUT` porque es idempotente: la clave de `program_course_requirements` es la terna
+`(programa, materia, exigida)` y **no incluye el tipo**, así que volver a mandarlo con otro tipo lo
+cambia en vez de duplicar la regla. Ese diseño es también el que impide declarar que una materia
+es a la vez prerrequisito y correquisito de otra, dos reglas que se contradicen.
+
+**Los requisitos son RETROACTIVOS y el plan de estudios no se versiona.** La decisión salió de
+cómo se leen los dos tipos:
+
+- Un **prerrequisito** se valida solo al inscribir. Creada la inscripción, nadie vuelve a
+  comprobarlo, así que una regla nueva no puede romper una matrícula existente.
+- Un **correquisito** se recalcula en cada lectura de las inscripciones, y solo las del período
+  activo. Ahí está el único cambio con víctima posible.
+
+**Response 204.**
+
+| Código HTTP | error.code | Situación |
+|---|---|---|
+| 404 | `PROGRAM_NOT_FOUND` | El programa no existe |
+| 404 | `COURSE_NOT_FOUND` | Alguna de las dos materias no está en ese plan. Se comprueba aquí y no se deja a la clave foránea compuesta porque un fallo de restricción no dice cuál de las dos falta |
+| 409 | `IMPOSSIBLE_REQUIREMENT_CYCLE` | Cerraría una vuelta con al menos un prerrequisito. `details.cycle` trae la vuelta completa: saber que hay un ciclo no dice qué arista sobra |
+| 409 | `REQUIREMENT_WOULD_TRAP_ENROLLED` | Correquisito sobre una materia con matriculados y la ventana ya cerrada. `details` trae `enrolled_count` y `required_code` |
+
+Un **ciclo de puros correquisitos es legítimo**: «`FIS101` y `LAB101` se cursan juntas» es la
+forma normal de decir que dos materias van en bloque, y la exención de pares mutuos de la
+iteración 6.2 lo hace inscribible. Lo que no se puede satisfacer es la mezcla: si en la vuelta hay
+un prerrequisito, alguna materia tendría que estar aprobada antes de poder cursarse.
+
+`REQUIREMENT_WOULD_TRAP_ENROLLED` **solo se lanza con la ventana cerrada**, y esa distinción es
+la regla, no un matiz. Con la ventana abierta quien ya está inscrito ve el pendiente en
+`GET /students/me/enrollments` y lo resuelve inscribiendo la materia que falta: el aviso ya existe
+y llega solo. Con la ventana cerrada ve que le falta algo y no puede inscribir nada.
+
+### DELETE /admin/programs/{program_id}/plan/{course_id}/requirements/{required_course_id}
+
+Retira el requisito. **Response 204.**
+
+No tiene la comprobación de matriculados que sí tiene cargarlo, y no es una omisión: relajar una
+regla no puede dejar a nadie incompleto. Quien la cumplía sigue cumpliendo el plan, y quien no,
+deja de estar bloqueado.
+
+| Código HTTP | error.code | Situación |
+|---|---|---|
+| 404 | `COURSE_NOT_FOUND` | Ese requisito no estaba cargado |
 
 ### GET /admin/reports/enrollments
 

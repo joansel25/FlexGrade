@@ -17,8 +17,9 @@ import type {
   NewSpace,
   OccupancyReport,
   Program,
+  ProgramPlan,
 } from "@/features/admin/api/types";
-import type { Course, Offering, StudyPlan } from "@/features/catalog/api/types";
+import type { Course, Offering } from "@/features/catalog/api/types";
 import { api } from "@/lib/api/client";
 
 /** Cifras de matrícula del período activo, calculadas en vivo. */
@@ -136,7 +137,7 @@ export function listarProgramas(token: string, signal?: AbortSignal) {
  * cualquiera, y por eso vive tras el rol de administración.
  */
 export function obtenerPlanDePrograma(programId: string, token: string, signal?: AbortSignal) {
-  return api.get<StudyPlan>(`/api/v1/admin/programs/${programId}/plan`, { token, signal });
+  return api.get<ProgramPlan>(`/api/v1/admin/programs/${programId}/plan`, { token, signal });
 }
 
 /** Pone una materia en el plan, o cambia sus datos si ya estaba. Idempotente. */
@@ -155,6 +156,38 @@ export function ponerMateriaEnPlan(
 /** Saca una materia del plan. Se rechaza si otras del plan la exigen. */
 export function quitarMateriaDelPlan(programId: string, courseId: string, token: string) {
   return api.delete<void>(`/api/v1/admin/programs/${programId}/plan/${courseId}`, { token });
+}
+
+/**
+ * Deja un requisito cargado en el plan, o le cambia el tipo si ya estaba.
+ *
+ * `PUT` porque es idempotente: la clave del requisito es la terna `(programa, materia, exigida)`
+ * y NO incluye el tipo, así que volver a mandarlo con otro tipo lo cambia en vez de duplicarlo.
+ */
+export function ponerRequisito(
+  programId: string,
+  courseId: string,
+  requiredCourseId: string,
+  requirementType: "PREREQUISITE" | "COREQUISITE",
+  token: string,
+) {
+  return api.put<void>(
+    `/api/v1/admin/programs/${programId}/plan/${courseId}/requirements/${requiredCourseId}`,
+    { body: { requirement_type: requirementType }, token },
+  );
+}
+
+/** Quita un requisito del plan. Nunca se rechaza: relajar una regla no deja a nadie incompleto. */
+export function quitarRequisito(
+  programId: string,
+  courseId: string,
+  requiredCourseId: string,
+  token: string,
+) {
+  return api.delete<void>(
+    `/api/v1/admin/programs/${programId}/plan/${courseId}/requirements/${requiredCourseId}`,
+    { token },
+  );
 }
 
 /** Da de alta un espacio físico. El código se guarda normalizado. */

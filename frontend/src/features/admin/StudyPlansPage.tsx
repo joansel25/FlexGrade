@@ -7,9 +7,11 @@
  * nombrando quién depende (iteración 8.3), y aquí se muestra ese motivo en vez de un «no se
  * pudo».
  *
- * Los requisitos —añadir y quitar prerrequisitos y correquisitos— NO se editan todavía: falta
- * decidir si son retroactivos, y esa decisión cambia el modelo de datos si la respuesta es que
- * no. Construir la pantalla antes obligaría a rehacerla.
+ * LOS REQUISITOS SON RETROACTIVOS y el plan no se versiona (decisión de la 8.3). Eso hace que
+ * esta pantalla pueda editarlos, pero también que el servidor rechace dos cosas que aquí se
+ * explican en vez de mostrarse como un «no se pudo»: el requisito que cerraría un ciclo
+ * imposible, y el correquisito que dejaría atrapado a quien ya está matriculado con la ventana
+ * de matrícula ya cerrada.
  */
 
 import { useState } from "react";
@@ -25,9 +27,16 @@ import {
   Skeleton,
   TextField,
 } from "@/components/ui";
-import { useProgramPlan, usePrograms, useRemovePlanCourse, useSetPlanCourse } from "@/features/admin/hooks";
+import type { PlanRequirement, ProgramPlanEntry } from "@/features/admin/api/types";
+import {
+  useProgramPlan,
+  usePrograms,
+  useRemovePlanCourse,
+  useRemoveRequirement,
+  useSetPlanCourse,
+  useSetRequirement,
+} from "@/features/admin/hooks";
 import { mensajeDeAdmin } from "@/features/admin/mensajes";
-import type { StudyPlanEntry } from "@/features/catalog/api/types";
 import { useCourses } from "@/features/catalog/hooks";
 
 export function StudyPlansPage() {
@@ -109,7 +118,7 @@ function EditorDePlan({ programId }: { programId: string }) {
             <ul className="space-y-2">
               {plan.data.courses.map((materia) => (
                 <li key={materia.id}>
-                  <FilaDelPlan programId={programId} materia={materia} />
+                  <FilaDelPlan programId={programId} materia={materia} plan={plan.data.courses} />
                 </li>
               ))}
             </ul>
@@ -125,7 +134,7 @@ function AnadirMateria({
   yaEnElPlan,
 }: {
   programId: string;
-  yaEnElPlan: StudyPlanEntry[];
+  yaEnElPlan: ProgramPlanEntry[];
 }) {
   const [courseId, setCourseId] = useState("");
   const [semestre, setSemestre] = useState("1");
@@ -213,7 +222,15 @@ function AnadirMateria({
   );
 }
 
-function FilaDelPlan({ programId, materia }: { programId: string; materia: StudyPlanEntry }) {
+function FilaDelPlan({
+  programId,
+  materia,
+  plan,
+}: {
+  programId: string;
+  materia: ProgramPlanEntry;
+  plan: ProgramPlanEntry[];
+}) {
   const [semestre, setSemestre] = useState(String(materia.suggested_semester));
   const [obligatoria, setObligatoria] = useState(materia.is_mandatory);
 
@@ -239,10 +256,8 @@ function FilaDelPlan({ programId, materia }: { programId: string; materia: Study
               {materia.name}
             </p>
             <p className="text-ink-500 text-xs">
-              {materia.credits} {materia.credits === 1 ? "crédito" : "créditos"}
-              {materia.corequisites.length > 0 && (
-                <> · se cursa junto a {materia.corequisites.join(", ")}</>
-              )}
+              {materia.credits} {materia.credits === 1 ? "crédito" : "créditos"} · semestre{" "}
+              {materia.suggested_semester}
             </p>
           </div>
 
@@ -297,8 +312,149 @@ function FilaDelPlan({ programId, materia }: { programId: string; materia: Study
             {fallo.detalle}
           </Alert>
         )}
+
+        <Requisitos programId={programId} materia={materia} plan={plan} />
       </CardBody>
     </Card>
+  );
+}
+
+/** Cómo se nombra cada tipo de requisito en la pantalla. */
+const TIPOS_DE_REQUISITO: Record<PlanRequirement["requirement_type"], string> = {
+  PREREQUISITE: "antes",
+  COREQUISITE: "a la vez",
+};
+
+/**
+ * Los requisitos de una materia: qué exige, y de qué forma.
+ *
+ * Se editan aquí y no en una pantalla aparte porque un requisito no existe sin la materia que lo
+ * impone: separarlos obligaría a elegir dos veces lo mismo.
+ *
+ * El selector NO ofrece la propia materia ni las que ya exige. La primera es un ciclo trivial que
+ * el servidor rechaza; las segundas se cambian con su propio control de tipo, y volver a añadirlas
+ * no es lo que nadie quiere.
+ */
+function Requisitos({
+  programId,
+  materia,
+  plan,
+}: {
+  programId: string;
+  materia: ProgramPlanEntry;
+  plan: ProgramPlanEntry[];
+}) {
+  const [exigida, setExigida] = useState("");
+  const [tipo, setTipo] = useState<PlanRequirement["requirement_type"]>("PREREQUISITE");
+
+  const guardado = useSetRequirement(programId);
+  const retirada = useRemoveRequirement(programId);
+
+  const fallo = guardado.isError
+    ? mensajeDeAdmin(guardado.error)
+    : retirada.isError
+      ? mensajeDeAdmin(retirada.error)
+      : null;
+
+  const yaExigidas = new Set(materia.requirements.map((r) => r.course_id));
+  const candidatas = plan.filter((m) => m.id !== materia.id && !yaExigidas.has(m.id));
+
+  return (
+    <div className="border-ink-100 space-y-3 border-t pt-3">
+      <ul className="flex flex-wrap gap-2" aria-label={`Requisitos de ${materia.code}`}>
+        {materia.requirements.length === 0 && (
+          <li className="text-ink-500 text-xs">Sin requisitos: se puede cursar en cualquier momento.</li>
+        )}
+
+        {materia.requirements.map((requisito) => (
+          <li
+            key={requisito.course_id}
+            className="border-ink-200 flex items-center gap-2 rounded-lg border bg-white px-2 py-1"
+          >
+            <span className="text-brand-700 font-mono text-xs font-semibold">{requisito.code}</span>
+            <select
+              className="border-ink-200 h-7 rounded border px-1 text-xs"
+              value={requisito.requirement_type}
+              aria-label={`Cómo exige ${materia.code} a ${requisito.code}`}
+              onChange={(e) =>
+                guardado.mutate({
+                  courseId: materia.id,
+                  requiredCourseId: requisito.course_id,
+                  requirementType: e.target.value as PlanRequirement["requirement_type"],
+                })
+              }
+            >
+              {Object.entries(TIPOS_DE_REQUISITO).map(([valor, etiqueta]) => (
+                <option key={valor} value={valor}>
+                  {etiqueta}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="text-ink-400 hover:text-danger-600 text-xs"
+              aria-label={`Quitar ${requisito.code} de los requisitos de ${materia.code}`}
+              onClick={() =>
+                retirada.mutate({ courseId: materia.id, requiredCourseId: requisito.course_id })
+              }
+            >
+              ✕
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      {candidatas.length > 0 && (
+        <form
+          className="flex flex-wrap items-center gap-2"
+          onSubmit={(evento) => {
+            evento.preventDefault();
+            guardado.mutate(
+              { courseId: materia.id, requiredCourseId: exigida, requirementType: tipo },
+              { onSuccess: () => setExigida("") },
+            );
+          }}
+        >
+          <select
+            className="border-ink-300 h-8 rounded-lg border px-2 text-xs"
+            value={exigida}
+            aria-label={`Exigir una materia para ${materia.code}`}
+            onChange={(e) => setExigida(e.target.value)}
+            required
+          >
+            <option value="">Exigir otra materia…</option>
+            {candidatas.map((candidata) => (
+              <option key={candidata.id} value={candidata.id}>
+                {candidata.code} — {candidata.name}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="border-ink-300 h-8 rounded-lg border px-2 text-xs"
+            value={tipo}
+            aria-label={`Cómo exigirla para ${materia.code}`}
+            onChange={(e) => setTipo(e.target.value as PlanRequirement["requirement_type"])}
+          >
+            {Object.entries(TIPOS_DE_REQUISITO).map(([valor, etiqueta]) => (
+              <option key={valor} value={valor}>
+                {etiqueta}
+              </option>
+            ))}
+          </select>
+
+          <Button type="submit" tamano="sm" cargando={guardado.isPending} disabled={!exigida}>
+            Exigir
+          </Button>
+        </form>
+      )}
+
+      {fallo && (
+        <Alert tono="error" titulo={fallo.titulo}>
+          {fallo.detalle}
+        </Alert>
+      )}
+    </div>
   );
 }
 

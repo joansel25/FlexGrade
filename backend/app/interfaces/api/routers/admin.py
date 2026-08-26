@@ -37,7 +37,9 @@ from app.interfaces.api.dependencies.di import (
     ListSpacesUseCaseDep,
     ProgramRepositoryDep,
     RemovePlanCourseUseCaseDep,
+    RemoveRequirementUseCaseDep,
     SetPlanCourseUseCaseDep,
+    SetRequirementUseCaseDep,
 )
 from app.interfaces.api.routers.courses import a_schema_de_grupo
 from app.interfaces.api.schemas.admin_schemas import (
@@ -47,9 +49,13 @@ from app.interfaces.api.schemas.admin_schemas import (
     CreateOfferingSchema,
     CreateSpaceSchema,
     EnrollmentPeriodSchema,
+    PlanRequirementSchema,
+    ProgramPlanEntrySchema,
+    ProgramPlanSchema,
     ProgramSchema,
     ProgramsSchema,
     SetPlanCourseSchema,
+    SetRequirementSchema,
     SpaceSchema,
     SpacesSchema,
     UpdateCapacitySchema,
@@ -58,8 +64,6 @@ from app.interfaces.api.schemas.catalog_schemas import (
     CourseSchema,
     OfferingDetailSchema,
     PageSchema,
-    StudyPlanEntrySchema,
-    StudyPlanSchema,
 )
 from app.interfaces.api.schemas.error_schemas import ErrorResponseSchema
 from app.interfaces.api.schemas.report_schemas import (
@@ -380,14 +384,14 @@ def list_programs(repositorio: ProgramRepositoryDep) -> ProgramsSchema:
 
 @router.get(
     "/programs/{program_id}/plan",
-    response_model=StudyPlanSchema,
+    response_model=ProgramPlanSchema,
     status_code=status.HTTP_200_OK,
     summary="Plan de estudios de un programa",
     responses={404: {"model": ErrorResponseSchema, "description": "El programa no existe"}},
 )
 def program_study_plan(
     program_id: UUID, use_case: GetProgramStudyPlanUseCaseDep
-) -> StudyPlanSchema:
+) -> ProgramPlanSchema:
     """Devuelve el plan de un programa cualquiera.
 
     Se distingue de `GET /students/me/study-plan` en QUIÉN elige el programa, y esa diferencia
@@ -400,26 +404,29 @@ def program_study_plan(
     """
     plan = use_case.execute(program_id)
 
-    return StudyPlanSchema(
+    return ProgramPlanSchema(
         program_id=plan.program_id,
         program_code=plan.program_code,
         program_name=plan.program_name,
         total_semesters=plan.total_semesters,
         total_credits=plan.total_credits,
-        approved_credits=plan.approved_credits,
         courses=[
-            StudyPlanEntrySchema(
+            ProgramPlanEntrySchema(
                 id=e.course.id,
                 code=e.course.code.value,
                 name=e.course.name,
                 credits=e.course.credits,
-                description=e.course.description,
                 suggested_semester=e.suggested_semester,
                 is_mandatory=e.is_mandatory,
-                status=e.status.value,
-                missing_prerequisites=e.missing_prerequisites,
-                missing_corequisites=e.missing_corequisites,
-                corequisites=e.corequisites,
+                requirements=[
+                    PlanRequirementSchema(
+                        course_id=r.course.id,
+                        code=r.course.code.value,
+                        name=r.course.name,
+                        requirement_type=r.requirement_type.value,
+                    )
+                    for r in e.requirements
+                ],
             )
             for e in plan.entries
         ],
@@ -479,6 +486,77 @@ def remove_plan_course(
     dependía de ella.
     """
     use_case.execute(program_id=program_id, course_id=course_id)
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put(
+    "/programs/{program_id}/plan/{course_id}/requirements/{required_course_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Cargar un requisito en el plan de un programa",
+    responses={
+        404: {"model": ErrorResponseSchema, "description": "Alguna materia no está en ese plan"},
+        409: {
+            "model": ErrorResponseSchema,
+            "description": "El requisito cerraría un ciclo imposible, o dejaría atrapados a los "
+            "ya matriculados",
+        },
+    },
+)
+def set_requirement(
+    program_id: UUID,
+    course_id: UUID,
+    required_course_id: UUID,
+    payload: SetRequirementSchema,
+    use_case: SetRequirementUseCaseDep,
+) -> Response:
+    """Deja el requisito cargado, o le cambia el tipo si ya estaba.
+
+    `PUT` porque es idempotente: la clave de `program_course_requirements` es la terna
+    `(programa, materia, exigida)` y NO incluye el tipo, así que volver a cargarla con otro tipo
+    lo cambia en vez de duplicar la regla.
+
+    **Los requisitos son retroactivos** y el plan no se versiona. Se rechazan dos casos:
+
+    - El que cerraría un **ciclo imposible** —una vuelta con al menos un prerrequisito—, que
+      dejaría todas las materias del ciclo ininscribibles para siempre sin que nada avisara.
+    - El **correquisito que atraparía** a quien ya está matriculado. Solo con la ventana
+      CERRADA: con la ventana abierta el estudiante ve el pendiente en su lista de inscripciones
+      y lo resuelve inscribiendo lo que falta.
+    """
+    use_case.execute(
+        program_id=program_id,
+        course_id=course_id,
+        required_course_id=required_course_id,
+        requirement_type=payload.requirement_type,
+    )
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete(
+    "/programs/{program_id}/plan/{course_id}/requirements/{required_course_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Quitar un requisito del plan de un programa",
+    responses={
+        404: {"model": ErrorResponseSchema, "description": "Ese requisito no estaba cargado"},
+    },
+)
+def remove_requirement(
+    program_id: UUID,
+    course_id: UUID,
+    required_course_id: UUID,
+    use_case: RemoveRequirementUseCaseDep,
+) -> Response:
+    """Retira el requisito.
+
+    No tiene la comprobación de matriculados que sí tiene cargarlo, y no es una omisión: relajar
+    una regla no puede dejar a nadie incompleto. Quien la cumplía sigue cumpliendo el plan, y
+    quien no, deja de estar bloqueado.
+    """
+    use_case.execute(
+        program_id=program_id, course_id=course_id, required_course_id=required_course_id
+    )
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

@@ -52,6 +52,8 @@ export const API_ERROR_CODES = [
   // Administración de planes y espacios (Fase 8).
   "DUPLICATE_SPACE_CODE",
   "COURSE_REQUIRED_BY_OTHERS",
+  "IMPOSSIBLE_REQUIREMENT_CYCLE",
+  "REQUIREMENT_WOULD_TRAP_ENROLLED",
   "CONCURRENT_MODIFICATION",
   // Genéricos.
   "DOMAIN_ERROR",

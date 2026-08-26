@@ -71,6 +71,22 @@ class EnrollmentWriter(ABC):
     """Contrato de escritura de inscripciones."""
 
     @abstractmethod
+    def count_active_in_program(
+        self, *, course_id: UUID, program_id: UUID, enrollment_period_id: UUID
+    ) -> int:
+        """Cuenta las inscripciones vivas de una materia entre estudiantes de un programa.
+
+        Filtra POR PROGRAMA y no solo por materia porque un requisito pertenece al plan de una
+        carrera: `FIS101` puede exigir `MAT101` en Ingeniería y entrar como electiva sin nada que
+        exigir en otra. Contar a todos los inscritos daría un número que no corresponde a la
+        regla que se está editando, y llevaría a rechazar cambios que no afectan a nadie.
+
+        La usa la edición de requisitos para saber a cuántas matrículas afectaría una regla
+        nueva. Es un conteo, no una lista: quien administra decide con el número, y traer las
+        filas para contarlas cargaría miles de inscripciones en memoria durante la matrícula.
+        """
+
+    @abstractmethod
     def save(self, enrollment: Enrollment) -> None:
         """Persiste una inscripción nueva o los cambios de una existente.
 

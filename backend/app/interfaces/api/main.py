@@ -22,8 +22,10 @@ from app.domain.exceptions.admin import (
     DuplicateOfferingGroupError,
     DuplicatePeriodCodeError,
     DuplicateSpaceCodeError,
+    ImpossibleRequirementCycleError,
     InvalidPeriodRangeError,
     OverlappingScheduleError,
+    RequirementWouldTrapEnrolledError,
     SpaceCapacityExceededError,
     SpaceDoubleBookedError,
 )
@@ -196,6 +198,11 @@ _MAPEO_ERRORES: dict[type[DomainError], tuple[int, str]] = {
     # Fase 8. Conflictos de estado al editar el catálogo y los planes.
     DuplicateSpaceCodeError: (409, "DUPLICATE_SPACE_CODE"),
     CourseRequiredByOthersError: (409, "COURSE_REQUIRED_BY_OTHERS"),
+    # Los dos rechazos de la edición de requisitos (8.3 fase B). Son 409 y no 400 porque el
+    # cuerpo es correcto: lo que impide aplicarlo es el ESTADO del plan —una vuelta ya
+    # existente— o el de la matrícula —gente ya inscrita con la ventana cerrada—.
+    ImpossibleRequirementCycleError: (409, "IMPOSSIBLE_REQUIREMENT_CYCLE"),
+    RequirementWouldTrapEnrolledError: (409, "REQUIREMENT_WOULD_TRAP_ENROLLED"),
     # 409 y no 500: la escritura no se aplicó porque otra ganó la carrera, y repetir la misma
     # petición tiene todas las papeletas de funcionar. Un 500 diría que el servidor falló, que
     # es exactamente lo que no ocurrió.

@@ -5,7 +5,7 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al cerrar la iteración 8.3 fase A (planes de estudio y espacios).**
+> **Actualizada al cerrar la iteración 8.3 completa (planes, espacios y requisitos).**
 > Última verificación real: frontend con `npm run lint`, `type-check`, `test` (113 tests) y
 > `build` en verde; backend sin cambios desde la 8.1 (579 tests, `mypy --strict` limpio sobre
 > 162 archivos). Antes de esto:
@@ -302,17 +302,16 @@ donde importa.
 | 6 — Reglas por carrera | ✅ | `GET /students/me/study-plan` con semáforo, ruta `/plan` en el frontend |
 
 **Fase 8 — Interfaz de administración** (en curso): 8.1 estructura, acceso y panel ✅
-(`ca86677`) · 8.2 períodos, materias y grupos ✅ (`aed5063`) · 8.3 planes de estudio y espacios
-✅ **fase A** (esta iteración) · 8.4 reportes visuales.
+(`ca86677`) · 8.2 períodos, materias y grupos ✅ (`aed5063`) · 8.3 planes, espacios y requisitos
+✅ (fase A `15c5e80`, fase B esta iteración) · 8.4 reportes visuales.
 
-La 8.3 se partió en dos a propósito. La **fase A** —lo que hay— cubre lo que no depende de la
-decisión pendiente sobre retroactividad: seis endpoints (`POST`/`GET /admin/spaces`,
-`GET /admin/programs`, `GET`/`PUT`/`DELETE` del plan de un programa) y sus dos pantallas,
-`/admin/planes` y `/admin/espacios`. La **fase B** —el editor de prerrequisitos y
-correquisitos— está bloqueada por esa decisión, que ahora sí toca tomar: la fase A construyó
-todo lo que se podía construir sin ella.
+La 8.3 se partió en dos a propósito. La **fase A** cubrió lo que no dependía de la decisión sobre
+retroactividad: seis endpoints (`POST`/`GET /admin/spaces`, `GET /admin/programs`,
+`GET`/`PUT`/`DELETE` del plan) y sus pantallas `/admin/planes` y `/admin/espacios`. La **fase B**
+tomó la decisión y añadió el editor de requisitos: `PUT`/`DELETE` sobre
+`.../plan/{course_id}/requirements/{required_course_id}`.
 
-Dos hallazgos de la fase A, que son el valor real de la iteración:
+Tres rechazos son el valor real de la iteración:
 
 - **Quitar una materia del plan es destructivo sin parecerlo.** La clave foránea de
   `program_course_requirements` apunta al plan con `ON DELETE CASCADE`: sacar `MAT101` borraría
@@ -324,8 +323,23 @@ Dos hallazgos de la fase A, que son el valor real de la iteración:
   de la 7.2 no impide nada: cree que son sitios distintos. Es el problema que la 7.1 vino a
   resolver, volviendo por la puerta de atrás.
 
-La 8.3 también consumió `GET /admin/spaces/available`, que la 7.3 dejó sin interfaz, y retiró
-`obtenerGrupo` del cliente del catálogo, que no llamaba nadie.
+- **Un ciclo de requisitos con un prerrequisito dentro es insatisfacible, y nada avisaba.** La
+  base acepta cada fila por separado, el validador las rechaza una a una sin poder decir por qué
+  y el semáforo las pinta bloqueadas sin salida; el error aparecía meses después, con un
+  estudiante atascado. `RequirementGraph` recorre el grafo del plan y rechaza con la vuelta
+  completa en `details.cycle`. Un ciclo de PUROS correquisitos sí es legítimo: es el bloque que
+  se cursa junto, y la 6.2 construyó la exención de pares mutuos para poder inscribirlo.
+
+La 8.3 también consumió `GET /admin/spaces/available`, que la 7.3 dejó sin interfaz; retiró
+`obtenerGrupo` del cliente del catálogo, que no llamaba nadie; y dio schema propio al plan de
+administración, que reutilizaba el del estudiante y por eso mandaba `status: "NOT_OFFERED"` en
+todas las materias —un dato que se lee como un hecho sobre la oferta cuando solo significaba
+«no se calculó»—.
+
+**Nota de la suite de frontend:** `src/test/setup.ts` sube el `asyncUtilTimeout` de
+Testing Library a 5 s. El defecto de 1 s se agotaba en tres tests cuando los ficheros corren en
+paralelo en una máquina cargada, y fallaban por lentitud, no por un fallo real. No esconde nada:
+un test roto sigue agotando el plazo igual.
 
 **Fase 7 — Aulas y espacios físicos: COMPLETA.** 7.1 el espacio como entidad ✅ (`804fe31`) ·
 7.2 doble reserva imposible ✅ (`642ee0a`) · 7.3 consulta de disponibilidad ✅ (esta iteración).
@@ -365,20 +379,35 @@ de espera automática — `WAITLISTED` existe en el enum pero ninguna operación
 
 Ausencias que sí son deuda, pendientes de decidir cuándo se pagan:
 
-- **DECISIÓN DE NEGOCIO PENDIENTE, que BLOQUEA la fase B de la 8.3: ¿los requisitos son
-  retroactivos?**
-  Cuando exista la pantalla para editar el plan de estudios, alguien podrá añadir un
-  correquisito a mitad de semestre y dejar incompletas matrículas ya hechas. Hoy no puede
-  ocurrir por el producto —ningún endpoint de administración toca
-  `program_course_requirements`—, y si se escribe a mano el sistema aguanta: se comprobó que
-  `pending_corequisites` lo detecta solo y que el estudiante no queda atrapado (puede cancelar
-  e inscribir). Lo único que falta es AVISARLE. Las dos respuestas legítimas son
-  **retroactivo** —la regla nueva aplica a todos, y hay que notificar a quien quede
-  incompleto, lo que depende del canal de avisos de la fase 10— y **no retroactivo** —quien ya
-  matriculó conserva las reglas del momento, lo que obliga a versionar el plan de estudios y
-  es un cambio de modelo, no un aviso—. La fase A de la 8.3 se construyó entera sin tocar
-  `program_course_requirements` precisamente para no anticipar la respuesta; la fase B no puede
-  empezar sin ella, porque cada opción lleva a una pantalla distinta.
+- **DECISIÓN TOMADA en la 8.3 fase B: los requisitos son RETROACTIVOS. No se versiona el plan
+  de estudios.** No se vuelve a discutir; lo que sigue es por qué, porque la razón importa más
+  que la respuesta.
+
+  La determinaron tres hechos del código, no una preferencia:
+
+  1. **Los dos tipos de requisito no se comportan igual.** Los prerrequisitos se validan SOLO
+     al inscribir (`enroll_student.py`); creada la inscripción, nadie vuelve a comprobarlos.
+     Añadir un prerrequisito retroactivamente no puede romper ninguna matrícula: no hay
+     víctima. Los correquisitos sí se recalculan en cada lectura
+     (`list_student_enrollments.py`) y en la cancelación (6.2.1). El problema no era «los
+     requisitos»: era **añadir un correquisito**.
+  2. **El radio de daño ya está acotado.** `list_student_enrollments` solo mira el período
+     ACTIVO. Los períodos pasados no se releen nunca —de ellos queda el historial de
+     aprobadas, contra el que los requisitos no se recalculan—. El alcance de un cambio
+     retroactivo son las inscripciones activas del período activo, y nada más.
+  3. **Versionar resolvería otro problema.** El *grandfathering* académico protege QUÉ
+     MATERIAS hacen falta para graduarse —`program_courses`, a lo largo de cinco años—. La
+     fase B edita reglas de SECUENCIA pedagógica, que se aplican desde la siguiente
+     inscripción. El coste habría sido arrastrar una coordenada temporal por la clave foránea
+     compuesta, los cuatro casos de uso que leen requisitos, el semáforo, la cancelación y el
+     seed.
+
+  **El aviso a la fase 10 tampoco hacía falta.** El estudiante ya ve el correquisito pendiente
+  en `/mis-inscripciones` (`MyEnrollmentsPage.tsx`), y llega solo. Lo que sí faltaba, y la
+  pregunta original no veía, es que hay un caso donde queda ATRAPADO SIN REMEDIO: con la
+  ventana cerrada ve que le falta algo y no puede inscribir nada. Con la ventana abierta se lo
+  arregla él. Por eso el caso de uso rechaza añadir un correquisito que afecte a inscripciones
+  activas cuando la ventana NO está abierta, y lo permite cuando sí lo está.
 
 - **Rate limiting.** `API.md` fija límites por endpoint (login 5/min por IP, inscripción 30/min,
   catálogo 120/min, admin 60/min) y no hay nada implementado. Con varias instancias detrás del

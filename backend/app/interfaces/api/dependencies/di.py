@@ -46,7 +46,9 @@ from app.application.use_cases.admin.manage_spaces import CreateSpaceUseCase, Li
 from app.application.use_cases.admin.manage_study_plan import (
     GetProgramStudyPlanUseCase,
     RemovePlanCourseUseCase,
+    RemoveRequirementUseCase,
     SetPlanCourseUseCase,
+    SetRequirementUseCase,
 )
 from app.application.use_cases.auth.authenticate_user import AuthenticateUserUseCase
 from app.application.use_cases.auth.refresh_token import RefreshTokenUseCase
@@ -380,6 +382,38 @@ def get_remove_plan_course_use_case(
     return RemovePlanCourseUseCase(course_repository, unit_of_work)
 
 
+def get_set_requirement_use_case(
+    program_repository: ProgramRepositoryDep,
+    course_repository: CourseRepositoryDep,
+    enrollment_repository: EnrollmentRepositoryDep,
+    period_repository: PeriodRepositoryDep,
+    unit_of_work: UnitOfWorkDep,
+) -> SetRequirementUseCase:
+    """Construye el caso de uso de carga de un requisito.
+
+    Recibe las inscripciones y los períodos, que la edición del plan no necesita, porque es la
+    única operación cuyo efecto es RETROACTIVO: para saber si dejaría atrapado a alguien tiene
+    que mirar quién está matriculado y si la ventana sigue abierta.
+    """
+    return SetRequirementUseCase(
+        program_repository,
+        course_repository,
+        enrollment_repository,
+        period_repository,
+        unit_of_work,
+    )
+
+
+def get_remove_requirement_use_case(
+    course_repository: CourseRepositoryDep, unit_of_work: UnitOfWorkDep
+) -> RemoveRequirementUseCase:
+    """Construye el caso de uso de retirada de un requisito.
+
+    No necesita inscripciones ni períodos: relajar una regla no puede dejar a nadie incompleto.
+    """
+    return RemoveRequirementUseCase(course_repository, unit_of_work)
+
+
 CreateSpaceUseCaseDep = Annotated[CreateSpaceUseCase, Depends(get_create_space_use_case)]
 ListSpacesUseCaseDep = Annotated[ListSpacesUseCase, Depends(get_list_spaces_use_case)]
 GetProgramStudyPlanUseCaseDep = Annotated[
@@ -388,6 +422,10 @@ GetProgramStudyPlanUseCaseDep = Annotated[
 SetPlanCourseUseCaseDep = Annotated[SetPlanCourseUseCase, Depends(get_set_plan_course_use_case)]
 RemovePlanCourseUseCaseDep = Annotated[
     RemovePlanCourseUseCase, Depends(get_remove_plan_course_use_case)
+]
+SetRequirementUseCaseDep = Annotated[SetRequirementUseCase, Depends(get_set_requirement_use_case)]
+RemoveRequirementUseCaseDep = Annotated[
+    RemoveRequirementUseCase, Depends(get_remove_requirement_use_case)
 ]
 
 

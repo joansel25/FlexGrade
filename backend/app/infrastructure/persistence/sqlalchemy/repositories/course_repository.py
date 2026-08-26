@@ -257,6 +257,37 @@ class SQLAlchemyCourseRepository(CourseRepository):
 
         return self._session.execute(sentencia).rowcount > 0
 
+    def save_requirement(
+        self,
+        *,
+        program_id: UUID,
+        course_id: UUID,
+        required_course_id: UUID,
+        requirement_type: RequirementType,
+    ) -> None:
+        # `merge` y no `add`, como en el plan: la clave es la terna y no incluye el tipo, así
+        # que volver a cargar la misma pareja con otro tipo la ACTUALIZA. Con `add` fallaría por
+        # clave duplicada, y quien administra tendría que borrar antes de corregir.
+        self._session.merge(
+            ProgramCourseRequirementModel(
+                program_id=program_id,
+                course_id=course_id,
+                required_course_id=required_course_id,
+                requirement_type=requirement_type.value,
+            )
+        )
+
+    def remove_requirement(
+        self, *, program_id: UUID, course_id: UUID, required_course_id: UUID
+    ) -> bool:
+        sentencia = delete(ProgramCourseRequirementModel).where(
+            ProgramCourseRequirementModel.program_id == program_id,
+            ProgramCourseRequirementModel.course_id == course_id,
+            ProgramCourseRequirementModel.required_course_id == required_course_id,
+        )
+
+        return self._session.execute(sentencia).rowcount > 0
+
     def save(self, course: Course) -> None:
         # `merge` y no `add`: sirve tanto para una materia nueva como para una que ya existe,
         # que es lo que promete el puerto. Con `add`, guardar una materia leída antes en esta

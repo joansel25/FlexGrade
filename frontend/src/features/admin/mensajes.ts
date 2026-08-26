@@ -116,6 +116,15 @@ const TRADUCCIONES: Record<string, Traductor> = {
     detalle: describirDependientes(error.details),
   }),
 
+  IMPOSSIBLE_REQUIREMENT_CYCLE: (error) => ({
+    titulo: "Ese requisito dejaría materias imposibles de cursar",
+    detalle: describirCiclo(error.details),
+  }),
+  REQUIREMENT_WOULD_TRAP_ENROLLED: (error) => ({
+    titulo: "Dejaría incompletos a los que ya están matriculados",
+    detalle: describirAtrapados(error.details),
+  }),
+
   // --------------------------------------------------------------- espacios
   DUPLICATE_SPACE_CODE: (error) => ({
     titulo: "Ya existe un espacio con ese código",
@@ -166,6 +175,50 @@ function describirDependientes(details: Record<string, unknown>): string {
   }
 
   return "Retira antes los requisitos que la nombran.";
+}
+
+/**
+ * Dibuja la vuelta completa del ciclo.
+ *
+ * «Hay un ciclo» no dice cuál de las aristas sobra. Con la vuelta delante —`MAT101 → MAT102 →
+ * MAT101`— se ve de un vistazo, y quien administra sabe qué requisito quitar.
+ */
+function describirCiclo(details: Record<string, unknown>): string {
+  const vuelta = details.cycle;
+
+  if (Array.isArray(vuelta) && vuelta.length > 1) {
+    const codigos = vuelta.filter((c): c is string => typeof c === "string");
+
+    if (codigos.length > 1) {
+      return (
+        `${codigos.join(" → ")}. Para inscribir cualquiera habría que haber cursado antes otra ` +
+        "de la vuelta, así que ninguna sería inscribible nunca. Quita uno de esos requisitos."
+      );
+    }
+  }
+
+  return "Los requisitos formarían una vuelta que ninguna de las materias podría cumplir.";
+}
+
+/**
+ * Da el número de afectados y la salida, que es esperar a la siguiente ventana.
+ *
+ * El rechazo solo ocurre con la ventana CERRADA: con la ventana abierta el estudiante ve el
+ * pendiente en su lista de inscripciones y lo resuelve él. Cerrada, no puede inscribir nada.
+ */
+function describirAtrapados(details: Record<string, unknown>): string {
+  const cuantos = details.enrolled_count;
+  const exigida = details.required_code;
+
+  if (typeof cuantos === "number" && typeof exigida === "string") {
+    return (
+      `${cuantos} ${cuantos === 1 ? "persona ya está matriculada" : "personas ya están matriculadas"} ` +
+      `y la ventana está cerrada, así que no podrían inscribir ${exigida} para completarlo. ` +
+      "Cárgalo cuando se abra la siguiente ventana, o antes de que empiece la matrícula."
+    );
+  }
+
+  return "Espera a que se abra la ventana de matrícula para cargar este correquisito.";
 }
 
 /** Dice cuántos hay inscritos, que es el número por debajo del cual no se puede bajar. */

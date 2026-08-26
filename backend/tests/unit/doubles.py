@@ -291,6 +291,50 @@ class InMemoryCourseRepository(CourseRepository):
         self._plan[program_id] = quedan
         return True
 
+    def save_requirement(
+        self,
+        *,
+        program_id: UUID,
+        course_id: UUID,
+        required_course_id: UUID,
+        requirement_type: RequirementType,
+    ) -> None:
+        """Reproduce la idempotencia del adaptador: la terna es la clave, el tipo no.
+
+        Se quita la pareja de las DOS listas antes de añadirla a la que toca. Sin eso, cambiar
+        un prerrequisito a correquisito la dejaría declarada en ambas, y `find_requirements`
+        devolvería la materia dos veces con tipos que se contradicen: exactamente lo que la
+        clave primaria de la tabla real hace imposible.
+        """
+        exigida = self._courses[required_course_id]
+
+        for declaraciones in (self._prerequisites, self._corequisites):
+            declaraciones[course_id] = [
+                m for m in declaraciones.get(course_id, []) if m.id != required_course_id
+            ]
+
+        destino = (
+            self._prerequisites
+            if requirement_type is RequirementType.PREREQUISITE
+            else self._corequisites
+        )
+        destino.setdefault(course_id, []).append(exigida)
+
+    def remove_requirement(
+        self, *, program_id: UUID, course_id: UUID, required_course_id: UUID
+    ) -> bool:
+        quitado = False
+
+        for declaraciones in (self._prerequisites, self._corequisites):
+            quedan = [m for m in declaraciones.get(course_id, []) if m.id != required_course_id]
+
+            if len(quedan) != len(declaraciones.get(course_id, [])):
+                quitado = True
+
+            declaraciones[course_id] = quedan
+
+        return quitado
+
     def save(self, course: Course) -> None:
         self._courses[course.id] = course
 
@@ -735,12 +779,30 @@ class ContadorDeConsultas(OfferingRepository):
 class InMemoryEnrollmentRepository(EnrollmentRepository):
     """Repositorio de inscripciones respaldado por un diccionario."""
 
-    def __init__(self, enrollments: list[Enrollment] | None = None) -> None:
+    def __init__(
+        self,
+        enrollments: list[Enrollment] | None = None,
+        inscritos_por_materia: dict[UUID, int] | None = None,
+    ) -> None:
         self._enrollments: dict[UUID, Enrollment] = {e.id: e for e in (enrollments or [])}
         self.guardados: list[UUID] = []
+        self.inscritos_por_materia = inscritos_por_materia or {}
 
     def find_by_id(self, enrollment_id: UUID) -> Enrollment | None:
         return self._enrollments.get(enrollment_id)
+
+    def count_active_in_program(
+        self, *, course_id: UUID, program_id: UUID, enrollment_period_id: UUID
+    ) -> int:
+        """Cuenta sobre `inscritos_por_materia`, declarado por el test.
+
+        El doble NO deduce el conteo de las inscripciones que guarda, al contrario que sus otros
+        métodos. Reproducirlo de verdad exigiría que el test montara grupos, materias y
+        estudiantes con su programa solo para llegar a un número; y quien prueba la regla de los
+        requisitos está probando qué se hace CON ese número, no cómo se calcula. El cálculo real
+        es una consulta con dos `JOIN`, y le corresponde a un test de integración.
+        """
+        return self.inscritos_por_materia.get(course_id, 0)
 
     def find_active_by_student(
         self, student_id: UUID, enrollment_period_id: UUID

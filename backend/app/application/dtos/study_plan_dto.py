@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from uuid import UUID
 
 from app.domain.entities.course import Course
+from app.domain.entities.course_requirement import CourseRequirement
 from app.domain.value_objects.course_status import CourseStatus
 
 
@@ -30,6 +31,9 @@ class StudyPlanEntryDTO:
         missing_prerequisites: qué le falta aprobar. Solo con `BLOCKED`.
         missing_corequisites: qué tendría que cursar a la vez y este período no puede. Solo con
             `BLOCKED`.
+        requirements: los requisitos declarados en el plan, de los dos tipos. Solo lo llena la
+            consulta de ADMINISTRACIÓN, que es la que los edita; el semáforo del estudiante los
+            proyecta en `corequisites` y `missing_*`, que es lo que él necesita saber.
         corequisites: qué hay que inscribir junto a esta materia. Va siempre que existan,
             también cuando está disponible: es una instrucción, no un impedimento.
     """
@@ -41,6 +45,7 @@ class StudyPlanEntryDTO:
     missing_prerequisites: list[str] = field(default_factory=list)
     missing_corequisites: list[str] = field(default_factory=list)
     corequisites: list[str] = field(default_factory=list)
+    requirements: list[CourseRequirement] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

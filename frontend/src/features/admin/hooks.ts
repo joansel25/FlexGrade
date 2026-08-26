@@ -22,6 +22,8 @@ import {
   listarPeriodos,
   listarProgramas,
   obtenerPlanDePrograma,
+  ponerRequisito,
+  quitarRequisito,
   ponerMateriaEnPlan,
   quitarMateriaDelPlan,
   obtenerReporteDeInscripciones,
@@ -291,6 +293,42 @@ export function useRemovePlanCourse(programId: string) {
 
   return useMutation({
     mutationFn: (courseId: string) => quitarMateriaDelPlan(programId, courseId, token()),
+    onSuccess: invalidar,
+  });
+}
+
+/** Carga un requisito en el plan, o le cambia el tipo. */
+export function useSetRequirement(programId: string) {
+  const token = useTokenObligatorio();
+  const invalidar = useInvalidarAdmin();
+
+  return useMutation({
+    mutationFn: ({
+      courseId,
+      requiredCourseId,
+      requirementType,
+    }: {
+      courseId: string;
+      requiredCourseId: string;
+      requirementType: "PREREQUISITE" | "COREQUISITE";
+    }) => ponerRequisito(programId, courseId, requiredCourseId, requirementType, token()),
+    onSuccess: invalidar,
+  });
+}
+
+/** Quita un requisito del plan. */
+export function useRemoveRequirement(programId: string) {
+  const token = useTokenObligatorio();
+  const invalidar = useInvalidarAdmin();
+
+  return useMutation({
+    mutationFn: ({
+      courseId,
+      requiredCourseId,
+    }: {
+      courseId: string;
+      requiredCourseId: string;
+    }) => quitarRequisito(programId, courseId, requiredCourseId, token()),
     onSuccess: invalidar,
   });
 }

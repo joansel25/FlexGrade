@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.application.ports.repositories.enrollment_repository import EnrollmentRepository
 from app.domain.entities.enrollment import Enrollment
 from app.domain.value_objects.enrollment_status import EnrollmentStatus
+from app.infrastructure.persistence.sqlalchemy.models.course_offering import CourseOfferingModel
 from app.infrastructure.persistence.sqlalchemy.models.enrollment import EnrollmentModel
+from app.infrastructure.persistence.sqlalchemy.models.student import StudentModel
 
 
 class SQLAlchemyEnrollmentRepository(EnrollmentRepository):
@@ -52,6 +54,25 @@ class SQLAlchemyEnrollmentRepository(EnrollmentRepository):
         return self._a_entidad(modelo) if modelo is not None else None
 
     # ----------------------------------------------------------------- escritura
+
+    def count_active_in_program(
+        self, *, course_id: UUID, program_id: UUID, enrollment_period_id: UUID
+    ) -> int:
+        # Se cuenta en la base y no en memoria: durante la matrícula una materia popular tiene
+        # miles de inscripciones, y traerlas para medir su longitud es cargar el pico de tráfico
+        # en el proceso para responder un número.
+        sentencia = (
+            select(func.count())
+            .select_from(EnrollmentModel)
+            .join(CourseOfferingModel, CourseOfferingModel.id == EnrollmentModel.course_offering_id)
+            .join(StudentModel, StudentModel.id == EnrollmentModel.student_id)
+            .where(CourseOfferingModel.course_id == course_id)
+            .where(StudentModel.program_id == program_id)
+            .where(EnrollmentModel.enrollment_period_id == enrollment_period_id)
+            .where(EnrollmentModel.status == EnrollmentStatus.ENROLLED.value)
+        )
+
+        return int(self._session.execute(sentencia).scalar_one())
 
     def save(self, enrollment: Enrollment) -> None:
         """Persiste la inscripción sin confirmar la transacción.

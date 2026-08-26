@@ -11,6 +11,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.domain.value_objects.requirement_type import RequirementType
 from app.domain.value_objects.space_type import SpaceType
 
 
@@ -192,6 +193,65 @@ class SetPlanCourseSchema(BaseModel):
         ge=1, description="Semestre en que el plan la sugiere", examples=[1]
     )
     is_mandatory: bool = Field(default=True, description="Obligatoria para graduarse, o electiva")
+
+
+class PlanRequirementSchema(BaseModel):
+    """Un requisito tal como lo ve quien edita el plan.
+
+    Lleva el código y el nombre además del identificador porque la pantalla los muestra, y
+    pedirlos aparte obligaría a la interfaz a cruzar dos listas para pintar una línea de texto.
+    """
+
+    course_id: UUID
+    code: str
+    name: str
+    requirement_type: str
+
+
+class ProgramPlanEntrySchema(BaseModel):
+    """Una materia del plan, vista desde administración.
+
+    NO lleva los campos del semáforo —`status`, `missing_prerequisites`, `missing_corequisites`—
+    aunque el DTO los tenga. Aquí no hay persona sobre la que calcularlos, así que saldrían
+    siempre con su valor por defecto, y `status: "NOT_OFFERED"` en todas las materias se lee
+    como un hecho sobre la oferta cuando en realidad solo significa «no se calculó». Un dato que
+    miente es peor que un dato ausente.
+
+    Lleva en cambio `requirements`, que el plan del estudiante no necesita y esta pantalla sí:
+    es justo lo que se está editando.
+    """
+
+    id: UUID
+    code: str
+    name: str
+    credits: int
+    suggested_semester: int
+    is_mandatory: bool
+    requirements: list[PlanRequirementSchema] = Field(default_factory=list)
+
+
+class ProgramPlanSchema(BaseModel):
+    """Respuesta de `GET /admin/programs/{id}/plan`."""
+
+    program_id: UUID
+    program_code: str
+    program_name: str
+    total_semesters: int
+    total_credits: int
+    courses: list[ProgramPlanEntrySchema] = Field(default_factory=list)
+
+
+class SetRequirementSchema(BaseModel):
+    """Cuerpo de `PUT /admin/programs/{id}/plan/{course_id}/requirements/{required_id}`.
+
+    Solo lleva el tipo. Las tres materias implicadas —el programa, la que exige y la exigida—
+    van en la ruta, porque son las que identifican el requisito: la clave de
+    `program_course_requirements` es esa terna, y el tipo es el único dato editable.
+    """
+
+    requirement_type: RequirementType = Field(
+        description="PREREQUISITE (aprobada antes) o COREQUISITE (cursada a la vez)"
+    )
 
 
 class NewScheduleBlockSchema(BaseModel):

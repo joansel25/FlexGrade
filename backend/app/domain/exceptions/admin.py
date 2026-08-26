@@ -181,3 +181,61 @@ class OverlappingScheduleError(DomainError):
             "Dos franjas del horario del grupo se solapan",
             details={"day_of_week": day_of_week, "start_time": start_time},
         )
+
+
+class ImpossibleRequirementCycleError(DomainError):
+    """El requisito cerraría un ciclo que ninguna materia del ciclo podría satisfacer.
+
+    `MAT101` exige `MAT102` como prerrequisito y `MAT102` exige `MAT101`: para inscribir la
+    primera hay que haber aprobado la segunda, y para aprobar la segunda hay que haber inscrito
+    la primera. Las dos quedan ininscribibles para siempre, y nada avisa: la base acepta cada
+    fila por separado, el validador las rechaza una a una sin poder decir por qué, y el semáforo
+    las pinta bloqueadas sin salida. El error aparece meses después, cuando un estudiante se
+    queda atascado.
+
+    Un ciclo de PUROS correquisitos no es un error: «`FIS101` y `LAB101` se cursan juntas» es la
+    forma normal de decir que dos materias van en bloque, y la iteración 6.2 construyó la
+    exención de pares mutuos que lo hace inscribible. Lo que no se puede satisfacer es la mezcla.
+
+    Lleva la vuelta completa porque «hay un ciclo» no dice cuál de las aristas sobra.
+    """
+
+    def __init__(self, *, cycle: list[str]) -> None:
+        super().__init__(
+            "Ese requisito dejaría un ciclo que ninguna de las materias podría cumplir: "
+            + " → ".join(cycle),
+            details={"cycle": cycle},
+        )
+
+
+class RequirementWouldTrapEnrolledError(DomainError):
+    """Añadir el correquisito dejaría incompletas matrículas que ya nadie puede arreglar.
+
+    Los requisitos son RETROACTIVOS por decisión de la iteración 8.3, y en casi todos los casos
+    eso no hace daño: los prerrequisitos solo se validan al inscribir, así que una regla nueva
+    no puede romper una matrícula existente. Los correquisitos sí se recalculan en cada lectura,
+    y ahí aparece el único caso con víctima.
+
+    La diferencia la marca la ventana. Con la ventana ABIERTA, quien ya está inscrito ve el
+    pendiente en su lista de inscripciones y lo resuelve inscribiendo la materia que falta: el
+    aviso ya existe y llega solo. Con la ventana CERRADA ve que le falta algo y no puede
+    inscribir nada. Queda atrapado, y ninguna operación del sistema lo desatasca.
+
+    Por eso se rechaza solo en ese caso, y no siempre: prohibirlo también con la ventana abierta
+    impediría corregir un plan justo cuando todavía se puede corregir sin coste.
+
+    Lleva a cuántos afectaría porque la salida es una decisión —esperar a la siguiente ventana, o
+    abrir esta— y el número es lo que permite tomarla.
+    """
+
+    def __init__(self, *, course_id: UUID, required_code: str, enrolled_count: int) -> None:
+        super().__init__(
+            f"Hay {enrolled_count} matriculados en esta materia y la ventana está cerrada: "
+            f"añadir '{required_code}' como correquisito los dejaría incompletos sin que puedan "
+            "inscribirlo",
+            details={
+                "course_id": str(course_id),
+                "required_code": required_code,
+                "enrolled_count": enrolled_count,
+            },
+        )

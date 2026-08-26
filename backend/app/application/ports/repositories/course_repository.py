@@ -10,6 +10,7 @@ from app.application.dtos.pagination import Page
 from app.domain.entities.course import Course
 from app.domain.entities.course_requirement import CourseRequirement
 from app.domain.value_objects.course_code import CourseCode
+from app.domain.value_objects.requirement_type import RequirementType
 
 
 class CourseRepository(ABC):
@@ -272,6 +273,42 @@ class CourseRepository(ABC):
 
         Returns:
             `True` si la materia estaba en el plan y se quitó.
+        """
+
+    @abstractmethod
+    def save_requirement(
+        self,
+        *,
+        program_id: UUID,
+        course_id: UUID,
+        required_course_id: UUID,
+        requirement_type: RequirementType,
+    ) -> None:
+        """Deja el requisito cargado en el plan, esté o no.
+
+        Es idempotente por el mismo motivo que `save_plan_entry`: la clave de
+        `program_course_requirements` es la terna `(programa, materia, exigida)` y NO incluye el
+        tipo, así que volver a guardarla con otro tipo lo cambia en vez de crear una segunda
+        fila. Ese diseño es el que impide declarar que una materia es a la vez prerrequisito y
+        correquisito de otra, dos reglas que se contradicen.
+
+        Args:
+            program_id: plan en el que rige el requisito.
+            course_id: materia que lo impone.
+            required_course_id: materia exigida.
+            requirement_type: cómo se exige.
+        """
+
+    @abstractmethod
+    def remove_requirement(
+        self, *, program_id: UUID, course_id: UUID, required_course_id: UUID
+    ) -> bool:
+        """Retira el requisito del plan.
+
+        Returns:
+            `True` si había algo que quitar. `False` permite responder «no existe» en vez de
+            confirmar una operación que no hizo nada, que escondería el malentendido de quien
+            la pidió.
         """
 
     @abstractmethod

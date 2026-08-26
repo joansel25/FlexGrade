@@ -244,6 +244,43 @@ export const PLAN_DE_ESTUDIOS = {
   approved_credits: 4,
 };
 
+/**
+ * El plan tal como lo devuelve ADMINISTRACIÓN, que no es el mismo objeto.
+ *
+ * No trae el semáforo —aquí no hay persona sobre la que calcularlo— y sí trae `requirements`,
+ * que es justo lo que esa pantalla edita. Se declara aparte y no como una variante del plan del
+ * estudiante porque son dos respuestas distintas del servidor, y un doble que las mezcle
+ * dejaría pasar un error de forma que en producción rompería.
+ */
+export const PLAN_DE_ADMINISTRACION = {
+  program_id: "p1",
+  program_code: "ISIS",
+  program_name: "Ingeniería de Sistemas",
+  total_semesters: 10,
+  total_credits: 9,
+  courses: PLAN_DE_ESTUDIOS.courses.map(({ id, code, name, credits, suggested_semester }) => ({
+    id,
+    code,
+    name,
+    credits,
+    suggested_semester,
+    is_mandatory: true,
+    // MAT102 exige MAT101: es la dependencia que impide sacar MAT101 del plan, y la que la
+    // pantalla tiene que mostrar para que quitarla sea una decisión y no un tropiezo.
+    requirements:
+      id === "c2"
+        ? [
+            {
+              course_id: "c1",
+              code: "MAT101",
+              name: "Cálculo I",
+              requirement_type: "PREREQUISITE" as const,
+            },
+          ]
+        : [],
+  })),
+};
+
 /** Identificadores de las materias del plan, para filtrar como lo hace el backend. */
 const IDS_DEL_PLAN = new Set(PLAN_DE_ESTUDIOS.courses.map((c) => c.id));
 
@@ -452,7 +489,38 @@ export const handlers = [
   ),
 
   http.get(`${API_URL}/api/v1/admin/programs/:programId/plan`, () =>
-    HttpResponse.json({ ...PLAN_DE_ESTUDIOS, program_id: "p1" }),
+    HttpResponse.json(PLAN_DE_ADMINISTRACION),
+  ),
+
+  http.put(
+    `${API_URL}/api/v1/admin/programs/:programId/plan/:courseId/requirements/:requiredId`,
+    async ({ params, request }) => {
+      const { requirement_type: tipo } = (await request.json()) as { requirement_type: string };
+
+      // MAT101 exigir MAT102 cierra la vuelta con el requisito que ya existe al revés.
+      if (params.courseId === "c1" && params.requiredId === "c2") {
+        return respuestaDeError(409, "IMPOSSIBLE_REQUIREMENT_CYCLE", "Ciclo imposible", {
+          cycle: ["MAT101", "MAT102", "MAT101"],
+        });
+      }
+
+      // Un correquisito sobre una materia con matriculados y la ventana ya cerrada: el
+      // estudiante vería el pendiente y no podría inscribir nada para resolverlo.
+      if (params.courseId === "c4" && tipo === "COREQUISITE") {
+        return respuestaDeError(409, "REQUIREMENT_WOULD_TRAP_ENROLLED", "Quedarían atrapados", {
+          course_id: "c4",
+          required_code: "MAT101",
+          enrolled_count: 12,
+        });
+      }
+
+      return new HttpResponse(null, { status: 204 });
+    },
+  ),
+
+  http.delete(
+    `${API_URL}/api/v1/admin/programs/:programId/plan/:courseId/requirements/:requiredId`,
+    () => new HttpResponse(null, { status: 204 }),
   ),
 
   http.put(`${API_URL}/api/v1/admin/programs/:programId/plan/:courseId`, () =>
