@@ -66,6 +66,9 @@ class SQLAlchemyPeriodRepository(PeriodRepository):
         modelo.starts_at = period.starts_at
         modelo.ends_at = period.ends_at
         modelo.is_active = period.is_active
+        # Sin esta línea el cierre desactivaba el período pero no dejaba constancia, y el
+        # sistema aceptaba consolidarlo una segunda vez.
+        modelo.consolidated_at = period.consolidated_at
 
     @staticmethod
     def _a_modelo(period: EnrollmentPeriod) -> EnrollmentPeriodModel:
@@ -81,6 +84,7 @@ class SQLAlchemyPeriodRepository(PeriodRepository):
             starts_at=period.starts_at,
             ends_at=period.ends_at,
             is_active=period.is_active,
+            consolidated_at=period.consolidated_at,
         )
 
     @staticmethod
@@ -94,5 +98,6 @@ class SQLAlchemyPeriodRepository(PeriodRepository):
             starts_at=modelo.starts_at,
             ends_at=modelo.ends_at,
             is_active=modelo.is_active,
+            consolidated_at=modelo.consolidated_at,
             created_at=modelo.created_at,
         )

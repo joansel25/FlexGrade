@@ -71,6 +71,31 @@ class EnrollmentWriter(ABC):
     """Contrato de escritura de inscripciones."""
 
     @abstractmethod
+    def find_ungraded_offerings(self, enrollment_period_id: UUID) -> list[UUID]:
+        """Grupos del período con alguna inscripción viva sin calificar.
+
+        Devuelve los GRUPOS y no las inscripciones porque el siguiente paso de quien consolida
+        es concreto: hablar con esos docentes. Una lista de dos mil identificadores de
+        inscripción no dice con quién.
+
+        Cae en el índice parcial `ix_enrollments_pending_grade`, que existe justamente para esta
+        consulta.
+        """
+
+    @abstractmethod
+    def count_ungraded(self, enrollment_period_id: UUID) -> int:
+        """Cuántas inscripciones vivas del período siguen sin nota."""
+
+    @abstractmethod
+    def find_graded_in_period(self, enrollment_period_id: UUID) -> list[Enrollment]:
+        """Las inscripciones vivas y ya calificadas del período, para consolidar.
+
+        Las canceladas no salen: quien dio de baja la materia no la cursó, y llevarla al
+        expediente diría que sí. Cancelar la borra del semestre, que es la decisión que tomó la
+        Fase 3.
+        """
+
+    @abstractmethod
     def find_by_offering(self, offering_id: UUID) -> list[Enrollment]:
         """Devuelve las inscripciones VIVAS de un grupo, en orden de inscripción.
 

@@ -1,5 +1,5 @@
 /**
- * Ventanas de matrícula: abrirlas y activarlas.
+ * Ventanas de matrícula: abrirlas, activarlas y cerrar el semestre.
  *
  * ACTIVAR ES LA OPERACIÓN MÁS DELICADA DE TODA LA ADMINISTRACIÓN, y la pantalla lo trata como
  * tal. Cambia a la vez lo que ven todos los estudiantes: la que estuviera activa se cierra —el
@@ -20,7 +20,12 @@ import { useState } from "react";
 
 import { Alert, Button, Card, CardBody, CardHeader, CardTitle, EmptyState, Skeleton, TextField } from "@/components/ui";
 import type { EnrollmentPeriod } from "@/features/admin/api/types";
-import { useActivatePeriod, useCreatePeriod, usePeriods } from "@/features/admin/hooks";
+import {
+  useActivatePeriod,
+  useClosePeriod,
+  useCreatePeriod,
+  usePeriods,
+} from "@/features/admin/hooks";
 import { mensajeDeAdmin } from "@/features/admin/mensajes";
 
 export function PeriodsPage() {
@@ -174,9 +179,15 @@ function FormularioDePeriodo() {
 
 function FilaDePeriodo({ periodo }: { periodo: EnrollmentPeriod }) {
   const [confirmando, setConfirmando] = useState(false);
+  const [cerrando, setCerrando] = useState(false);
   const activacion = useActivatePeriod();
+  const cierre = useClosePeriod();
 
-  const fallo = activacion.isError ? mensajeDeAdmin(activacion.error) : null;
+  const fallo = activacion.isError
+    ? mensajeDeAdmin(activacion.error)
+    : cierre.isError
+      ? mensajeDeAdmin(cierre.error)
+      : null;
 
   return (
     <Card className={periodo.is_active ? "border-success-600/40" : undefined}>
@@ -235,6 +246,63 @@ function FilaDePeriodo({ periodo }: { periodo: EnrollmentPeriod }) {
             </Button>
           )}
         </div>
+
+        {periodo.consolidated_at !== null && (
+          <p className="text-ink-500 text-xs">
+            Semestre cerrado el {new Date(periodo.consolidated_at).toLocaleString("es-CO")}. Sus
+            notas están en el historial académico.
+          </p>
+        )}
+
+        {/* Cerrar solo tiene sentido en una ventana que ya no está activa y no se ha cerrado.
+            Ofrecerlo antes llevaría a un rechazo que la pantalla ya puede evitar. */}
+        {!periodo.is_active && periodo.consolidated_at === null && (
+          <div className="border-ink-100 border-t pt-3">
+            {cierre.isSuccess ? (
+              <Alert tono="exito" titulo="Semestre cerrado">
+                Se escribieron {cierre.data.records} registros en el historial,{" "}
+                {cierre.data.approved} de ellos aprobados. Esas materias ya cuentan como
+                prerrequisito.
+              </Alert>
+            ) : cerrando ? (
+              <div className="space-y-2">
+                {/* La consecuencia real y no un «¿estás seguro?»: esto es lo único que el
+                    sistema no puede deshacer. */}
+                <p className="text-ink-700 text-sm">
+                  Las notas de este semestre pasarán al historial académico de cada estudiante y
+                  contarán como prerrequisito. <strong>No se puede deshacer.</strong>
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variante="secundario"
+                    tamano="sm"
+                    onClick={() => setCerrando(false)}
+                    disabled={cierre.isPending}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    variante="peligro"
+                    tamano="sm"
+                    cargando={cierre.isPending}
+                    onClick={() => cierre.mutate(periodo.id)}
+                  >
+                    Sí, cerrar el semestre
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button
+                variante="secundario"
+                tamano="sm"
+                onClick={() => setCerrando(true)}
+                aria-label={`Cerrar el semestre ${periodo.code}`}
+              >
+                Cerrar el semestre
+              </Button>
+            )}
+          </div>
+        )}
 
         {fallo && (
           <Alert tono="error" titulo={fallo.titulo}>

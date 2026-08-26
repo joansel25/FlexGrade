@@ -42,6 +42,7 @@ from decimal import Decimal
 from typing import TypeVar
 from uuid import UUID
 from uuid import UUID as uuid_type
+from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -54,6 +55,7 @@ from app.infrastructure.persistence.sqlalchemy.models.administrator import Admin
 from app.infrastructure.persistence.sqlalchemy.models.base import Base
 from app.infrastructure.persistence.sqlalchemy.models.course import CourseModel
 from app.infrastructure.persistence.sqlalchemy.models.course_offering import CourseOfferingModel
+from app.infrastructure.persistence.sqlalchemy.models.enrollment import EnrollmentModel
 from app.infrastructure.persistence.sqlalchemy.models.enrollment_period import EnrollmentPeriodModel
 from app.infrastructure.persistence.sqlalchemy.models.professor import ProfessorModel
 from app.infrastructure.persistence.sqlalchemy.models.program import ProgramModel
@@ -439,12 +441,14 @@ def sembrar(session: Session) -> tuple[dict[str, int], dict[str, list[str]]]:
     espacios = _sembrar_espacios(session)
     periodo = _sembrar_periodo(session)
     grupos = _sembrar_grupos(session, periodo, materias, profesores, espacios)
-    _sembrar_cuentas(session, programas, password_hash)
+    estudiantes = _sembrar_cuentas(session, programas, password_hash)
+    inscripciones = _sembrar_inscripciones(session, periodo, grupos, estudiantes)
     reparto = _sembrar_historial(session, programas, materias)
 
     return {
         "programas": len(programas),
         "profesores": len(profesores),
+        "inscripciones": inscripciones,
         "materias": len(materias),
         "espacios": len(espacios),
         "grupos": len(grupos),
@@ -624,10 +628,112 @@ def _sembrar_grupos(
     return grupos
 
 
+def _sembrar_inscripciones(
+    session: Session,
+    periodo: EnrollmentPeriodModel,
+    grupos: list[CourseOfferingModel],
+    estudiantes: list[StudentModel],
+) -> int:
+    """Crea inscripciones REALES que cuadren con `enrolled_count`.
+
+    Hasta la Fase 9 el seed ponía el contador a mano y no creaba ninguna fila en `enrollments`.
+    Los reportes de ocupación cuadraban, pero la lista del docente salía vacía y la
+    consolidación no tenía nada que consolidar: se podía cerrar un semestre entero sin escribir
+    una sola línea de expediente, y nada avisaba.
+
+    **Solo se inscribe a estudiantes del programa al que pertenece la materia.** Inscribir a
+    cualquiera crearía datos que el propio sistema rechaza —`CourseNotInProgramError`— y que
+    aparecerían en el expediente de alguien como una materia de otra carrera.
+
+    **La mitad se deja SIN CALIFICAR a propósito.** Es lo que permite probar a mano el rechazo
+    del cierre: un seed con todo calificado dejaría ese camino sin ejercitar nunca.
+
+    Returns:
+        Cuántas inscripciones quedaron creadas.
+    """
+    # Qué estudiantes hay en cada programa. La materia pertenece a un plan, así que se cruza por
+    # ahí y no por el índice, que mezclaría carreras.
+    por_programa: dict[uuid_type, list[StudentModel]] = {}
+    for estudiante in estudiantes:
+        por_programa.setdefault(estudiante.program_id, []).append(estudiante)
+
+    planes = {(fila.program_id, fila.course_id) for fila in session.query(ProgramCourseModel).all()}
+    creadas = 0
+    # Quién está ya inscrito en cada MATERIA. Sin esto, alguien acabaría en los dos grupos de
+    # Cálculo I: cada grupo elegiría a los primeros candidatos por su cuenta. Es un dato que el
+    # propio sistema rechaza al inscribir —no se puede estar en dos grupos de la misma materia—
+    # y que al consolidar rompía el `UNIQUE` del historial.
+    ya_en_la_materia: dict[uuid_type, set[uuid_type]] = {}
+
+    for indice, grupo in enumerate(grupos):
+        inscritos_en_la_materia = ya_en_la_materia.setdefault(grupo.course_id, set())
+        candidatos = [
+            estudiante
+            for programa_id, alumnos in por_programa.items()
+            if (programa_id, grupo.course_id) in planes
+            for estudiante in alumnos
+            if estudiante.id not in inscritos_en_la_materia
+        ]
+
+        if not candidatos:
+            continue
+
+        # Se inscribe a tantos como diga el contador, hasta donde alcancen los candidatos, y el
+        # contador se ajusta a lo que de verdad hay: dejarlo por encima haría que los reportes
+        # de ocupación mintieran, que es peor que un número más bajo.
+        cuantos = min(grupo.enrolled_count, len(candidatos))
+        elegidos = candidatos[:cuantos]
+
+        for posicion, estudiante in enumerate(elegidos):
+            # Una de cada dos se queda sin nota, alternando por grupo para que haya grupos
+            # completos y grupos a medias.
+            califica = (indice + posicion) % 2 == 0
+            nota = Decimal("4.10") if (indice + posicion) % 4 == 0 else Decimal("2.70")
+
+            existente = (
+                session.query(EnrollmentModel)
+                .filter_by(
+                    student_id=estudiante.id,
+                    course_offering_id=grupo.id,
+                    enrollment_period_id=periodo.id,
+                )
+                .one_or_none()
+            )
+
+            if existente is not None:
+                creadas += 1
+                continue
+
+            session.add(
+                EnrollmentModel(
+                    id=uuid4(),
+                    student_id=estudiante.id,
+                    course_offering_id=grupo.id,
+                    enrollment_period_id=periodo.id,
+                    status="ENROLLED",
+                    final_grade=nota if califica else None,
+                    graded_at=datetime.now(UTC) if califica else None,
+                )
+            )
+            creadas += 1
+
+        inscritos_en_la_materia.update(e.id for e in elegidos)
+        grupo.enrolled_count = cuantos
+
+    session.flush()
+
+    return creadas
+
+
 def _sembrar_cuentas(
     session: Session, programas: dict[str, ProgramModel], password_hash: str
-) -> None:
-    """Crea la cuenta de administración y los 50 estudiantes de prueba."""
+) -> list[StudentModel]:
+    """Crea la cuenta de administración y los 50 estudiantes de prueba.
+
+    Devuelve los estudiantes porque `_sembrar_inscripciones` los necesita: hasta la Fase 9 el
+    seed simulaba la ocupación con un contador y sin filas en `enrollments`, y con eso la lista
+    del docente salía vacía y la consolidación no tenía nada que consolidar.
+    """
     admin = _obtener_o_crear(
         session,
         UserModel,
@@ -645,6 +751,7 @@ def _sembrar_cuentas(
     )
 
     codigos_de_programa = [code for code, _, _ in PROGRAMAS]
+    estudiantes: list[StudentModel] = []
 
     for numero in range(1, 51):
         codigo = f"20250{numero:04d}"
@@ -661,16 +768,20 @@ def _sembrar_cuentas(
 
         programa = programas[codigos_de_programa[(numero - 1) % len(codigos_de_programa)]]
 
-        _obtener_o_crear(
-            session,
-            StudentModel,
-            {"student_code": codigo},
-            user_id=cuenta.id,
-            program_id=programa.id,
-            current_semester=(numero % 8) + 1,
-            full_name=f"Estudiante De Prueba {numero:02d}",
-            enrollment_date=date(2022, 1, 15),
+        estudiantes.append(
+            _obtener_o_crear(
+                session,
+                StudentModel,
+                {"student_code": codigo},
+                user_id=cuenta.id,
+                program_id=programa.id,
+                current_semester=(numero % 8) + 1,
+                full_name=f"Estudiante De Prueba {numero:02d}",
+                enrollment_date=date(2022, 1, 15),
+            )
         )
+
+    return estudiantes
 
 
 def _sembrar_historial(

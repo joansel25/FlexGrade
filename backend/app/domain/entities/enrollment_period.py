@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import UUID
 
+from app.domain.exceptions.admin import PeriodAlreadyConsolidatedError
+
 
 @dataclass
 class EnrollmentPeriod:
@@ -24,6 +26,10 @@ class EnrollmentPeriod:
         starts_at: instante de apertura.
         ends_at: instante de cierre.
         is_active: si un administrador la ha activado.
+        consolidated_at: instante en que el semestre se cerró y sus notas pasaron al historial,
+            o `None` mientras no haya ocurrido. Es una FECHA y no un booleano: lo primero que se
+            pregunta cuando alguien reclama una nota es si el cierre fue antes o después de que
+            la corrigieran, y eso no se reconstruye a posteriori.
         created_at: instante de creación del registro.
     """
 
@@ -35,6 +41,7 @@ class EnrollmentPeriod:
     ends_at: datetime
     is_active: bool
     created_at: datetime | None = field(default=None)
+    consolidated_at: datetime | None = field(default=None)
 
     def is_open(self, now: datetime) -> bool:
         """Indica si en este instante se puede matricular.
@@ -53,6 +60,34 @@ class EnrollmentPeriod:
             `True` si la ventana admite inscripciones ahora mismo.
         """
         return self.is_active and self.starts_at <= now <= self.ends_at
+
+    def esta_consolidado(self) -> bool:
+        """Indica si el semestre ya se cerró y sus notas viajaron al historial.
+
+        Un período consolidado no admite nada más: ni matrículas, ni cambios de nota, ni una
+        segunda consolidación. Es el único estado irreversible del sistema, y por eso todo lo
+        que lo produce se comprueba antes en vez de después.
+        """
+        return self.consolidated_at is not None
+
+    def consolidate(self, *, now: datetime) -> None:
+        """Marca el semestre como cerrado.
+
+        Desactiva la ventana en el mismo gesto, y no como un paso aparte que alguien pueda
+        olvidar: un período consolidado y activo permitiría matricularse en un semestre cuyo
+        expediente ya se escribió, y esas inscripciones no llegarían nunca al historial porque
+        la consolidación ya pasó. La base lo respalda con un `CHECK`.
+
+        Raises:
+            PeriodAlreadyConsolidatedError: si ya se había consolidado. Repetirlo duplicaría
+                las filas del expediente, y el `UNIQUE` de `academic_history` lo rechazaría con
+                un error de restricción que no dice qué pasó.
+        """
+        if self.esta_consolidado():
+            raise PeriodAlreadyConsolidatedError(self.id, self.consolidated_at)
+
+        self.consolidated_at = now
+        self.is_active = False
 
     def time_remaining_seconds(self, now: datetime) -> int:
         """Segundos que quedan hasta el cierre de la ventana.

@@ -110,6 +110,29 @@ const TRADUCCIONES: Record<string, Traductor> = {
       "el mismo valor a ciegas podría deshacer el cambio de la otra persona.",
   }),
 
+  // ------------------------------------------------- cierre del semestre (9.3)
+  PERIOD_ALREADY_CONSOLIDATED: () => ({
+    titulo: "Ese semestre ya se cerró",
+    detalle:
+      "Sus notas están en el historial académico y no se vuelven a escribir. No hace falta " +
+      "hacer nada más.",
+  }),
+  PERIOD_STILL_OPEN: () => ({
+    titulo: "La ventana de matrícula sigue abierta",
+    detalle:
+      "Cerrar el semestre ahora dejaría fuera del historial a quien se matricule después, y " +
+      "nadie lo notaría hasta que le faltara un prerrequisito. Espera a la fecha de cierre o " +
+      "activa la ventana siguiente.",
+  }),
+  PERIOD_HAS_UNGRADED_ENROLLMENTS: (error) => ({
+    titulo: "Faltan notas por poner",
+    detalle: describirPendientes(error.details),
+  }),
+  ALREADY_IN_ACADEMIC_HISTORY: (error) => ({
+    titulo: "Algunas materias ya están en el historial de ese semestre",
+    detalle: describirYaRegistradas(error.details),
+  }),
+
   // --------------------------------------------------------------- planes
   COURSE_REQUIRED_BY_OTHERS: (error) => ({
     titulo: "Otras materias del plan exigen esta",
@@ -219,6 +242,51 @@ function describirAtrapados(details: Record<string, unknown>): string {
   }
 
   return "Espera a que se abra la ventana de matrícula para cargar este correquisito.";
+}
+
+/**
+ * Nombra los grupos a los que les falta nota.
+ *
+ * «Faltan notas» deja a quien cierra el semestre sin saber a quién perseguir. Con los códigos
+ * delante, sabe con qué docentes hablar, que es el único siguiente paso posible.
+ */
+function describirPendientes(details: Record<string, unknown>): string {
+  const cuantas = details.pending;
+  const grupos = details.offerings;
+  const codigos = Array.isArray(grupos)
+    ? grupos.filter((g): g is string => typeof g === "string")
+    : [];
+
+  const cuenta =
+    typeof cuantas === "number"
+      ? `Quedan ${cuantas} ${cuantas === 1 ? "inscripción" : "inscripciones"} sin calificar. `
+      : "Quedan inscripciones sin calificar. ";
+
+  if (codigos.length === 0) {
+    return `${cuenta}No hay forma de rellenar una nota que falta: un cero reprobaría a alguien por un trámite pendiente.`;
+  }
+
+  const listado = codigos.slice(0, 8).join(", ");
+  const resto = codigos.length > 8 ? ` y ${codigos.length - 8} más` : "";
+
+  return `${cuenta}En ${listado}${resto}. Habla con esos docentes: no hay forma de rellenar una nota que falta.`;
+}
+
+/** Nombra las materias que chocan, que es lo que permite revisar el caso concreto. */
+function describirYaRegistradas(details: Record<string, unknown>): string {
+  const materias = details.courses;
+  const codigos = Array.isArray(materias)
+    ? materias.filter((c): c is string => typeof c === "string")
+    : [];
+
+  if (codigos.length === 0) {
+    return "Suele ocurrir con dos vueltas del mismo semestre. Revisa el historial antes de repetir el cierre.";
+  }
+
+  return (
+    `${codigos.join(", ")} ya constan en ese semestre. Suele pasar cuando alguien cursó la ` +
+    "misma materia en las dos vueltas de la matrícula; hay que revisar esos casos a mano."
+  );
 }
 
 /** Dice cuántos hay inscritos, que es el número por debajo del cual no se puede bajar. */

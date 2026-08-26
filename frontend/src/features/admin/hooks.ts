@@ -20,6 +20,7 @@ import {
   crearPeriodo,
   listarEspacios,
   listarPeriodos,
+  cerrarPeriodo,
   listarProgramas,
   obtenerPlanDePrograma,
   ponerRequisito,
@@ -183,6 +184,17 @@ export function useAdjustCapacity() {
   return useMutation({
     mutationFn: ({ offeringId, totalCapacity }: { offeringId: string; totalCapacity: number }) =>
       ajustarCupo(offeringId, totalCapacity, token()),
+    onSuccess: invalidar,
+  });
+}
+
+/** Cierra el semestre. Irreversible: la pantalla confirma antes de llamarlo. */
+export function useClosePeriod() {
+  const token = useTokenObligatorio();
+  const invalidar = useInvalidarAdmin();
+
+  return useMutation({
+    mutationFn: (periodId: string) => cerrarPeriodo(periodId, token()),
     onSuccess: invalidar,
   });
 }

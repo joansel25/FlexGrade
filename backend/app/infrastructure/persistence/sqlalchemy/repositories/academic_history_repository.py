@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.application.ports.repositories.academic_history_repository import AcademicHistoryReader
+from app.domain.entities.academic_record import AcademicRecord
 from app.infrastructure.persistence.sqlalchemy.models.academic_history import AcademicHistoryModel
 
 
@@ -27,3 +29,38 @@ class SQLAlchemyAcademicHistoryRepository(AcademicHistoryReader):
             .where(AcademicHistoryModel.status == "APPROVED")
         )
         return set(self._session.execute(sentencia).scalars())
+
+    def find_recorded_courses(
+        self, student_ids: Sequence[UUID], academic_period: str
+    ) -> set[tuple[UUID, UUID]]:
+        if not student_ids:
+            return set()
+
+        sentencia = (
+            select(AcademicHistoryModel.student_id, AcademicHistoryModel.course_id)
+            .where(AcademicHistoryModel.student_id.in_(student_ids))
+            .where(AcademicHistoryModel.academic_period == academic_period)
+        )
+
+        return {(fila[0], fila[1]) for fila in self._session.execute(sentencia)}
+
+    def save_all(self, records: Sequence[AcademicRecord]) -> None:
+        if not records:
+            return
+
+        # `bulk_save_objects` y no `add` en un bucle: evita instanciar el estado de sesión de
+        # cada objeto, que con miles de filas es la diferencia entre una transacción corta y
+        # una que se queda abierta mientras la matrícula compite por las mismas tablas.
+        self._session.bulk_save_objects(
+            [
+                AcademicHistoryModel(
+                    id=registro.id,
+                    student_id=registro.student_id,
+                    course_id=registro.course_id,
+                    academic_period=registro.academic_period,
+                    final_grade=registro.final_grade.value,
+                    status=registro.status.value,
+                )
+                for registro in records
+            ]
+        )

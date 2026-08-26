@@ -239,3 +239,101 @@ class RequirementWouldTrapEnrolledError(DomainError):
                 "enrolled_count": enrolled_count,
             },
         )
+
+
+class PeriodAlreadyConsolidatedError(DomainError):
+    """El período ya se cerró: sus notas están en el historial y no se vuelven a escribir.
+
+    Consolidar dos veces duplicaría las filas del expediente. El `UNIQUE` de `academic_history`
+    lo rechazaría igualmente, pero con un error de restricción que no dice qué pasó ni cuándo
+    ocurrió el primer cierre; y quien lo lee necesita saber justamente eso.
+
+    **Es el único estado irreversible del sistema.** Por eso todo lo que lleva a él se comprueba
+    antes: una vez escrito el expediente, no hay operación que lo deshaga.
+    """
+
+    def __init__(self, period_id: UUID, consolidated_at: datetime | None) -> None:
+        super().__init__(
+            "Ese período ya se cerró y sus notas están en el historial",
+            details={
+                "period_id": str(period_id),
+                "consolidated_at": None if consolidated_at is None else consolidated_at.isoformat(),
+            },
+        )
+
+
+class PeriodStillOpenError(DomainError):
+    """La ventana de matrícula sigue abierta, así que el semestre no ha terminado.
+
+    Consolidar ahora escribiría el expediente de un semestre en el que todavía hay gente
+    entrando: quien se matriculara después no aparecería en el historial, y nadie se enteraría
+    hasta que le faltara un prerrequisito años más tarde.
+
+    La salida es cerrar la ventana —desactivar el período o esperar a su fecha de fin—, que es
+    una operación distinta y reversible.
+    """
+
+    def __init__(self, period_id: UUID, ends_at: datetime) -> None:
+        super().__init__(
+            "La ventana de matrícula sigue abierta; ciérrala antes de consolidar el semestre",
+            details={"period_id": str(period_id), "ends_at": ends_at.isoformat()},
+        )
+
+
+class PeriodHasUngradedEnrollmentsError(DomainError):
+    """Quedan inscripciones sin nota, y consolidar inventaría su resultado.
+
+    No hay ningún valor razonable con el que rellenarlas: un cero sería reprobar a alguien por
+    un trámite pendiente, y omitirlas dejaría el expediente incompleto sin que nada avisara.
+
+    Lleva CUÁNTAS quedan y de qué grupos, porque el siguiente paso es concreto —hablar con esos
+    docentes— y sin los códigos no se sabe con cuáles.
+    """
+
+    def __init__(self, *, period_id: UUID, pending: int, offerings: list[str]) -> None:
+        super().__init__(
+            f"Quedan {pending} inscripciones sin calificar en este período",
+            details={
+                "period_id": str(period_id),
+                "pending": pending,
+                "offerings": offerings,
+            },
+        )
+
+
+class AlreadyInAcademicHistoryError(DomainError):
+    """Alguna materia ya figura en el expediente para ese mismo semestre.
+
+    Ocurre cuando dos ventanas de matrícula comparten `academic_period` —una primera y una
+    segunda vuelta del mismo semestre— y alguien cursó la misma materia en las dos. Consolidar
+    la segunda chocaría con lo que dejó la primera.
+
+    Se comprueba antes de escribir para poder nombrar a quién afecta. El `UNIQUE` de
+    `academic_history` sigue ahí como red final, pero un error de restricción en mitad de una
+    transacción que escribe miles de filas no dice cuál de todas la rompió.
+    """
+
+    def __init__(self, *, academic_period: str, courses: list[str]) -> None:
+        super().__init__(
+            f"Algunas materias ya están en el historial del semestre {academic_period}",
+            details={"academic_period": academic_period, "courses": courses},
+        )
+
+
+class InconsistentConsolidationError(DomainError):
+    """Una inscripción llegó a la consolidación sin nota o sin grupo.
+
+    No debería ocurrir: la consulta filtra por nota no nula y los grupos salen de las propias
+    inscripciones. Si ocurre, dos piezas se desincronizaron, y saltárselo en silencio escribiría
+    un expediente incompleto sin que nada avisara —que es exactamente el fallo que la
+    consolidación existe para no cometer—.
+
+    Se prefiere abortar la transacción entera: un expediente a medias es peor que un cierre que
+    no ocurrió, porque el segundo se puede repetir y el primero no se puede deshacer.
+    """
+
+    def __init__(self, *, enrollment_id: UUID) -> None:
+        super().__init__(
+            "Una inscripción llegó a la consolidación en un estado imposible",
+            details={"enrollment_id": str(enrollment_id)},
+        )

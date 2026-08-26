@@ -16,6 +16,7 @@ import type {
   NewOffering,
   NewSpace,
   OccupancyReport,
+  Consolidation,
   Program,
   ProgramPlan,
 } from "@/features/admin/api/types";
@@ -118,6 +119,19 @@ export function consultarDisponibilidad(
     query: consulta,
     token,
     signal,
+  });
+}
+
+/**
+ * Cierra el semestre y lleva sus notas al historial académico.
+ *
+ * Es la única operación IRREVERSIBLE del sistema: lo que queda en el historial decide
+ * prerrequisitos y aparece en el expediente, y no hay forma de deshacerlo. Por eso la pantalla
+ * pide confirmación explícita antes de llamarla.
+ */
+export function cerrarPeriodo(periodId: string, token: string) {
+  return api.post<Consolidation>(`/api/v1/admin/enrollment-periods/${periodId}/close`, {
+    token,
   });
 }
 

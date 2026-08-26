@@ -53,6 +53,9 @@ class EnrollmentPeriodModel(Base):
         nullable=False,
         server_default=text("false"),
     )
+    consolidated_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         nullable=False,
@@ -62,6 +65,13 @@ class EnrollmentPeriodModel(Base):
     __table_args__ = (
         # Nombre corto: la convención lo expande a `ck_enrollment_periods_valid_range`.
         CheckConstraint("ends_at > starts_at", name="valid_range"),
+        # Un período consolidado no puede estar activo. Consolidar cierra el semestre: dejarlo
+        # abierto permitiría matricularse en uno cuyo expediente ya se escribió, y esas
+        # inscripciones no llegarían nunca al historial. El estado prohibido es INVISIBLE —nada
+        # falla, unas matrículas se pierden en silencio— y por eso lo sostiene la base.
+        CheckConstraint(
+            "consolidated_at IS NULL OR is_active = false", name="consolidated_is_closed"
+        ),
         # Índice PARCIAL y ÚNICO, que hace dos trabajos con una sola estructura:
         #
         # 1. Resuelve al instante "dame el período activo", la consulta que se ejecuta en casi

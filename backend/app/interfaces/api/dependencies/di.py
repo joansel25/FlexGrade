@@ -33,6 +33,7 @@ from app.application.use_cases.admin.activate_enrollment_period import (
     ActivateEnrollmentPeriodUseCase,
 )
 from app.application.use_cases.admin.adjust_offering_capacity import AdjustOfferingCapacityUseCase
+from app.application.use_cases.admin.consolidate_period import ConsolidatePeriodUseCase
 from app.application.use_cases.admin.create_course import CreateCourseUseCase
 from app.application.use_cases.admin.create_course_offering import CreateCourseOfferingUseCase
 from app.application.use_cases.admin.create_enrollment_period import CreateEnrollmentPeriodUseCase
@@ -468,6 +469,30 @@ GetOfferingRosterUseCaseDep = Annotated[
     GetOfferingRosterUseCase, Depends(get_offering_roster_use_case)
 ]
 SetGradeUseCaseDep = Annotated[SetGradeUseCase, Depends(get_set_grade_use_case)]
+
+
+def get_consolidate_period_use_case(
+    period_repository: PeriodRepositoryDep,
+    enrollment_repository: EnrollmentRepositoryDep,
+    offering_repository: OfferingRepositoryDep,
+    course_repository: CourseRepositoryDep,
+    academic_history: AcademicHistoryReaderDep,
+    unit_of_work: UnitOfWorkDep,
+) -> ConsolidatePeriodUseCase:
+    """Construye el caso de uso de cierre de período."""
+    return ConsolidatePeriodUseCase(
+        period_repository,
+        enrollment_repository,
+        offering_repository,
+        course_repository,
+        academic_history,
+        unit_of_work,
+    )
+
+
+ConsolidatePeriodUseCaseDep = Annotated[
+    ConsolidatePeriodUseCase, Depends(get_consolidate_period_use_case)
+]
 
 CreateSpaceUseCaseDep = Annotated[CreateSpaceUseCase, Depends(get_create_space_use_case)]
 ListSpacesUseCaseDep = Annotated[ListSpacesUseCase, Depends(get_list_spaces_use_case)]

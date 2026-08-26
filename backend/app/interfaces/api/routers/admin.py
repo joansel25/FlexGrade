@@ -25,6 +25,7 @@ from app.interfaces.api.dependencies.auth import require_admin
 from app.interfaces.api.dependencies.di import (
     ActivateEnrollmentPeriodUseCaseDep,
     AdjustOfferingCapacityUseCaseDep,
+    ConsolidatePeriodUseCaseDep,
     CreateCourseOfferingUseCaseDep,
     CreateCourseUseCaseDep,
     CreateEnrollmentPeriodUseCaseDep,
@@ -44,6 +45,7 @@ from app.interfaces.api.dependencies.di import (
 from app.interfaces.api.routers.courses import a_schema_de_grupo
 from app.interfaces.api.schemas.admin_schemas import (
     AvailableSpacesSchema,
+    ConsolidationSchema,
     CreateCourseSchema,
     CreateEnrollmentPeriodSchema,
     CreateOfferingSchema,
@@ -559,6 +561,57 @@ def remove_requirement(
     )
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/enrollment-periods/{period_id}/close",
+    response_model=ConsolidationSchema,
+    status_code=status.HTTP_200_OK,
+    summary="Cerrar el semestre y llevar sus notas al historial",
+    responses={
+        404: {"model": ErrorResponseSchema, "description": "El período no existe"},
+        409: {
+            "model": ErrorResponseSchema,
+            "description": (
+                "Ya se consolidó, la ventana sigue abierta, quedan notas por poner, o alguna "
+                "materia ya consta en ese semestre"
+            ),
+        },
+    },
+)
+def close_enrollment_period(
+    period_id: UUID,
+    use_case: ConsolidatePeriodUseCaseDep,
+) -> ConsolidationSchema:
+    """Convierte las notas del período en historial académico.
+
+    **Es la operación que cierra el ciclo académico y la única IRREVERSIBLE del sistema.** Lo que
+    queda en `academic_history` decide prerrequisitos y aparece en el expediente; no hay
+    operación que lo deshaga.
+
+    Por eso todo se comprueba antes de escribir nada, y los cuatro rechazos van por separado:
+
+    - `PERIOD_ALREADY_CONSOLIDATED`: repetirlo duplicaría el expediente.
+    - `PERIOD_STILL_OPEN`: escribiría el expediente de un semestre en el que todavía entra
+      gente, y quien se matriculara después no aparecería nunca en el historial.
+    - `PERIOD_HAS_UNGRADED_ENROLLMENTS`: no hay valor con el que rellenar una nota que falta.
+      `details.offerings` trae los grupos, porque el siguiente paso es hablar con esos docentes.
+    - `ALREADY_IN_ACADEMIC_HISTORY`: alguna materia ya consta en ese semestre.
+
+    Todo ocurre en una transacción: un cierre a medias dejaría estudiantes con medio expediente
+    y prerrequisitos que se cumplen o no según la materia, que es el peor fallo posible porque
+    no se parece a un fallo.
+    """
+    resumen = use_case.execute(period_id)
+
+    return ConsolidationSchema(
+        period_id=resumen.period_id,
+        period_code=resumen.period_code,
+        academic_period=resumen.academic_period,
+        consolidated_at=resumen.consolidated_at,
+        records=resumen.records,
+        approved=resumen.approved,
+    )
 
 
 def _a_schema_de_espacio(espacio: Space) -> SpaceSchema:

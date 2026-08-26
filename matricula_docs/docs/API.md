@@ -678,6 +678,72 @@ Ambas condiciones las impondría igualmente la base de datos —la restricción 
 
 Activa un período. Solo puede haber un período activo a la vez; activar uno nuevo desactiva el anterior **en la misma transacción**, porque el índice único parcial `ix_enrollment_periods_active` rechazaría el estado intermedio con dos activos.
 
+### POST /admin/enrollment-periods/{period_id}/close
+
+Cierra el semestre: convierte las notas del período en historial académico.
+
+**ES LA OPERACIÓN QUE CIERRA EL CICLO ACADÉMICO Y LA ÚNICA IRREVERSIBLE DEL SISTEMA.** Lo que
+queda en `academic_history` decide prerrequisitos y aparece en el expediente; no hay operación
+que lo deshaga.
+
+Sin ella, el sistema **funcionaba un solo semestre de su vida**: `academic_history` solo la
+escribía el seed, así que en producción habría quedado vacía, `find_approved_course_ids` habría
+devuelto vacío y nadie habría cumplido ningún prerrequisito a partir del segundo semestre.
+
+**Response 200**
+```json
+{
+  "period_id": "uuid",
+  "period_code": "2025-2-V1",
+  "academic_period": "2025-2",
+  "consolidated_at": "2026-02-01T10:00:00Z",
+  "records": 213,
+  "approved": 160
+}
+```
+
+Devuelve CIFRAS y no la lista de registros: un semestre son miles de filas y quien acaba de
+cerrar el período no las va a leer. Lo que necesita es confirmar de un vistazo que el número
+cuadra, porque es el último momento en que un error se detecta a tiempo para arreglarlo por otra
+vía.
+
+Todo ocurre **en una transacción**. Un cierre a medias dejaría estudiantes con medio expediente y
+prerrequisitos que se cumplen o no según la materia: el peor fallo posible, porque no se parece a
+un fallo. El `UNIQUE (student_id, course_id, academic_period)` es la red final, con la misma
+filosofía de dos defensas que impide el sobrecupo.
+
+Qué viaja y qué no:
+
+- Solo las inscripciones **vivas y calificadas**. Las canceladas no: quien dio de baja la materia
+  no la cursó, y llevarla al expediente diría que sí.
+- El expediente guarda la **materia**, no el grupo. Años después, a quien lee un historial le da
+  igual con qué docente se vio Cálculo I.
+- El `status` se **deriva** de la nota (`APPROVED` desde 3.0, `FAILED` por debajo) y no se
+  recibe: si quien construye el registro pudiera decidirlo, un 4.2 podría figurar como perdido.
+
+Al cerrar, el período queda **marcado y desactivado en el mismo gesto**. Un período consolidado y
+activo permitiría matricularse en un semestre cuyo expediente ya se escribió, y esas matrículas
+no llegarían nunca al historial; lo respalda un `CHECK` en la base.
+
+| Código HTTP | error.code | Situación |
+|---|---|---|
+| 404 | `PERIOD_NOT_FOUND` | El período no existe |
+| 409 | `PERIOD_ALREADY_CONSOLIDATED` | Ya se cerró. `details.consolidated_at` dice cuándo |
+| 409 | `PERIOD_STILL_OPEN` | La ventana sigue admitiendo inscripciones |
+| 409 | `PERIOD_HAS_UNGRADED_ENROLLMENTS` | Faltan notas. `details.offerings` trae los grupos |
+| 409 | `ALREADY_IN_ACADEMIC_HISTORY` | Alguna materia ya consta en ese semestre |
+
+**Los cuatro conflictos van separados porque llevan a acciones distintas**: no hacer nada, esperar
+a que cierre la ventana, perseguir notas concretas, o revisar un choque a mano.
+`PERIOD_HAS_UNGRADED_ENROLLMENTS` nombra los grupos —no las inscripciones— porque el siguiente
+paso es hablar con esos docentes, y dos mil identificadores no dicen con quién.
+
+Un **período consolidado ya no admite notas**: `PUT .../grades/{student_id}` responde
+`GRADING_PERIOD_CLOSED`. Cambiar una nota consolidada movería prerrequisitos que ya se usaron para
+matricular, y alguien podría estar cursando ahora mismo una materia que dejaría de poder cursar.
+
+`GET /admin/enrollment-periods` incluye desde esta iteración `consolidated_at` en cada ventana.
+
 ### POST /admin/courses
 
 Crea una nueva materia en el catálogo.

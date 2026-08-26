@@ -64,6 +64,23 @@ export interface EnrollmentPeriod {
   starts_at: string;
   ends_at: string;
   is_active: boolean;
+  /**
+   * Instante en que el semestre se cerró y sus notas pasaron al historial, o `null`.
+   *
+   * Es una FECHA y no un booleano porque lo primero que se pregunta cuando alguien reclama una
+   * nota es si el cierre fue antes o después de que la corrigieran.
+   */
+  consolidated_at: string | null;
+}
+
+/** Resumen de un cierre de período. */
+export interface Consolidation {
+  period_id: string;
+  period_code: string;
+  academic_period: string;
+  consolidated_at: string;
+  records: number;
+  approved: number;
 }
 
 /** Cuerpo de `POST /admin/enrollment-periods`. */

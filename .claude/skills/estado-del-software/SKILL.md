@@ -5,7 +5,7 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al cerrar la iteración 9.2 (registro de notas).**
+> **Actualizada al cerrar la iteración 9.3 (cierre y consolidación del período).**
 > Última verificación real: frontend con `npm run lint`, `type-check`, `test` (113 tests) y
 > `build` en verde; backend sin cambios desde la 8.1 (579 tests, `mypy --strict` limpio sobre
 > 162 archivos). Antes de esto:
@@ -302,8 +302,31 @@ donde importa.
 | 6 — Reglas por carrera | ✅ | `GET /students/me/study-plan` con semáforo, ruta `/plan` en el frontend |
 
 **Fase 9 — Cierre del ciclo académico** (en curso): 9.1 el docente como actor ✅
-(`8fe425c`) · 9.2 registro de notas ✅ (esta iteración) · 9.3 cierre y consolidación del período ·
-9.4 expediente del estudiante · 9.5 prueba de integración del ciclo completo.
+(`8fe425c`) · 9.2 registro de notas ✅ (`75bc0d6`) · 9.3 cierre y consolidación del período ✅
+(esta iteración, **incluye la 9.5**) · 9.4 expediente del estudiante.
+
+**EL CICLO ESTÁ CERRADO.** `POST /admin/enrollment-periods/{id}/close` convierte las notas del
+período en `academic_history`, y `tests/integration/test_academic_cycle.py` lo demuestra de punta
+a punta: matricular Cálculo I → calificar → cerrar → y solo entonces poder matricular Cálculo II,
+que la exige como prerrequisito. Esa prueba absorbe lo que iba a ser la 9.5: era el sitio natural
+para escribirla, porque es la única que demuestra que el sistema funciona más de un semestre.
+
+De la 9.3, lo que no se vuelve a discutir:
+
+- **Es la única operación IRREVERSIBLE del sistema**, así que TODO se comprueba antes de escribir
+  nada, y los cuatro rechazos van separados porque llevan a acciones distintas: no hacer nada,
+  esperar a que cierre la ventana, perseguir notas concretas, o revisar un choque a mano.
+- **`consolidated_at` es una FECHA y no un booleano.** Lo primero que se pregunta cuando alguien
+  reclama una nota es si el cierre fue antes o después de que la corrigieran, y eso no se
+  reconstruye a posteriori.
+- **`CHECK (consolidated_at IS NULL OR is_active = false)`.** Un período consolidado y activo
+  permitiría matricularse en un semestre cuyo expediente ya se escribió, y esas matrículas no
+  llegarían nunca al historial. El estado prohibido es INVISIBLE —nada falla, unas matrículas se
+  pierden en silencio— y por eso lo sostiene la base.
+- **El `status` se deriva de la nota**, no se recibe. Si quien construye el registro pudiera
+  decidirlo, un 4.2 podría acabar figurando como perdido.
+- **El expediente guarda la materia, no el grupo.** Años después, a quien lee un historial le da
+  igual con qué docente se vio Cálculo I.
 
 De la 9.2, lo que no se vuelve a discutir:
 
@@ -420,10 +443,14 @@ administración, que reutilizaba el del estudiante y por eso mandaba `status: "N
 todas las materias —un dato que se lee como un hecho sobre la oferta cuando solo significaba
 «no se calculó»—.
 
-**Nota de la suite de frontend:** `src/test/setup.ts` sube el `asyncUtilTimeout` de
-Testing Library a 5 s. El defecto de 1 s se agotaba en tres tests cuando los ficheros corren en
-paralelo en una máquina cargada, y fallaban por lentitud, no por un fallo real. No esconde nada:
-un test roto sigue agotando el plazo igual.
+**Nota de la suite de frontend: DOS PLAZOS, y el orden entre ellos importa.**
+`src/test/setup.ts` sube el `asyncUtilTimeout` de Testing Library a 5 s —el defecto de 1 s se
+agotaba con los ficheros en paralelo en una máquina cargada— y `vite.config.ts` sube el
+`testTimeout` de vitest a 15 s. Con los dos en 5 s, un `findBy*` lento agotaba el del TEST antes
+que el suyo, y el resultado era un «Test timed out» que no dice qué elemento faltaba: el peor
+mensaje posible para depurar, y el que hizo perder tiempo persiguiendo una falsa contención. Con
+15 s arriba, un test roto sigue fallando a los 5 s con el error útil. No esconde nada: lo que
+estaba escondiendo era el mensaje.
 
 **Fase 7 — Aulas y espacios físicos: COMPLETA.** 7.1 el espacio como entidad ✅ (`804fe31`) ·
 7.2 doble reserva imposible ✅ (`642ee0a`) · 7.3 consulta de disponibilidad ✅ (esta iteración).
@@ -513,11 +540,14 @@ Ausencias que sí son deuda, pendientes de decidir cuándo se pagan:
   plan.
 - **El rol `PROFESSOR` no tiene todavía pantalla de administración.** Se enlaza una cuenta a un
   docente por el seed o a mano; no hay endpoint que lo haga.
-- **EL SEED NO CREA INSCRIPCIONES.** Pone `course_offerings.enrolled_count` a mano para simular
-  ocupación, pero no hay filas en `enrollments`. Los reportes de ocupación cuadran; la lista del
-  docente sale vacía y la consolidación de la 9.3 no tendría nada que consolidar. Para probar a
-  mano hay que inscribir por la API. Conviene resolverlo antes o durante la 9.3, que es cuando
-  deja de ser una molestia y pasa a impedir la verificación.
+- ~~El seed no crea inscripciones~~ **RESUELTO en la 9.3.** `_sembrar_inscripciones` crea filas
+  reales que cuadran con `enrolled_count`, solo entre estudiantes del programa al que pertenece
+  la materia, y **deja la mitad sin calificar a propósito** para que el rechazo del cierre se
+  pueda probar a mano. Al escribirlo apareció un fallo que llevaba ahí desde siempre: el seed
+  inscribía a la misma persona en los DOS grupos de una materia —dato que el propio sistema
+  rechaza al inscribir— y al consolidar reventaba el `UNIQUE` del historial. De ahí salió también
+  la comprobación de duplicados DENTRO del lote en `ConsolidatePeriodUseCase`, que antes solo
+  miraba contra el historial existente.
 
 ## 5. Mapa rápido del código
 

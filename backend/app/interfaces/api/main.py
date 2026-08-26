@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.domain.exceptions.admin import (
+    AlreadyInAcademicHistoryError,
     CapacityBelowEnrolledError,
     ConcurrentOfferingUpdateError,
     CourseRequiredByOthersError,
@@ -23,8 +24,12 @@ from app.domain.exceptions.admin import (
     DuplicatePeriodCodeError,
     DuplicateSpaceCodeError,
     ImpossibleRequirementCycleError,
+    InconsistentConsolidationError,
     InvalidPeriodRangeError,
     OverlappingScheduleError,
+    PeriodAlreadyConsolidatedError,
+    PeriodHasUngradedEnrollmentsError,
+    PeriodStillOpenError,
     RequirementWouldTrapEnrolledError,
     SpaceCapacityExceededError,
     SpaceDoubleBookedError,
@@ -218,6 +223,15 @@ _MAPEO_ERRORES: dict[type[DomainError], tuple[int, str]] = {
     # Fase 8. Conflictos de estado al editar el catálogo y los planes.
     DuplicateSpaceCodeError: (409, "DUPLICATE_SPACE_CODE"),
     CourseRequiredByOthersError: (409, "COURSE_REQUIRED_BY_OTHERS"),
+    # Fase 9.3. Los cuatro rechazos del cierre van separados porque llevan a acciones
+    # distintas: no hacer nada, cerrar la ventana, perseguir notas, o revisar un choque.
+    PeriodAlreadyConsolidatedError: (409, "PERIOD_ALREADY_CONSOLIDATED"),
+    PeriodStillOpenError: (409, "PERIOD_STILL_OPEN"),
+    PeriodHasUngradedEnrollmentsError: (409, "PERIOD_HAS_UNGRADED_ENROLLMENTS"),
+    AlreadyInAcademicHistoryError: (409, "ALREADY_IN_ACADEMIC_HISTORY"),
+    # 500 y no 409: no es un estado del negocio sino una incoherencia entre dos piezas. Se
+    # aborta la transaccion entera porque un expediente a medias no se puede deshacer.
+    InconsistentConsolidationError: (500, "INCONSISTENT_CONSOLIDATION"),
     # Los dos rechazos de la edición de requisitos (8.3 fase B). Son 409 y no 400 porque el
     # cuerpo es correcto: lo que impide aplicarlo es el ESTADO del plan —una vuelta ya
     # existente— o el de la matrícula —gente ya inscrita con la ventana cerrada—.

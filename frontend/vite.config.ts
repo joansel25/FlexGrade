@@ -26,6 +26,15 @@ export default defineConfig({
     // del cliente HTTP falla en los tests con un error de interoperabilidad que no existe en
     // el navegador. happy-dom no toca esos globales, y además arranca bastante más rápido.
     environment: "happy-dom",
+    // DOS PLAZOS, y el orden entre ellos importa. `asyncUtilTimeout` (5 s, en `setup.ts`) es lo
+    // que espera un `findBy*`; este es lo que espera el test entero. Con los dos en 5 s, un
+    // `findBy*` lento agotaba el del test ANTES que el suyo, y el resultado era un «Test timed
+    // out» que no dice qué elemento faltaba: el peor mensaje posible para depurar.
+    //
+    // Con 15 s aquí, un test roto sigue fallando a los 5 s con el error útil —«no encontré tal
+    // elemento»— y uno lento pero correcto termina. No esconde nada: lo que estaba escondiendo
+    // era el mensaje.
+    testTimeout: 15_000,
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     css: true,

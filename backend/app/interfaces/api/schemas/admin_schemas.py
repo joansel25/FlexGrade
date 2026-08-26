@@ -241,6 +241,23 @@ class ProgramPlanSchema(BaseModel):
     courses: list[ProgramPlanEntrySchema] = Field(default_factory=list)
 
 
+class ConsolidationSchema(BaseModel):
+    """Respuesta de `POST /admin/enrollment-periods/{id}/close`.
+
+    Devuelve CIFRAS y no la lista de registros escritos. Un semestre son miles de filas y quien
+    acaba de cerrar el período no las va a leer: lo que necesita es confirmar de un vistazo que
+    el número cuadra con lo que esperaba, porque la operación no se deshace y ese es el último
+    momento en que un error se detecta a tiempo para arreglarlo por otra vía.
+    """
+
+    period_id: UUID
+    period_code: str
+    academic_period: str
+    consolidated_at: datetime
+    records: int = Field(description="Filas escritas en el historial académico")
+    approved: int = Field(description="Cuántas de ellas quedaron aprobadas")
+
+
 class SetRequirementSchema(BaseModel):
     """Cuerpo de `PUT /admin/programs/{id}/plan/{course_id}/requirements/{required_id}`.
 

@@ -35,6 +35,7 @@ from app.application.ports.repositories.space_repository import SpaceRepository
 from app.application.ports.repositories.student_repository import StudentRepository
 from app.application.ports.repositories.user_repository import UserRepository
 from app.application.ports.unit_of_work import UnitOfWork
+from app.domain.entities.academic_record import AcademicRecord
 from app.domain.entities.course import Course
 from app.domain.entities.course_offering import CourseOffering
 from app.domain.entities.course_requirement import CourseRequirement
@@ -50,6 +51,7 @@ from app.domain.services.space_conflict_detector import SpaceReservation
 from app.domain.value_objects.course_code import CourseCode
 from app.domain.value_objects.email import Email
 from app.domain.value_objects.enrollment_status import EnrollmentStatus
+from app.domain.value_objects.history_status import HistoryStatus
 from app.domain.value_objects.requirement_type import RequirementType
 from app.domain.value_objects.student_code import StudentCode
 from app.domain.value_objects.user_role import UserRole
@@ -856,6 +858,36 @@ class InMemoryEnrollmentRepository(EnrollmentRepository):
             and e.is_active()
         ]
 
+    def find_ungraded_offerings(self, enrollment_period_id: UUID) -> list[UUID]:
+        return sorted(
+            {
+                e.course_offering_id
+                for e in self._enrollments.values()
+                if e.enrollment_period_id == enrollment_period_id
+                and e.status is EnrollmentStatus.ENROLLED
+                and e.final_grade is None
+            },
+            key=str,
+        )
+
+    def count_ungraded(self, enrollment_period_id: UUID) -> int:
+        return sum(
+            1
+            for e in self._enrollments.values()
+            if e.enrollment_period_id == enrollment_period_id
+            and e.status is EnrollmentStatus.ENROLLED
+            and e.final_grade is None
+        )
+
+    def find_graded_in_period(self, enrollment_period_id: UUID) -> list[Enrollment]:
+        return [
+            e
+            for e in self._enrollments.values()
+            if e.enrollment_period_id == enrollment_period_id
+            and e.status is EnrollmentStatus.ENROLLED
+            and e.final_grade is not None
+        ]
+
     def find_by_offering(self, offering_id: UUID) -> list[Enrollment]:
         """Solo las VIVAS, como el adaptador: quien canceló no cursó la materia."""
         vivas = [
@@ -933,7 +965,12 @@ class FakeUnitOfWork(UnitOfWork):
 
 
 class InMemoryAcademicHistory(AcademicHistoryReader):
-    """Historial academico respaldado por un diccionario."""
+    """Historial academico respaldado por un diccionario.
+
+    Desde la 9.3 el puerto tambien ESCRIBE: la consolidacion del periodo es lo unico que crea
+    filas ahi. Los registros escritos quedan en `registros`, publica, para que los tests puedan
+    comprobar QUE se escribio, que es lo que de verdad importa de esa operacion.
+    """
 
     def __init__(self, aprobadas: dict[UUID, set[UUID]] | None = None) -> None:
         """Construye el doble.
@@ -942,6 +979,41 @@ class InMemoryAcademicHistory(AcademicHistoryReader):
             aprobadas: identificadores de las materias aprobadas, por estudiante.
         """
         self._aprobadas = aprobadas or {}
+        self.registros: list[AcademicRecord] = []
+        self._registrados: set[tuple[UUID, UUID, str]] = set()
 
     def find_approved_course_ids(self, student_id: UUID) -> set[UUID]:
-        return self._aprobadas.get(student_id, set())
+        # Lo declarado en el constructor MAS lo que haya escrito una consolidacion durante el
+        # test. Sin lo segundo, el test que comprueba el ciclo completo no veria el efecto de
+        # cerrar el periodo, que es justo lo que quiere comprobar.
+        aprobadas = set(self._aprobadas.get(student_id, set()))
+        aprobadas |= {
+            r.course_id
+            for r in self.registros
+            if r.student_id == student_id and r.status is HistoryStatus.APPROVED
+        }
+
+        return aprobadas
+
+    def find_recorded_courses(
+        self, student_ids: Sequence[UUID], academic_period: str
+    ) -> set[tuple[UUID, UUID]]:
+        pedidos = set(student_ids)
+
+        return {
+            (estudiante, materia)
+            for estudiante, materia, semestre in self._registrados
+            if semestre == academic_period and estudiante in pedidos
+        }
+
+    def save_all(self, records: Sequence[AcademicRecord]) -> None:
+        self.registros.extend(records)
+        self._registrados |= {(r.student_id, r.course_id, r.academic_period) for r in records}
+
+    def registrar(self, *, student_id: UUID, course_id: UUID, academic_period: str) -> None:
+        """Declara una fila preexistente, sin pasar por la consolidacion.
+
+        Permite montar el escenario de dos ventanas del mismo semestre sin tener que consolidar
+        una primera de mentira.
+        """
+        self._registrados.add((student_id, course_id, academic_period))

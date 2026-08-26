@@ -56,6 +56,39 @@ class SQLAlchemyEnrollmentRepository(EnrollmentRepository):
 
     # ----------------------------------------------------------------- escritura
 
+    def find_ungraded_offerings(self, enrollment_period_id: UUID) -> list[UUID]:
+        sentencia = (
+            select(EnrollmentModel.course_offering_id)
+            .where(EnrollmentModel.enrollment_period_id == enrollment_period_id)
+            .where(EnrollmentModel.status == EnrollmentStatus.ENROLLED.value)
+            .where(EnrollmentModel.final_grade.is_(None))
+            .distinct()
+        )
+
+        return list(self._session.execute(sentencia).scalars())
+
+    def count_ungraded(self, enrollment_period_id: UUID) -> int:
+        sentencia = (
+            select(func.count())
+            .select_from(EnrollmentModel)
+            .where(EnrollmentModel.enrollment_period_id == enrollment_period_id)
+            .where(EnrollmentModel.status == EnrollmentStatus.ENROLLED.value)
+            .where(EnrollmentModel.final_grade.is_(None))
+        )
+
+        return int(self._session.execute(sentencia).scalar_one())
+
+    def find_graded_in_period(self, enrollment_period_id: UUID) -> list[Enrollment]:
+        sentencia = (
+            select(EnrollmentModel)
+            .where(EnrollmentModel.enrollment_period_id == enrollment_period_id)
+            .where(EnrollmentModel.status == EnrollmentStatus.ENROLLED.value)
+            .where(EnrollmentModel.final_grade.is_not(None))
+            .order_by(EnrollmentModel.enrolled_at)
+        )
+
+        return [self._a_entidad(m) for m in self._session.execute(sentencia).scalars()]
+
     def find_by_offering(self, offering_id: UUID) -> list[Enrollment]:
         """Todas las inscripciones VIVAS de un grupo, para pasar lista y calificar.
 

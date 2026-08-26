@@ -419,6 +419,8 @@ const PERIODO_INACTIVO = {
   starts_at: "2026-01-10T13:00:00Z",
   ends_at: "2026-01-20T23:00:00Z",
   is_active: false,
+  // `null` es «todavía no cerrado», que es el estado normal durante todo el semestre.
+  consolidated_at: null as string | null,
 };
 
 /**
@@ -432,7 +434,7 @@ export const periodosDePrueba: (typeof PERIODO_INACTIVO)[] = [];
 export function resetearPeriodos() {
   periodosDePrueba.length = 0;
   periodosDePrueba.push(
-    { ...PERIODO_ABIERTO, academic_period: "2025-2", is_active: true },
+    { ...PERIODO_ABIERTO, academic_period: "2025-2", is_active: true, consolidated_at: null },
     { ...PERIODO_INACTIVO },
   );
 }
@@ -562,6 +564,52 @@ export const handlers = [
     }
 
     return HttpResponse.json({ ...GRUPOS.offerings[0], total_capacity: cuerpo.total_capacity });
+  }),
+
+  http.post(`${API_URL}/api/v1/admin/enrollment-periods/:id/close`, ({ params }) => {
+    const periodo = periodosDePrueba.find((p) => p.id === params.id);
+
+    if (periodo === undefined) {
+      return respuestaDeError(404, "PERIOD_NOT_FOUND", "No existe", {});
+    }
+
+    if (periodo.consolidated_at !== null) {
+      return respuestaDeError(409, "PERIOD_ALREADY_CONSOLIDATED", "Ya se cerró", {
+        period_id: periodo.id,
+        consolidated_at: periodo.consolidated_at,
+      });
+    }
+
+    // La ventana activa no se puede cerrar: el sistema lo rechaza porque escribiría el
+    // expediente de un semestre en el que todavía entra gente.
+    if (periodo.is_active) {
+      return respuestaDeError(409, "PERIOD_STILL_OPEN", "Sigue abierta", {
+        period_id: periodo.id,
+        ends_at: periodo.ends_at,
+      });
+    }
+
+    // `p-2026` se deja con notas pendientes: es el camino que la pantalla tiene que explicar
+    // nombrando los grupos, y sin él quedaría sin ejercitar.
+    if (periodo.id === "p-2026") {
+      return respuestaDeError(
+        409,
+        "PERIOD_HAS_UNGRADED_ENROLLMENTS",
+        "Faltan notas",
+        { period_id: periodo.id, pending: 3, offerings: ["MAT101-01", "FIS101-02"] },
+      );
+    }
+
+    periodo.consolidated_at = "2026-02-01T10:00:00Z";
+
+    return HttpResponse.json({
+      period_id: periodo.id,
+      period_code: periodo.code,
+      academic_period: periodo.academic_period,
+      consolidated_at: periodo.consolidated_at,
+      records: 42,
+      approved: 31,
+    });
   }),
 
   http.get(`${API_URL}/api/v1/admin/programs`, () =>
