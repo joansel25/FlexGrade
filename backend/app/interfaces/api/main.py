@@ -16,8 +16,8 @@ from fastapi.responses import JSONResponse
 
 from app.domain.exceptions.admin import (
     CapacityBelowEnrolledError,
-    CourseRequiredByOthersError,
     ConcurrentOfferingUpdateError,
+    CourseRequiredByOthersError,
     DuplicateCourseCodeError,
     DuplicateOfferingGroupError,
     DuplicatePeriodCodeError,

@@ -54,7 +54,5 @@ class RefreshTokenUseCase:
             # recargar la página, y sin ella el frontend no sabría con qué rol entró. El usuario
             # ya está cargado aquí arriba para comprobar que sigue activo: no cuesta una
             # consulta más.
-            user=AuthenticatedUserDTO(
-                id=usuario.id, email=usuario.email.value, role=usuario.role
-            ),
+            user=AuthenticatedUserDTO(id=usuario.id, email=usuario.email.value, role=usuario.role),
         )

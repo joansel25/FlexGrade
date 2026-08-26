@@ -116,9 +116,7 @@ def test_poner_una_materia_en_el_plan_la_deja_ahi() -> None:
     nueva = crear_materia(code="PRG101")
     catalogo.save(nueva)
 
-    SetPlanCourseUseCase(
-        InMemoryProgramRepository([programa]), catalogo, FakeUnitOfWork()
-    ).execute(
+    SetPlanCourseUseCase(InMemoryProgramRepository([programa]), catalogo, FakeUnitOfWork()).execute(
         program_id=programa.id, course_id=nueva.id, suggested_semester=1, is_mandatory=True
     )
 
@@ -133,9 +131,7 @@ def test_volver_a_ponerla_actualiza_en_vez_de_duplicar() -> None:
     antemano cuál pedir, y la interfaz consultarlo antes de cada guardado para acertar.
     """
     programa, calculo_i, _, catalogo = _plan()
-    caso = SetPlanCourseUseCase(
-        InMemoryProgramRepository([programa]), catalogo, FakeUnitOfWork()
-    )
+    caso = SetPlanCourseUseCase(InMemoryProgramRepository([programa]), catalogo, FakeUnitOfWork())
 
     caso.execute(
         program_id=programa.id, course_id=calculo_i.id, suggested_semester=3, is_mandatory=False
@@ -151,9 +147,7 @@ def test_no_se_puede_poner_una_materia_en_un_programa_que_no_existe() -> None:
     _, calculo_i, _, catalogo = _plan()
 
     with pytest.raises(ProgramNotFoundError):
-        SetPlanCourseUseCase(
-            InMemoryProgramRepository([]), catalogo, FakeUnitOfWork()
-        ).execute(
+        SetPlanCourseUseCase(InMemoryProgramRepository([]), catalogo, FakeUnitOfWork()).execute(
             program_id=uuid4(), course_id=calculo_i.id, suggested_semester=1, is_mandatory=True
         )
 
@@ -207,9 +201,9 @@ def test_el_plan_de_administracion_no_trae_semaforo() -> None:
     """
     programa, _, _, catalogo = _plan()
 
-    plan = GetProgramStudyPlanUseCase(
-        InMemoryProgramRepository([programa]), catalogo
-    ).execute(programa.id)
+    plan = GetProgramStudyPlanUseCase(InMemoryProgramRepository([programa]), catalogo).execute(
+        programa.id
+    )
 
     assert plan.program_code == "ISIS"
     assert len(plan.entries) == 2

@@ -30,35 +30,36 @@ from app.interfaces.api.dependencies.di import (
     CreateEnrollmentPeriodUseCaseDep,
     CreateSpaceUseCaseDep,
     FindAvailableSpacesUseCaseDep,
+    GenerateEnrollmentReportUseCaseDep,
+    GenerateOccupancyReportUseCaseDep,
     GetProgramStudyPlanUseCaseDep,
+    ListEnrollmentPeriodsUseCaseDep,
     ListSpacesUseCaseDep,
     ProgramRepositoryDep,
     RemovePlanCourseUseCaseDep,
     SetPlanCourseUseCaseDep,
-    GenerateEnrollmentReportUseCaseDep,
-    GenerateOccupancyReportUseCaseDep,
-    ListEnrollmentPeriodsUseCaseDep,
 )
 from app.interfaces.api.routers.courses import a_schema_de_grupo
-from app.interfaces.api.schemas.catalog_schemas import StudyPlanEntrySchema, StudyPlanSchema
 from app.interfaces.api.schemas.admin_schemas import (
     AvailableSpacesSchema,
     CreateCourseSchema,
+    CreateEnrollmentPeriodSchema,
+    CreateOfferingSchema,
     CreateSpaceSchema,
+    EnrollmentPeriodSchema,
     ProgramSchema,
     ProgramsSchema,
     SetPlanCourseSchema,
-    SpacesSchema,
-    CreateEnrollmentPeriodSchema,
-    CreateOfferingSchema,
-    EnrollmentPeriodSchema,
     SpaceSchema,
+    SpacesSchema,
     UpdateCapacitySchema,
 )
 from app.interfaces.api.schemas.catalog_schemas import (
     CourseSchema,
     OfferingDetailSchema,
     PageSchema,
+    StudyPlanEntrySchema,
+    StudyPlanSchema,
 )
 from app.interfaces.api.schemas.error_schemas import ErrorResponseSchema
 from app.interfaces.api.schemas.report_schemas import (
@@ -350,9 +351,7 @@ def list_spaces(
     """
     espacios = use_case.execute(space_type=space_type, campus=campus)
 
-    return SpacesSchema(
-        items=[_a_schema_de_espacio(e) for e in espacios], total=len(espacios)
-    )
+    return SpacesSchema(items=[_a_schema_de_espacio(e) for e in espacios], total=len(espacios))
 
 
 @router.get(
@@ -372,9 +371,7 @@ def list_programs(repositorio: ProgramRepositoryDep) -> ProgramsSchema:
 
     return ProgramsSchema(
         items=[
-            ProgramSchema(
-                id=p.id, code=p.code, name=p.name, total_semesters=p.total_semesters
-            )
+            ProgramSchema(id=p.id, code=p.code, name=p.name, total_semesters=p.total_semesters)
             for p in programas
         ],
         total=len(programas),

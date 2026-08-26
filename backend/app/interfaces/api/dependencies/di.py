@@ -37,17 +37,17 @@ from app.application.use_cases.admin.create_course import CreateCourseUseCase
 from app.application.use_cases.admin.create_course_offering import CreateCourseOfferingUseCase
 from app.application.use_cases.admin.create_enrollment_period import CreateEnrollmentPeriodUseCase
 from app.application.use_cases.admin.find_available_spaces import FindAvailableSpacesUseCase
+from app.application.use_cases.admin.generate_enrollment_report import (
+    GenerateEnrollmentReportUseCase,
+)
+from app.application.use_cases.admin.generate_occupancy_report import GenerateOccupancyReportUseCase
+from app.application.use_cases.admin.list_enrollment_periods import ListEnrollmentPeriodsUseCase
 from app.application.use_cases.admin.manage_spaces import CreateSpaceUseCase, ListSpacesUseCase
 from app.application.use_cases.admin.manage_study_plan import (
     GetProgramStudyPlanUseCase,
     RemovePlanCourseUseCase,
     SetPlanCourseUseCase,
 )
-from app.application.use_cases.admin.generate_enrollment_report import (
-    GenerateEnrollmentReportUseCase,
-)
-from app.application.use_cases.admin.generate_occupancy_report import GenerateOccupancyReportUseCase
-from app.application.use_cases.admin.list_enrollment_periods import ListEnrollmentPeriodsUseCase
 from app.application.use_cases.auth.authenticate_user import AuthenticateUserUseCase
 from app.application.use_cases.auth.refresh_token import RefreshTokenUseCase
 from app.application.use_cases.catalog.get_course_detail import GetCourseDetailUseCase

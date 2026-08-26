@@ -10,15 +10,15 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Response, status
 
+from app.domain.exceptions.authentication import InvalidTokenError
 from app.interfaces.api.dependencies.auth import CurrentUserDep
 from app.interfaces.api.dependencies.di import AuthenticateUserUseCaseDep, RefreshTokenUseCaseDep
-from app.domain.exceptions.authentication import InvalidTokenError
 from app.interfaces.api.schemas.auth_schemas import (
     AuthenticatedUserSchema,
-    RefreshResponseSchema,
     LoginRequestSchema,
     LoginResponseSchema,
     RefreshRequestSchema,
+    RefreshResponseSchema,
     TokenPairSchema,
 )
 from app.interfaces.api.schemas.error_schemas import ErrorResponseSchema

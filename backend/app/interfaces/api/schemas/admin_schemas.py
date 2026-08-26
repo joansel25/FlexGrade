@@ -7,11 +7,11 @@ from __future__ import annotations
 
 from datetime import datetime
 from datetime import time as _time
-
-from app.domain.value_objects.space_type import SpaceType
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+
+from app.domain.value_objects.space_type import SpaceType
 
 
 class CreateEnrollmentPeriodSchema(BaseModel):
@@ -191,9 +191,7 @@ class SetPlanCourseSchema(BaseModel):
     suggested_semester: int = Field(
         ge=1, description="Semestre en que el plan la sugiere", examples=[1]
     )
-    is_mandatory: bool = Field(
-        default=True, description="Obligatoria para graduarse, o electiva"
-    )
+    is_mandatory: bool = Field(default=True, description="Obligatoria para graduarse, o electiva")
 
 
 class NewScheduleBlockSchema(BaseModel):
