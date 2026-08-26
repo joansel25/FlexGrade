@@ -92,6 +92,25 @@ class SQLAlchemyOfferingRepository(OfferingRepository):
 
         return [self._a_entidad(m, docentes=docentes, horarios=horarios) for m in modelos]
 
+    def find_by_professor(
+        self, professor_id: UUID, enrollment_period_id: UUID
+    ) -> list[CourseOffering]:
+        sentencia = (
+            select(CourseOfferingModel)
+            .where(CourseOfferingModel.professor_id == professor_id)
+            .where(CourseOfferingModel.enrollment_period_id == enrollment_period_id)
+            .order_by(CourseOfferingModel.group_number)
+        )
+        modelos = list(self._session.execute(sentencia).scalars())
+
+        if not modelos:
+            return []
+
+        docentes = self._docentes_de([m.professor_id for m in modelos])
+        horarios = self._horarios_de([m.id for m in modelos])
+
+        return [self._a_entidad(m, docentes=docentes, horarios=horarios) for m in modelos]
+
     def find_space_reservations(
         self, space_ids: Sequence[UUID], enrollment_period_id: UUID
     ) -> list[SpaceReservation]:

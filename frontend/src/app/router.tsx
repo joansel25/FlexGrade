@@ -17,6 +17,8 @@ import { CoursesPage as AdminCoursesPage } from "@/features/admin/CoursesPage";
 import { OfferingsPage } from "@/features/admin/OfferingsPage";
 import { PeriodsPage } from "@/features/admin/PeriodsPage";
 import { ReportsPage } from "@/features/admin/ReportsPage";
+import { RequireProfessor } from "@/features/auth/components/RequireProfessor";
+import { TeachingPage } from "@/features/teaching/TeachingPage";
 import { SpacesPage } from "@/features/admin/SpacesPage";
 import { StudyPlansPage } from "@/features/admin/StudyPlansPage";
 import { LoginPage } from "@/features/auth/LoginPage";
@@ -168,6 +170,15 @@ export function AppRoutes() {
                 <ReportsPage />
               </AdminLayout>
             </RequireAdmin>
+          }
+        />
+
+        <Route
+          path="/docencia"
+          element={
+            <RequireProfessor>
+              <TeachingPage />
+            </RequireProfessor>
           }
         />
 

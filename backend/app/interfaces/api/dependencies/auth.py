@@ -21,14 +21,21 @@ from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.application.dtos.auth_dto import TokenPayload, TokenType
+from app.domain.entities.professor import Professor
 from app.domain.entities.student import Student
 from app.domain.exceptions.authentication import (
     AdminRequiredError,
     MissingTokenError,
+    ProfessorProfileNotFoundError,
+    ProfessorRequiredError,
     StudentProfileNotFoundError,
 )
 from app.domain.value_objects.user_role import UserRole
-from app.interfaces.api.dependencies.di import AuthServiceDep, StudentRepositoryDep
+from app.interfaces.api.dependencies.di import (
+    AuthServiceDep,
+    ProfessorReaderDep,
+    StudentRepositoryDep,
+)
 
 # `auto_error=False` para decidir nosotros la respuesta ante un header ausente: el 403 que
 # devuelve HTTPBearer por defecto no distingue "no te has autenticado" de "no tienes permiso",
@@ -126,3 +133,55 @@ def get_current_student(
 
 
 CurrentStudentDep = Annotated[Student, Depends(get_current_student)]
+
+
+def require_professor(current_user: CurrentUserDep) -> TokenPayload:
+    """Exige que el solicitante tenga rol de docente.
+
+    Se separa de `require_admin` en vez de generalizar a «uno de estos roles» porque los dos
+    permisos responden preguntas distintas y se conceden por motivos distintos. Un
+    administrador NO puede calificar por el hecho de ser administrador: quien conoce la nota es
+    quien dictó la clase, y dejar que la ponga cualquiera con permiso amplio borra esa
+    responsabilidad.
+
+    Raises:
+        ProfessorRequiredError: si el rol no es PROFESSOR. Es 403 y no 401 porque el usuario sí
+            está autenticado; lo que falta es el permiso.
+    """
+    if current_user.role is not UserRole.PROFESSOR:
+        raise ProfessorRequiredError()
+
+    return current_user
+
+
+ProfessorUserDep = Annotated[TokenPayload, Depends(require_professor)]
+
+
+def get_current_professor(
+    current_user: Annotated[TokenPayload, Depends(require_professor)],
+    professor_repository: ProfessorReaderDep,
+) -> Professor:
+    """Resuelve la cuenta autenticada a su perfil docente.
+
+    Igual que `get_current_student`, es la traducción de CUENTA a PERFIL, hecha una sola vez y
+    en un solo sitio en vez de repetirla en cada router. Y es el punto que garantiza que nadie
+    califique en nombre de otro: el identificador sale del token y no hay ningún parámetro con
+    el que pedir otro distinto.
+
+    Depende de `require_professor` y no de `get_current_user`: sin el rol comprobado antes, un
+    administrador cuya cuenta estuviera enlazada por error a una fila de `professors` entraría
+    igual.
+
+    Raises:
+        ProfessorProfileNotFoundError: si la cuenta tiene el rol pero ningún perfil asociado. Se
+            traduce a 404 y no a 403: el permiso está, lo que falta es el alta.
+    """
+    docente = professor_repository.find_by_user_id(current_user.user_id)
+
+    if docente is None:
+        raise ProfessorProfileNotFoundError()
+
+    return docente
+
+
+CurrentProfessorDep = Annotated[Professor, Depends(get_current_professor)]

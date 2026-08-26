@@ -284,6 +284,48 @@ export const PLAN_DE_ADMINISTRACION = {
 /** Identificadores de las materias del plan, para filtrar como lo hace el backend. */
 const IDS_DEL_PLAN = new Set(PLAN_DE_ESTUDIOS.courses.map((c) => c.id));
 
+/**
+ * La carga docente, tal como la devuelve `GET /professors/me/offerings`.
+ *
+ * Se declara aparte y no derivada de `GRUPOS` porque es OTRA respuesta del servidor: aquella es
+ * la vista del catálogo —cupos libres, nombre del docente— y esta la de quien dicta —la materia
+ * y cuántos tiene enfrente—. Un doble que las mezclara dejaría pasar un error de forma que en
+ * producción rompería.
+ */
+export const CARGA_DOCENTE = {
+  period_code: "2025-2-V1",
+  academic_period: "2025-2",
+  total: 2,
+  items: [
+    {
+      offering_id: "g1",
+      course_id: "c1",
+      course_code: "MAT101",
+      course_name: "Cálculo I",
+      credits: 4,
+      group_number: "01",
+      enrolled_count: 10,
+      total_capacity: 40,
+      schedule: [
+        { day_of_week: 1, start_time: "08:00:00", end_time: "10:00:00", classroom: "A-201" },
+      ],
+    },
+    // Sin franjas: un grupo puede estar abierto antes de tener horario, y la pantalla no puede
+    // romperse por eso.
+    {
+      offering_id: "g2",
+      course_id: "c2",
+      course_code: "MAT102",
+      course_name: "Cálculo II",
+      credits: 4,
+      group_number: "02",
+      enrolled_count: 1,
+      total_capacity: 30,
+      schedule: [],
+    },
+  ],
+};
+
 /** Cifras del panel de administración. */
 export const REPORTE_INSCRIPCIONES = {
   period_code: "2025-2-V1",
@@ -569,6 +611,14 @@ export const handlers = [
       items: libres,
       total: libres.length,
     });
+  }),
+
+  http.get(`${API_URL}/api/v1/professors/me/offerings`, ({ request }) => {
+    if (!request.headers.get("Authorization")?.startsWith("Bearer ")) {
+      return respuestaDeError(401, "MISSING_TOKEN", "Falta el token de acceso");
+    }
+
+    return HttpResponse.json(CARGA_DOCENTE);
   }),
 
   http.get(`${API_URL}/api/v1/admin/reports/enrollments`, ({ request }) => {

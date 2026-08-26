@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, func, text
+from sqlalchemy import ForeignKey, Index, String, func, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -38,8 +38,28 @@ class ProfessorModel(Base):
     )
     full_name: Mapped[str] = mapped_column(String(200), nullable=False)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        # `SET NULL` y no `CASCADE`: borrar la cuenta no puede llevarse el registro del docente,
+        # al que apunta `course_offerings.professor_id`. Se pierde el acceso, no la historia.
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         nullable=False,
         server_default=func.now(),
+    )
+
+    __table_args__ = (
+        # Único y PARCIAL. Único porque una cuenta no puede ser dos docentes a la vez: sin él,
+        # `find_by_user_id` devolvería un resultado u otro según el plan de ejecución. Parcial
+        # porque los `NULL` son la mayoría —casi ningún docente tiene cuenta— y no deben
+        # competir entre sí ni ocupar índice.
+        Index(
+            "uq_professors_user_id",
+            "user_id",
+            unique=True,
+            postgresql_where=text("user_id IS NOT NULL"),
+        ),
     )

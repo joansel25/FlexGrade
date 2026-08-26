@@ -37,6 +37,31 @@ class StudentProfileNotFoundError(DomainError):
         super().__init__(message)
 
 
+class ProfessorProfileNotFoundError(DomainError):
+    """La cuenta está autenticada y tiene rol de docente, pero no hay perfil que le corresponda.
+
+    Es 404 y no 403, igual que su equivalente de estudiante: la cuenta es válida y el permiso
+    está, lo que no existe es el perfil. Ocurre cuando se le da el rol a una cuenta sin
+    enlazarla a una fila de `professors`, que es un error de alta, no de permisos, y responder
+    403 mandaría a corregirlo donde no está.
+    """
+
+    def __init__(self, message: str = "El usuario no tiene un perfil de docente") -> None:
+        super().__init__(message)
+
+
+class ProfessorRequiredError(DomainError):
+    """La cuenta está autenticada pero no tiene rol de docente.
+
+    Es 403 por lo mismo que `AdminRequiredError`: la identidad quedó probada y lo que falta es
+    el permiso. Un 401 haría que el cliente intentara volver a autenticarse, lo que no arregla
+    nada.
+    """
+
+    def __init__(self, message: str = "Se requiere rol de docente") -> None:
+        super().__init__(message)
+
+
 class MissingTokenError(DomainError):
     """La petición no trae la cabecera `Authorization`.
 

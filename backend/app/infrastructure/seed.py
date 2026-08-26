@@ -361,15 +361,34 @@ def sembrar(session: Session) -> tuple[dict[str, int], dict[str, list[str]]]:
         for code, name, semestres in PROGRAMAS
     }
 
-    profesores = [
-        _obtener_o_crear(
+    # Cada docente con su cuenta: desde la Fase 9 es un actor que entra, no solo un nombre en
+    # el catálogo. Se crea la cuenta primero porque `professors.user_id` la apunta.
+    profesores = []
+    for indice, nombre in enumerate(PROFESORES):
+        correo = f"docente{indice + 1:02d}@tdea.edu.co"
+        cuenta = _obtener_o_crear(
+            session,
+            UserModel,
+            {"email": correo},
+            password_hash=password_hash,
+            role="PROFESSOR",
+            is_active=True,
+        )
+        docente = _obtener_o_crear(
             session,
             ProfessorModel,
-            {"email": f"docente{indice + 1:02d}@tdea.edu.co"},
+            {"email": correo},
             full_name=nombre,
+            user_id=cuenta.id,
         )
-        for indice, nombre in enumerate(PROFESORES)
-    ]
+
+        # `_obtener_o_crear` no toca las filas que ya existen, y los diez docentes se sembraron
+        # antes de que tuvieran cuenta. Enlazarlos aquí es lo que hace que un seed repetido
+        # sobre una base anterior a la Fase 9 los deje utilizables en vez de sin acceso.
+        if docente.user_id is None:
+            docente.user_id = cuenta.id
+
+        profesores.append(docente)
 
     materias = {}
     for definicion in MATERIAS:
@@ -741,6 +760,7 @@ def main() -> None:
     logger.info("")
     logger.info("Cuentas de prueba (contrasena: %s):", PASSWORD_DE_EJEMPLO)
     logger.info("  admin        %s", CORREO_ADMIN)
+    logger.info("  docentes     docente01@tdea.edu.co … docente10@tdea.edu.co")
     logger.info("  estudiante   estudiante01@tdea.edu.co  ... estudiante50@tdea.edu.co")
     logger.info("")
     logger.info("Historial academico (solo Ingenieria), para probar los prerrequisitos:")

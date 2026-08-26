@@ -7,7 +7,7 @@
  */
 
 /** Roles que reconoce el sistema. */
-export type UserRole = "STUDENT" | "ADMIN";
+export type UserRole = "STUDENT" | "ADMIN" | "PROFESSOR";
 
 /** Cuerpo de `POST /auth/login`. */
 export interface LoginRequest {

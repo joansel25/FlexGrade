@@ -47,6 +47,25 @@ class OfferingRepository(ABC):
         """
 
     @abstractmethod
+    def find_by_professor(
+        self, professor_id: UUID, enrollment_period_id: UUID
+    ) -> list[CourseOffering]:
+        """Devuelve los grupos que dicta un docente en una ventana concreta.
+
+        Acotado al período y no a toda la historia: quien entra a calificar trabaja sobre el
+        semestre en curso, y devolver los quince anteriores obligaría a la interfaz a filtrar lo
+        que la consulta ya podía descartar.
+
+        Args:
+            professor_id: docente cuyos grupos se piden.
+            enrollment_period_id: ventana sobre la que se consulta.
+
+        Returns:
+            Sus grupos, ordenados por número de grupo. Lista vacía si no dicta ninguno, que es
+            un estado normal: un docente puede no tener carga este semestre.
+        """
+
+    @abstractmethod
     def find_space_reservations(
         self, space_ids: Sequence[UUID], enrollment_period_id: UUID
     ) -> list[SpaceReservation]:

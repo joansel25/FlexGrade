@@ -65,6 +65,9 @@ from app.application.use_cases.enrollment.get_student_schedule import GetStudent
 from app.application.use_cases.enrollment.list_student_enrollments import (
     ListStudentEnrollmentsUseCase,
 )
+from app.application.use_cases.teaching.list_professor_offerings import (
+    ListProfessorOfferingsUseCase,
+)
 from app.infrastructure.auth.jwt_auth_service import JWTAuthService
 from app.infrastructure.cache.client import get_redis_client
 from app.infrastructure.cache.redis_cache_service import RedisCacheService
@@ -413,6 +416,19 @@ def get_remove_requirement_use_case(
     """
     return RemoveRequirementUseCase(course_repository, unit_of_work)
 
+
+def get_list_professor_offerings_use_case(
+    offering_repository: OfferingRepositoryDep,
+    course_repository: CourseRepositoryDep,
+    period_repository: PeriodRepositoryDep,
+) -> ListProfessorOfferingsUseCase:
+    """Construye el caso de uso de la carga docente."""
+    return ListProfessorOfferingsUseCase(offering_repository, course_repository, period_repository)
+
+
+ListProfessorOfferingsUseCaseDep = Annotated[
+    ListProfessorOfferingsUseCase, Depends(get_list_professor_offerings_use_case)
+]
 
 CreateSpaceUseCaseDep = Annotated[CreateSpaceUseCase, Depends(get_create_space_use_case)]
 ListSpacesUseCaseDep = Annotated[ListSpacesUseCase, Depends(get_list_spaces_use_case)]

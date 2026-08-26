@@ -16,6 +16,8 @@
 import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 
+import type { UserRole } from "@/features/auth/api/types";
+
 import { UserMenu } from "@/features/auth/components/UserMenu";
 import { useAuth } from "@/features/auth/useAuth";
 import { cn } from "@/lib/cn";
@@ -27,30 +29,41 @@ interface AppLayoutProps {
 /**
  * Enlaces de la navegación principal.
  *
- * `soloConSesion` marca los que no tiene sentido ofrecer a quien no ha entrado: mostrarlos
- * llevaría a una redirección al login en cuanto se pulsan, que se lee como un fallo.
+ * `roles` vacío significa «visible siempre, con o sin sesión». Filtrar por
+ * rol y no solo por «hay sesión» dejó de ser un adorno en la Fase 9: un docente tiene sesión y
+ * no tiene plan, ni catálogo que inscribir, ni materias propias. Ofrecerle esos enlaces le
+ * llevaría a pantallas que responden `STUDENT_PROFILE_NOT_FOUND`, y el error parecería del
+ * sistema y no del menú.
+ *
  * El orden sigue el recorrido de una matrícula: primero lo que puedo cursar en la carrera, luego
- * lo que se ofrece este período, después lo inscrito y por último cuándo asistir.
+ * lo que se ofrece este período, después lo inscrito y por último cuándo asistir. Lo de cada rol
+ * va al final, porque es de pocos.
  */
-const NAVEGACION = [
-  { a: "/", etiqueta: "Inicio", soloConSesion: false },
-  { a: "/plan", etiqueta: "Mi plan", soloConSesion: true },
-  { a: "/catalogo", etiqueta: "Catálogo", soloConSesion: true },
-  { a: "/mis-materias", etiqueta: "Mis materias", soloConSesion: true },
-  { a: "/horario", etiqueta: "Horario", soloConSesion: true },
-  // Administración va al final y solo para quien tiene el rol: ofrecérsela a un estudiante
-  // llevaría a una pantalla que le dice que no puede entrar, que es peor que no ofrecerla.
-  { a: "/admin", etiqueta: "Administración", soloConSesion: true, soloAdmin: true },
-] as const;
+// Anotado y no `as const`: con `as const`, `roles` sería una tupla distinta en cada entrada y
+// el `includes` de abajo se estrecharía a `never`. Lo que importa aquí es que los roles sean
+// válidos, no que la lista sea inmutable.
+const NAVEGACION: readonly { a: string; etiqueta: string; roles: readonly UserRole[] }[] = [
+  { a: "/", etiqueta: "Inicio", roles: [] },
+  { a: "/plan", etiqueta: "Mi plan", roles: ["STUDENT"] },
+  { a: "/catalogo", etiqueta: "Catálogo", roles: ["STUDENT"] },
+  { a: "/mis-materias", etiqueta: "Mis materias", roles: ["STUDENT"] },
+  { a: "/horario", etiqueta: "Horario", roles: ["STUDENT"] },
+  { a: "/docencia", etiqueta: "Mis grupos", roles: ["PROFESSOR"] },
+  { a: "/admin", etiqueta: "Administración", roles: ["ADMIN"] },
+];
 
 export function AppLayout({ children }: AppLayoutProps) {
   const { estado, usuario } = useAuth();
   const haySesion = estado === "autenticado";
-  const enlaces = NAVEGACION.filter(
-    (enlace) =>
-      (!enlace.soloConSesion || haySesion) &&
-      (!("soloAdmin" in enlace) || usuario?.role === "ADMIN"),
-  );
+  const enlaces = NAVEGACION.filter((enlace) => {
+    if (enlace.roles.length === 0) {
+      return true;
+    }
+
+    // Con sesión pero sin cuenta resuelta todavía —la ventana entre el refresco y su
+    // respuesta— no se pinta nada de rol: aparecer y desaparecer se lee como un parpadeo.
+    return haySesion && usuario !== null && enlace.roles.includes(usuario.role);
+  });
 
   return (
     <div className="flex min-h-screen flex-col">

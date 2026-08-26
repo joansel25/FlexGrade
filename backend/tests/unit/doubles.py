@@ -40,6 +40,7 @@ from app.domain.entities.course_offering import CourseOffering
 from app.domain.entities.course_requirement import CourseRequirement
 from app.domain.entities.enrollment import Enrollment
 from app.domain.entities.enrollment_period import EnrollmentPeriod
+from app.domain.entities.professor import Professor
 from app.domain.entities.program import Program
 from app.domain.entities.space import Space
 from app.domain.entities.student import Student
@@ -412,6 +413,20 @@ class InMemoryOfferingRepository(OfferingRepository):
             )
         ]
 
+    def find_by_professor(
+        self, professor_id: UUID, enrollment_period_id: UUID
+    ) -> list[CourseOffering]:
+        encontrados = [
+            g
+            for g in self._offerings.values()
+            if g.professor is not None
+            and g.professor.id == professor_id
+            and g.enrollment_period_id == enrollment_period_id
+        ]
+
+        # Mismo orden que el adaptador SQL: por número de grupo.
+        return [self._copia(g) for g in sorted(encontrados, key=lambda g: g.group_number)]
+
     def find_space_reservations(
         self, space_ids: Sequence[UUID], enrollment_period_id: UUID
     ) -> list[SpaceReservation]:
@@ -618,13 +633,26 @@ class InMemorySpaceRepository(SpaceRepository):
 
 
 class InMemoryProfessorReader(ProfessorReader):
-    """Lector de docentes respaldado por un conjunto de identificadores."""
+    """Lector de docentes respaldado por un conjunto de identificadores.
 
-    def __init__(self, professor_ids: set[UUID] | None = None) -> None:
-        self._ids = professor_ids or set()
+    Acepta también entidades completas, que es lo que necesita `find_by_user_id` desde la Fase
+    9. Los identificadores sueltos siguen valiendo porque casi ningún test que comprueba
+    `exists` tiene un docente que construir: le basta con que el id conste.
+    """
+
+    def __init__(
+        self,
+        professor_ids: set[UUID] | None = None,
+        professors: list[Professor] | None = None,
+    ) -> None:
+        self._professors = {p.id: p for p in (professors or [])}
+        self._ids = (professor_ids or set()) | set(self._professors)
 
     def exists(self, professor_id: UUID) -> bool:
         return professor_id in self._ids
+
+    def find_by_user_id(self, user_id: UUID) -> Professor | None:
+        return next((p for p in self._professors.values() if p.user_id == user_id), None)
 
 
 class FakeReportReader(ReportReader):
@@ -753,6 +781,11 @@ class ContadorDeConsultas(OfferingRepository):
         self, course_ids: Sequence[UUID], enrollment_period_id: UUID
     ) -> set[UUID]:
         return self._interno.find_course_ids_offered_in(course_ids, enrollment_period_id)
+
+    def find_by_professor(
+        self, professor_id: UUID, enrollment_period_id: UUID
+    ) -> list[CourseOffering]:
+        return self._interno.find_by_professor(professor_id, enrollment_period_id)
 
     def find_space_reservations(
         self, space_ids: Sequence[UUID], enrollment_period_id: UUID

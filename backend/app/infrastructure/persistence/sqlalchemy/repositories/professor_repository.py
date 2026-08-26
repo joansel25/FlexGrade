@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.application.ports.repositories.professor_repository import ProfessorReader
+from app.domain.entities.professor import Professor
 from app.infrastructure.persistence.sqlalchemy.models.professor import ProfessorModel
 
 
@@ -24,3 +25,18 @@ class SQLAlchemyProfessorRepository(ProfessorReader):
             select(ProfessorModel.id).where(ProfessorModel.id == professor_id).exists()
         )
         return bool(self._session.execute(sentencia).scalar_one())
+
+    def find_by_user_id(self, user_id: UUID) -> Professor | None:
+        sentencia = select(ProfessorModel).where(ProfessorModel.user_id == user_id)
+        modelo = self._session.execute(sentencia).scalar_one_or_none()
+
+        if modelo is None:
+            return None
+
+        return Professor(
+            id=modelo.id,
+            full_name=modelo.full_name,
+            email=modelo.email,
+            user_id=modelo.user_id,
+            created_at=modelo.created_at,
+        )

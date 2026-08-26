@@ -112,9 +112,15 @@ def crear_profesor(
     professor_id: UUID | None = None,
     full_name: str = "Ana Pérez",
     email: str | None = "ana.perez@tdea.edu.co",
+    user_id: UUID | None = None,
 ) -> Professor:
-    """Construye un `Professor`."""
-    return Professor(id=professor_id or uuid4(), full_name=full_name, email=email)
+    """Construye un `Professor`.
+
+    `user_id` va en `None` por defecto: la mayoría de los tests usan al docente como dato del
+    catálogo —quién dicta el grupo—, que es lo que era antes de la Fase 9. Solo los que prueban
+    el acceso necesitan la cuenta.
+    """
+    return Professor(id=professor_id or uuid4(), full_name=full_name, email=email, user_id=user_id)
 
 
 def crear_periodo(

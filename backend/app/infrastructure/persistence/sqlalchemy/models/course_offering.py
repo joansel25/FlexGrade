@@ -133,4 +133,7 @@ class CourseOfferingModel(Base):
         # trabajo de lectura.
         Index("ix_offerings_period", "enrollment_period_id"),
         Index("ix_offerings_course", "course_id"),
+        # Los grupos de un docente en una ventana. Ninguna de las dos columnas es prefijo de los
+        # índices de arriba, y es la consulta que corre cada vez que un docente entra.
+        Index("ix_offerings_professor", "professor_id", "enrollment_period_id"),
     )

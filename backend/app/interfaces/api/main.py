@@ -35,6 +35,8 @@ from app.domain.exceptions.authentication import (
     InvalidCredentialsError,
     InvalidTokenError,
     MissingTokenError,
+    ProfessorProfileNotFoundError,
+    ProfessorRequiredError,
     StudentProfileNotFoundError,
 )
 from app.domain.exceptions.base import DomainError
@@ -71,6 +73,7 @@ from app.interfaces.api.routers import (
     health,
     offerings,
     periods,
+    professors,
     students,
 )
 
@@ -129,6 +132,7 @@ app.include_router(courses.router, prefix=settings.api_v1_prefix)
 app.include_router(offerings.router, prefix=settings.api_v1_prefix)
 app.include_router(periods.router, prefix=settings.api_v1_prefix)
 app.include_router(enrollments.router, prefix=settings.api_v1_prefix)
+app.include_router(professors.router, prefix=settings.api_v1_prefix)
 app.include_router(admin.router, prefix=settings.api_v1_prefix)
 
 
@@ -148,6 +152,11 @@ _MAPEO_ERRORES: dict[type[DomainError], tuple[int, str]] = {
     InactiveUserError: (403, "USER_INACTIVE"),
     AdminRequiredError: (403, "ADMIN_REQUIRED"),
     StudentProfileNotFoundError: (404, "STUDENT_PROFILE_NOT_FOUND"),
+    # Fase 9: el docente pasa a ser actor. Mismos códigos y misma lógica que sus equivalentes
+    # de estudiante y administrador; separarlos permite al cliente distinguir «no eres docente»
+    # de «eres docente sin perfil», que se corrigen en sitios distintos.
+    ProfessorRequiredError: (403, "PROFESSOR_REQUIRED"),
+    ProfessorProfileNotFoundError: (404, "PROFESSOR_PROFILE_NOT_FOUND"),
     # Catálogo académico (Fase 2). Se registran junto a las excepciones, no junto a los
     # endpoints que las lanzan: una excepción de dominio sin entrada aquí cae en el 400
     # genérico del final, y "la materia no existe" respondería 400 en vez de 404 sin que

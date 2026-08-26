@@ -5,7 +5,7 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al cerrar la FASE 8 completa (interfaz de administración).**
+> **Actualizada al cerrar la iteración 9.1 (el docente como actor).**
 > Última verificación real: frontend con `npm run lint`, `type-check`, `test` (113 tests) y
 > `build` en verde; backend sin cambios desde la 8.1 (579 tests, `mypy --strict` limpio sobre
 > 162 archivos). Antes de esto:
@@ -301,6 +301,38 @@ donde importa.
 | 5 — Frontend y comprobante | ✅ | 5.1 fundación · 5.2 autenticación · 5.3 catálogo · 5.4 inscripción y horario · 5.5 comprobante PDF |
 | 6 — Reglas por carrera | ✅ | `GET /students/me/study-plan` con semáforo, ruta `/plan` en el frontend |
 
+**Fase 9 — Cierre del ciclo académico** (en curso): 9.1 el docente como actor ✅ (esta
+iteración) · 9.2 registro de notas · 9.3 cierre y consolidación del período · 9.4 expediente del
+estudiante · 9.5 prueba de integración del ciclo completo.
+
+**EL HALLAZGO QUE DETERMINA LA FASE 9: `academic_history` solo la escribe el seed.** Ningún caso
+de uso la crea. Con esa tabla vacía en producción, `find_approved_course_ids` devuelve vacío,
+NADIE cumple ningún prerrequisito y la matrícula se bloquea entera a partir del segundo
+semestre; el semáforo se calcula mal y `approved_credits` queda siempre en 0. El sistema, hoy,
+**solo funciona el primer semestre de su vida**. El ciclo `inscribir → cursar → calificar →
+consolidar → prerrequisito` tiene la primera y la última pieza; la Fase 9 pone las tres del
+medio.
+
+De la 9.1, lo que no es obvio:
+
+- **`professors.user_id` es NULLABLE y la clave foránea es `ON DELETE SET NULL`.** Un docente
+  existe como dato del catálogo antes de tener cuenta —los diez del seed nacieron así— y sigue
+  existiendo después de que la cuenta se borre: `course_offerings.professor_id` lo apunta, y con
+  `CASCADE` desaparecería el docente de grupos que ya se dictaron. Se pierde el acceso, no la
+  historia. El índice único es PARCIAL (`WHERE user_id IS NOT NULL`) porque los `NULL` son la
+  mayoría y no deben competir entre sí.
+- **Un ADMIN no puede entrar por `/professors`.** Va contra el reflejo de que «admin puede
+  todo» y es deliberado: quien conoce la nota es quien dictó la clase, y dejar que la ponga
+  cualquiera con permiso amplio borra esa responsabilidad, que la 9.2 necesita clara.
+- **`PROFESSOR_REQUIRED` (403) y `PROFESSOR_PROFILE_NOT_FOUND` (404) están separados** porque se
+  corrigen en sitios distintos: uno cambiando el rol, otro dando de alta al docente.
+- **La navegación pasó a filtrar por ROL y no por «hay sesión».** El rol nuevo destapó el fallo:
+  un docente tiene sesión y no tiene plan ni materias propias, así que esos enlaces le llevaban
+  a pantallas que responden `STUDENT_PROFILE_NOT_FOUND`. `RequireAdmin` y `RequireProfessor` son
+  ahora envoltorios de `RequireRole`.
+- **`test_professor_authorization.py` recorre TODAS las rutas `/professors`** y exige el guard,
+  igual que su gemelo de admin. Es el que seguirá protegiendo cuando la 9.2 añada las notas.
+
 **Fase 8 — Interfaz de administración: COMPLETA.** 8.1 estructura, acceso y panel ✅
 (`ca86677`) · 8.2 períodos, materias y grupos ✅ (`aed5063`) · 8.3 planes, espacios y requisitos
 ✅ (fase A `15c5e80`, fase B `d2d6d9e`) · 8.4 reportes visuales y CSV ✅ (esta iteración).
@@ -444,8 +476,9 @@ Ausencias que sí son deuda, pendientes de decidir cuándo se pagan:
   de los tests de integración SÍ lo hace desde la 6.2 —dos planes que comparten MAT101 y
   MAT102 con reglas distintas—, que es donde se comprueba que los requisitos dependen del
   plan.
-- **No hay endpoint de administración para los requisitos.** Se cargan por el seed o a mano.
-  `POST /admin/courses` crea la materia y nada más.
+- **El rol `PROFESSOR` no tiene todavía pantalla de administración.** Se enlaza una cuenta a un
+  docente por el seed o a mano; no hay endpoint que lo haga. Entra con la 9.2 o después, según
+  haga falta.
 
 ## 5. Mapa rápido del código
 

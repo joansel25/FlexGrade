@@ -14,6 +14,7 @@ class UserRole(str, Enum):
 
     STUDENT = "STUDENT"
     ADMIN = "ADMIN"
+    PROFESSOR = "PROFESSOR"
 
     def __str__(self) -> str:
         return self.value

@@ -1007,6 +1007,68 @@ si queda cupo— y no con un `COUNT` sobre `enrollments`: así el reporte muestr
 número contra el que se está compitiendo, sin tocar la tabla más caliente del sistema durante
 el pico.
 
+## 7bis. Docente (requiere rol PROFESSOR)
+
+El docente entra como ACTOR desde la Fase 9. Hasta la Fase 8 era solo un dato del catálogo —el
+nombre de quien dicta un grupo— y no tenía cuenta.
+
+Todas las rutas cuelgan de `/professors/me` y **resuelven el perfil desde el token**. No hay
+ninguna ruta con un identificador de docente dentro: si la hubiera, cualquier docente podría
+pedir la carga —y las notas— de otro, y la única defensa sería acordarse de comprobarlo en cada
+endpoint.
+
+**Un administrador NO puede entrar por aquí**, y es deliberado. Quien conoce la nota es quien
+dictó la clase; dejar que la ponga cualquiera con permiso amplio borra esa responsabilidad.
+
+### GET /professors/me/offerings
+
+Los grupos que dicta quien pregunta, en la ventana activa.
+
+**Response 200**
+```json
+{
+  "period_code": "2025-2-V1",
+  "academic_period": "2025-2",
+  "items": [
+    {
+      "offering_id": "uuid",
+      "course_id": "uuid",
+      "course_code": "MAT101",
+      "course_name": "Cálculo I",
+      "credits": 4,
+      "group_number": "01",
+      "enrolled_count": 10,
+      "total_capacity": 40,
+      "schedule": [
+        { "day_of_week": 1, "start_time": "08:00:00", "end_time": "10:00:00", "classroom": "A-201" }
+      ]
+    }
+  ],
+  "total": 1
+}
+```
+
+Lleva `enrolled_count` y **no** `available_slots`, al contrario que `GET /courses/{id}/offerings`.
+Al docente no le sirve saber cuántas plazas quedan —no va a matricular a nadie—; le sirve saber a
+cuánta gente tiene enfrente, que es un número distinto aunque salga de los mismos datos. Tampoco
+repite su propio nombre, que en el catálogo sí va porque allí lo lee quien busca dónde
+matricularse.
+
+**Sin período activo responde 200** con `items: []` y `period_code: null`, no un 404: entre
+semestres no hay ventana abierta y eso es normal, mientras que un 404 diría que algo está roto.
+`period_code` en `null` es lo que distingue ese caso de «hay semestre y no tengo carga», que se ve
+igual —una lista vacía— y significa algo muy distinto.
+
+| Código HTTP | error.code | Situación |
+|---|---|---|
+| 401 | `MISSING_TOKEN` | Sin cabecera `Authorization` |
+| 403 | `PROFESSOR_REQUIRED` | La cuenta no tiene rol de docente. También le pasa a un ADMIN |
+| 404 | `PROFESSOR_PROFILE_NOT_FOUND` | La cuenta tiene el rol pero ninguna fila de `professors` la apunta |
+
+Los dos últimos se separan porque **se corrigen en sitios distintos**: el 403 cambiando el rol, el
+404 dando de alta al docente y enlazando su cuenta. Un único código mandaría a la mitad de los
+casos al sitio equivocado.
+
 ## 7. Comprobantes
 
 ### GET /students/me/receipt
