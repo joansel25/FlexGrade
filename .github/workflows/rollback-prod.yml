@@ -75,7 +75,7 @@ jobs:
       MIGRACIONES_REVISADAS: ${{ inputs.migraciones_revisadas }}
     steps:
       # Historial completo: hace falta para resolver el tag o el SHA indicado.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 

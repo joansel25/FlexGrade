@@ -327,6 +327,19 @@ El CI del frontend (`frontend-ci` en `ci.yml`) se activa solo porque existe
 `frontend/package.json`, y ejecuta `lint`, `type-check`, `test` y `build`. Si se renombra
 alguno de esos scripts, el job falla.
 
+**Las acciones se fijan por versión MAYOR y estan en la que corre sobre Node 24**
+(`checkout@v5`, `setup-python@v6`, `setup-node@v5`, `gitleaks-action@v3`). GitHub retira Node 20
+de los runners en septiembre de 2026; hasta entonces avisa en cada corrida. Los bloques de AWS y
+Docker que siguen COMENTADOS a la espera de aprovisionar la nube conservan versiones antiguas
+—`aws-actions/*`, `docker/*`— y hay que revisarlas al descomentarlas, porque nadie las ha
+ejecutado nunca.
+
+**Este repositorio tiene `.gitattributes` y no es decorativo.** Fija `text=auto` y `eol=lf` para
+lo que ejecuta un runner Linux (`.sh`, `.yml`, `Dockerfile`, `Makefile`). Sin él, que un archivo
+quede en LF o en CRLF dependía del `core.autocrlf` de cada máquina: en Windows, `deploy-prod.yml`
+aparecía permanentemente como modificado mientras `git diff` no mostraba una sola línea de
+diferencia, y `git update-index --really-refresh` respondía «needs update» sin más explicación.
+
 **`deploy-dev.yml` y `deploy-staging.yml` llaman a `ci.yml` con `uses:`, y eso les obliga a
 conceder permisos.** Un workflow llamado no puede pedir más de lo que le da quien lo llama:
 `backend-ci` necesita `pull-requests: write` para que gitleaks comente el hallazgo en el PR, y

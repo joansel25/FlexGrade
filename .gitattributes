@@ -1,0 +1,38 @@
+# ---------------------------------------------------------------------------
+# Fin de linea determinista, independiente de la configuracion de cada maquina.
+#
+# Sin este archivo, que un fichero quede en LF o en CRLF dentro del repositorio
+# depende del `core.autocrlf` de quien lo commiteo. Ya costo un rato: en Windows,
+# `deploy-prod.yml` aparecia permanentemente como modificado mientras `git diff`
+# no mostraba ni una linea de diferencia. La causa era ese desajuste —el blob en
+# LF, el archivo en disco en CRLF— y no un cambio real. Diagnosticarlo cuesta mas
+# que declararlo aqui.
+#
+# `text=auto` deja que Git decida que es texto y lo NORMALIZA a LF al guardarlo.
+# Todos los blobs del repositorio ya estan en LF, asi que esto no reescribe nada:
+# fija por escrito lo que hoy depende de la suerte.
+# ---------------------------------------------------------------------------
+* text=auto
+
+# Lo que se EJECUTA dentro de un contenedor Linux lleva LF tambien en el disco de
+# Windows. Un `.sh` con CRLF falla con «bad interpreter: /bin/bash^M», y el
+# caracter culpable no se imprime, asi que el error no se parece a su causa.
+*.sh        text eol=lf
+Dockerfile  text eol=lf
+Makefile    text eol=lf
+
+# Los workflows los interpreta un runner Linux. Ademas es el caso que origino
+# este archivo.
+*.yml       text eol=lf
+*.yaml      text eol=lf
+
+# Binarios: nunca convertir. Aplicar normalizacion de texto a un .docx o a una
+# imagen la corrompe de forma silenciosa, y el dano solo se ve al abrirla.
+*.docx      binary
+*.pdf       binary
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.ico       binary
+*.woff      binary
+*.woff2     binary
