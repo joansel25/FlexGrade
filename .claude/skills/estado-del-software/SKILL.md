@@ -5,7 +5,7 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al cerrar la iteración 9.3 (cierre y consolidación del período).**
+> **Actualizada al cerrar la 9.4 en el BACKEND (expediente académico). Falta su pantalla.**
 > Última verificación real: frontend con `npm run lint`, `type-check`, `test` (113 tests) y
 > `build` en verde; backend sin cambios desde la 8.1 (579 tests, `mypy --strict` limpio sobre
 > 162 archivos). Antes de esto:
@@ -303,7 +303,22 @@ donde importa.
 
 **Fase 9 — Cierre del ciclo académico** (en curso): 9.1 el docente como actor ✅
 (`8fe425c`) · 9.2 registro de notas ✅ (`75bc0d6`) · 9.3 cierre y consolidación del período ✅
-(esta iteración, **incluye la 9.5**) · 9.4 expediente del estudiante.
+(`0c6f7d0`, **incluye la 9.5**) · 9.4 expediente del estudiante — **backend ✅ (esta
+iteración), frontend PENDIENTE**.
+
+De la 9.4, lo que no se vuelve a discutir:
+
+- **Los promedios son PONDERADOS POR CRÉDITOS**, el de cada semestre y el acumulado. Con media
+  simple, un `4.50` en una materia de 4 créditos y un `2.50` en una de 2 darían `3.50`;
+  ponderado da `3.83`. Es la cifra que decide una beca y la que aparece en un certificado: una
+  media simple no coincidiría con el oficial, y quien la viera la tomaría por buena.
+- **El expediente muestra lo perdido igual que lo aprobado**, y la materia repetida aparece las
+  dos veces, cada una en su semestre. Es justo lo que permite el `UNIQUE (student_id, course_id,
+  academic_period)`.
+- **Un expediente vacío es una respuesta legítima**, no un 404: quien acaba de ingresar todavía
+  no ha cerrado ningún semestre.
+- `find_by_student` trae TODAS las filas, al contrario que `find_approved_course_ids`, que
+  filtra porque responde otra pregunta: «qué habilita esta persona», no «qué ha cursado».
 
 **EL CICLO ESTÁ CERRADO.** `POST /admin/enrollment-periods/{id}/close` convierte las notas del
 período en `academic_history`, y `tests/integration/test_academic_cycle.py` lo demuestra de punta

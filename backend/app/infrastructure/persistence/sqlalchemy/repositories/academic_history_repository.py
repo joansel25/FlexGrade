@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 
 from app.application.ports.repositories.academic_history_repository import AcademicHistoryReader
 from app.domain.entities.academic_record import AcademicRecord
+from app.domain.value_objects.grade import Grade
+from app.domain.value_objects.history_status import HistoryStatus
 from app.infrastructure.persistence.sqlalchemy.models.academic_history import AcademicHistoryModel
 
 
@@ -64,3 +66,32 @@ class SQLAlchemyAcademicHistoryRepository(AcademicHistoryReader):
                 for registro in records
             ]
         )
+
+    def find_by_student(self, student_id: UUID) -> list[AcademicRecord]:
+        sentencia = (
+            select(AcademicHistoryModel).where(AcademicHistoryModel.student_id == student_id)
+            # Descendente: lo último cursado es lo que se consulta. El orden lo pone la base y
+            # no el caso de uso porque cae en el índice de la restricción UNIQUE, cuyo prefijo
+            # es `student_id`.
+            .order_by(
+                AcademicHistoryModel.academic_period.desc(),
+                AcademicHistoryModel.created_at,
+            )
+        )
+
+        # `final_grade` es NOT NULL en la tabla —una fila del expediente sin nota no significa
+        # nada—, pero el modelo la declara opcional. Se filtra en vez de asumir: si aparece una
+        # sin nota es un dato roto, y pintarla como 0.0 diría que se reprobó.
+        return [
+            AcademicRecord(
+                id=m.id,
+                student_id=m.student_id,
+                course_id=m.course_id,
+                academic_period=m.academic_period,
+                final_grade=Grade(m.final_grade),
+                status=HistoryStatus(m.status),
+                created_at=m.created_at,
+            )
+            for m in self._session.execute(sentencia).scalars()
+            if m.final_grade is not None
+        ]

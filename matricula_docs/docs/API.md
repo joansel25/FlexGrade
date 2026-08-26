@@ -227,7 +227,68 @@ comprobante en PDF. Una lista vacía es un resultado legítimo, no un error.
 
 ### GET /students/me/history
 
-Retorna el historial académico completo del estudiante.
+El expediente académico completo, agrupado por semestre.
+
+Cierra el círculo visible de la Fase 9: hasta la iteración 9.4 el semáforo decía «aprobada» sin
+que el estudiante pudiera ver dónde ni con qué nota. Lo que escribe el cierre del período
+(`POST /admin/enrollment-periods/{id}/close`), esto lo devuelve.
+
+**Response 200**
+```json
+{
+  "student_code": "202500013",
+  "full_name": "Ada Álvarez",
+  "total_credits_approved": 22,
+  "cumulative_average": "3.69",
+  "periods": [
+    {
+      "academic_period": "2025-2",
+      "credits_attempted": 25,
+      "credits_approved": 22,
+      "average": "3.61",
+      "entries": [
+        {
+          "course_id": "uuid",
+          "code": "MAT101",
+          "name": "Cálculo I",
+          "credits": 4,
+          "final_grade": "4.10",
+          "status": "APPROVED"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**El estudiante sale del token, nunca de la ruta.** El expediente es el dato más sensible que
+guarda el sistema —notas, materias perdidas, cuántas veces se repitió algo— y una ruta con
+identificador dentro permitiría leer el de cualquiera.
+
+**Muestra lo perdido igual que lo aprobado**, y la materia repetida aparece las dos veces, cada
+una en su semestre: las dos ocurrieron. Un expediente que oculta lo reprobado no es un
+expediente. Es lo que permite la restricción `UNIQUE (student_id, course_id, academic_period)`
+del historial: la misma materia en dos semestres son dos filas legítimas.
+
+Los semestres van **del más reciente al más antiguo**, que es lo que se mira; las materias dentro
+de cada uno, por código, que es como se lee un acta.
+
+**Los promedios son PONDERADOS POR CRÉDITOS**, tanto el de cada semestre como el acumulado. Una
+materia de cuatro créditos pesa el doble que una de dos. Con media simple, un `4.50` en una de 4
+créditos y un `2.50` en una de 2 darían `3.50`; ponderado da `3.83`. No es cosmético: es la cifra
+que decide una beca, y una media simple no coincidiría con el certificado oficial —quien la viera
+la tomaría por buena—. El redondeo es HALF_UP, igual que en `Grade`.
+
+Las materias `WITHDRAWN` no entran en el promedio: no se cursaron hasta el final, así que no
+tienen nota que promediar. Hoy ninguna operación las produce.
+
+**Un expediente vacío es una respuesta legítima**, no un 404: quien acaba de ingresar todavía no
+ha cerrado ningún semestre. Llega `periods: []` con el promedio en `0.00`.
+
+| Código HTTP | error.code | Situación |
+|---|---|---|
+| 401 | `MISSING_TOKEN` | Sin cabecera `Authorization` |
+| 404 | `STUDENT_PROFILE_NOT_FOUND` | La cuenta no tiene perfil académico (un docente, un admin) |
 
 ### GET /students/me/study-plan
 

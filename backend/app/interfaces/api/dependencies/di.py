@@ -53,6 +53,7 @@ from app.application.use_cases.admin.manage_study_plan import (
 )
 from app.application.use_cases.auth.authenticate_user import AuthenticateUserUseCase
 from app.application.use_cases.auth.refresh_token import RefreshTokenUseCase
+from app.application.use_cases.catalog.get_academic_history import GetAcademicHistoryUseCase
 from app.application.use_cases.catalog.get_course_detail import GetCourseDetailUseCase
 from app.application.use_cases.catalog.get_course_offerings import GetCourseOfferingsUseCase
 from app.application.use_cases.catalog.get_current_period import GetCurrentPeriodUseCase
@@ -508,6 +509,18 @@ RemoveRequirementUseCaseDep = Annotated[
     RemoveRequirementUseCase, Depends(get_remove_requirement_use_case)
 ]
 
+
+def get_academic_history_use_case(
+    academic_history: AcademicHistoryReaderDep,
+    course_repository: CourseRepositoryDep,
+) -> GetAcademicHistoryUseCase:
+    """Construye el caso de uso del expediente académico."""
+    return GetAcademicHistoryUseCase(academic_history, course_repository)
+
+
+GetAcademicHistoryUseCaseDep = Annotated[
+    GetAcademicHistoryUseCase, Depends(get_academic_history_use_case)
+]
 
 ListCoursesUseCaseDep = Annotated[ListCoursesUseCase, Depends(get_list_courses_use_case)]
 GetCourseDetailUseCaseDep = Annotated[GetCourseDetailUseCase, Depends(get_course_detail_use_case)]

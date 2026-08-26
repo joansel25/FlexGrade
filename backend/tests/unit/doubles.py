@@ -1010,6 +1010,17 @@ class InMemoryAcademicHistory(AcademicHistoryReader):
         self.registros.extend(records)
         self._registrados |= {(r.student_id, r.course_id, r.academic_period) for r in records}
 
+    def find_by_student(self, student_id: UUID) -> list[AcademicRecord]:
+        """Todo el expediente, incluidas las perdidas, y en el mismo orden que el adaptador.
+
+        Descendente por semestre: el caso de uso agrupa con `groupby`, que depende de que la
+        entrada venga ordenada. Devolverlo sin orden aqui haria pasar un test que fallaria
+        contra PostgreSQL.
+        """
+        suyos = [r for r in self.registros if r.student_id == student_id]
+
+        return sorted(suyos, key=lambda r: r.academic_period, reverse=True)
+
     def registrar(self, *, student_id: UUID, course_id: UUID, academic_period: str) -> None:
         """Declara una fila preexistente, sin pasar por la consolidacion.
 

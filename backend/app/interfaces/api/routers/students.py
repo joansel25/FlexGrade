@@ -8,6 +8,7 @@ from app.domain.exceptions.authentication import StudentProfileNotFoundError
 from app.interfaces.api.dependencies.auth import CurrentStudentDep, CurrentUserDep
 from app.interfaces.api.dependencies.di import (
     GenerateReceiptUseCaseDep,
+    GetAcademicHistoryUseCaseDep,
     GetStudentScheduleUseCaseDep,
     GetStudyPlanUseCaseDep,
     ListStudentEnrollmentsUseCaseDep,
@@ -24,7 +25,13 @@ from app.interfaces.api.schemas.enrollment_schemas import (
     StudentScheduleSchema,
 )
 from app.interfaces.api.schemas.error_schemas import ErrorResponseSchema
-from app.interfaces.api.schemas.student_schemas import ProgramSummarySchema, StudentProfileSchema
+from app.interfaces.api.schemas.student_schemas import (
+    AcademicHistorySchema,
+    HistoryEntrySchema,
+    HistoryPeriodSchema,
+    ProgramSummarySchema,
+    StudentProfileSchema,
+)
 
 router = APIRouter(prefix="/students", tags=["students"])
 
@@ -277,5 +284,66 @@ def get_my_study_plan(
                 corequisites=e.corequisites,
             )
             for e in plan.entries
+        ],
+    )
+
+
+@router.get(
+    "/me/history",
+    response_model=AcademicHistorySchema,
+    status_code=status.HTTP_200_OK,
+    summary="Mi expediente académico",
+    responses={
+        401: {"model": ErrorResponseSchema, "description": "Token ausente o inválido"},
+        404: {"model": ErrorResponseSchema, "description": "La cuenta no tiene perfil académico"},
+    },
+)
+def get_my_history(
+    estudiante: CurrentStudentDep,
+    use_case: GetAcademicHistoryUseCaseDep,
+) -> AcademicHistorySchema:
+    """Devuelve el expediente de quien hace la petición, agrupado por semestre.
+
+    Cierra el círculo visible de la Fase 9: hasta ahora el semáforo decía «aprobada» sin que el
+    estudiante pudiera ver dónde ni con qué nota. Lo que escribe el cierre del período
+    (`POST /admin/enrollment-periods/{id}/close`), esto lo devuelve.
+
+    **El estudiante sale del token, nunca de la ruta.** El expediente es el dato más sensible que
+    guarda el sistema —notas, materias perdidas, cuántas veces se repitió algo— y una ruta con
+    identificador dentro permitiría leer el de cualquiera.
+
+    **Muestra lo perdido igual que lo aprobado**, y la materia repetida aparece las dos veces:
+    las dos ocurrieron. Un expediente que oculta lo reprobado no es un expediente.
+
+    Los promedios —el de cada semestre y el acumulado— son **ponderados por créditos**. Una media
+    simple daría un número que no coincide con el certificado oficial, y quien lo viera lo
+    tomaría por bueno.
+    """
+    expediente = use_case.execute(estudiante)
+
+    return AcademicHistorySchema(
+        student_code=expediente.student_code,
+        full_name=expediente.full_name,
+        total_credits_approved=expediente.total_credits_approved,
+        cumulative_average=expediente.cumulative_average,
+        periods=[
+            HistoryPeriodSchema(
+                academic_period=periodo.academic_period,
+                credits_attempted=periodo.credits_attempted,
+                credits_approved=periodo.credits_approved,
+                average=periodo.average,
+                entries=[
+                    HistoryEntrySchema(
+                        course_id=entrada.course.id,
+                        code=entrada.course.code.value,
+                        name=entrada.course.name,
+                        credits=entrada.course.credits,
+                        final_grade=entrada.final_grade.value,
+                        status=entrada.status.value,
+                    )
+                    for entrada in periodo.entries
+                ],
+            )
+            for periodo in expediente.periods
         ],
     )

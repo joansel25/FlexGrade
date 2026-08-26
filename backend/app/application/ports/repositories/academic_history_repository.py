@@ -66,3 +66,16 @@ class AcademicHistoryReader(ABC):
         No confirma la transacción: eso lo decide el `UnitOfWork`. Es lo que garantiza que el
         expediente y la marca de consolidación se escriban juntos o no se escriba ninguno.
         """
+
+    @abstractmethod
+    def find_by_student(self, student_id: UUID) -> list[AcademicRecord]:
+        """Devuelve el expediente completo de un estudiante.
+
+        Trae TODAS las filas, incluidas las perdidas, al contrario que
+        `find_approved_course_ids`. Aquel responde «qué habilita esta persona» y por eso filtra;
+        este es el expediente, y un expediente que oculta lo perdido no es un expediente: la
+        materia repetida aparece dos veces a propósito, porque las dos veces ocurrieron.
+
+        Se ordena por semestre descendente —lo más reciente primero— porque es lo que se mira, y
+        dentro de cada semestre por materia, que es como se lee un acta.
+        """
