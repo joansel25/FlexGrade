@@ -102,6 +102,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const tokens = await renovarSesion(refresh);
       aplicarTokensRef.current(tokens);
+      // La renovación periódica también refresca el rol: si a alguien se lo cambian a mitad de
+      // sesión, la interfaz deja de ofrecerle lo que ya no le corresponde sin esperar a que
+      // cierre sesión.
+      setUsuario(tokens.user);
     } catch {
       // Un refresco fallido no se reintenta: si el token ya no vale, no va a valer en dos
       // segundos. Se cierra la sesión y la persona vuelve a entrar.
@@ -147,9 +151,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         aplicarTokensRef.current(tokens);
-        // El refresco no devuelve el bloque `user` (`API.md`): solo tokens. Quién es la
-        // persona lo resuelve `useProfile` pidiendo `GET /students/me`, que además comprueba
-        // que la cuenta siga activa.
+        // El refresco SÍ devuelve la cuenta, y aquí está la razón de que lo haga: esta rama es
+        // la que restaura la sesión al recargar la página. Sin el `user`, se recuperaría el
+        // acceso sin saber con qué rol, y las rutas de administración expulsarían a un
+        // administrador legítimo en cuanto refrescara la pestaña.
+        setUsuario(tokens.user);
         setEstado("autenticado");
       } catch {
         if (!cancelado) {

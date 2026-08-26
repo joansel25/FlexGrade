@@ -12,8 +12,10 @@ from fastapi import APIRouter, Response, status
 
 from app.interfaces.api.dependencies.auth import CurrentUserDep
 from app.interfaces.api.dependencies.di import AuthenticateUserUseCaseDep, RefreshTokenUseCaseDep
+from app.domain.exceptions.authentication import InvalidTokenError
 from app.interfaces.api.schemas.auth_schemas import (
     AuthenticatedUserSchema,
+    RefreshResponseSchema,
     LoginRequestSchema,
     LoginResponseSchema,
     RefreshRequestSchema,
@@ -52,7 +54,7 @@ def login(
 
 @router.post(
     "/refresh",
-    response_model=TokenPairSchema,
+    response_model=RefreshResponseSchema,
     status_code=status.HTTP_200_OK,
     summary="Renovar el token de acceso",
     responses={401: {"model": ErrorResponseSchema, "description": "Refresh token inválido"}},
@@ -60,14 +62,24 @@ def login(
 def refresh(
     payload: RefreshRequestSchema,
     use_case: RefreshTokenUseCaseDep,
-) -> TokenPairSchema:
-    """Emite un par de tokens nuevo a partir de un refresh token válido."""
+) -> RefreshResponseSchema:
+    """Emite un par de tokens nuevo a partir de un refresh token válido.
+
+    Devuelve también la cuenta: este endpoint es el que restaura la sesión al recargar, y sin
+    ese dato el frontend recuperaría el acceso sin saber con qué rol.
+    """
     tokens = use_case.execute(refresh_token=payload.refresh_token)
 
-    return TokenPairSchema(
+    if tokens.user is None:  # pragma: no cover - el caso de uso siempre lo devuelve
+        raise InvalidTokenError("No se pudo resolver la cuenta del token")
+
+    return RefreshResponseSchema(
         access_token=tokens.access_token,
         refresh_token=tokens.refresh_token,
         expires_in=tokens.expires_in,
+        user=AuthenticatedUserSchema(
+            id=tokens.user.id, email=tokens.user.email, role=tokens.user.role.value
+        ),
     )
 
 

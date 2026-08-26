@@ -605,6 +605,17 @@ Un aula **sin aforo registrado no bloquea nada**. Los espacios que nacieron del 
 
 Detrás de la validación hay una restricción de exclusión de PostgreSQL que rechaza el estado aunque el código falle; el reparto de papeles es el mismo que impide el sobrecupo y está explicado en `DATA_MODEL.md`, «Doble reserva de un espacio».
 
+### POST /auth/refresh — la respuesta lleva la cuenta
+
+Además del par de tokens, la respuesta incluye `user` con `id`, `email` y `role`, igual que el login:
+
+```json
+{ "access_token": "...", "refresh_token": "...", "token_type": "bearer",
+  "expires_in": 900, "user": { "id": "uuid", "email": "…", "role": "ADMIN" } }
+```
+
+No es una comodidad. Este endpoint es el que **restaura la sesión al recargar la página**, y sin ese dato el frontend recuperaría el acceso sin saber quién entró. Con el rol perdido, las rutas protegidas por rol —las de administración— expulsarían a un administrador legítimo en cuanto refrescara la pestaña. El caso de uso ya carga el usuario para comprobar que la cuenta sigue activa, así que devolverlo no cuesta ninguna consulta más.
+
 ## 5. Períodos de matrícula
 
 ### GET /enrollment-periods/current

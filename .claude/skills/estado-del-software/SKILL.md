@@ -5,9 +5,10 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al cerrar la iteración 7.3, y con ella la FASE 7 completa.** Última
-> verificación real: backend con `pytest` en verde (578 tests) y `mypy --strict` limpio sobre
-> 162 archivos;
+> **Actualizada al cerrar la iteración 8.1 (estructura, acceso y panel de administración).**
+> Última verificación real: backend con `pytest` en verde (579 tests) y `mypy --strict` limpio
+> sobre 162 archivos; frontend con `npm run lint`, `type-check`, `test` (103 tests) y `build` en
+> verde. Antes de esto:
 > frontend sin cambios desde la 6.4 (lint, type-check, 94 tests y build en verde). La migración
 > `0009` se aplicó sobre la base de desarrollo y dejó 21 espacios con CERO franjas huérfanas, y
 > se comprobó contra la API real que un código inexistente responde `SPACE_NOT_FOUND` y que
@@ -239,7 +240,22 @@ donde importa.
     rechaza —o escondería las que acepta—, que es la contradicción que la Fase 6 se dedicó a
     eliminar. Un aula sin aforo registrado aparece aunque se pida un mínimo: es la misma
     decisión que `Space.fits` devolviendo `None`.
-45. **El estado de la API no se le muestra al estudiante.** El recuadro de la pantalla de
+45. **`POST /auth/refresh` devuelve la CUENTA, no solo los tokens.** Es el endpoint que
+    restaura la sesión al recargar, y sin ese dato el frontend recuperaba el acceso sin saber
+    con qué rol. Las rutas `/admin` habrían expulsado a un administrador legítimo en cuanto
+    refrescara la pestaña. El caso de uso ya cargaba el usuario para comprobar que sigue
+    activo: devolverlo no cuesta una consulta más.
+46. **`RequireAdmin` no es seguridad, es honestidad**, igual que `RequireAuth`. Lo que protege
+    los datos es `require_admin` en el router del backend. Sin el guardián, un estudiante que
+    escriba `/admin` vería un panel llenándose de 403 sin entender por qué.
+47. **El armazón de administración va DENTRO del layout general**, no en su lugar: duplicar
+    cabecera, pie, enlace de salto y menú de cuenta para cambiar solo la navegación sería copiar
+    cuatro decisiones de accesibilidad ya tomadas. Lo propio es el `nav`, con `aria-label`
+    porque hay dos landmarks de navegación en la página.
+48. **El estado de la API vuelve, y solo en el panel de administración.** Es donde la 6.4 dijo
+    que tenía sentido operativo: quien administra sí puede actuar si la API cae en plena
+    matrícula, y ver el ambiente evita tocar cupos reales creyendo estar en pruebas.
+49. **El estado de la API no se le muestra al estudiante.** El recuadro de la pantalla de
     inicio y el indicador de la cabecera eran andamiaje de la 5.1, útil cuando no había
     pantallas reales y no se distinguía «la API está caída» de «mi código está mal». Al
     estudiante no le sirve —no puede hacer nada con un punto rojo— y ver el ambiente o un
@@ -251,7 +267,7 @@ donde importa.
     `git show 3315eeb:frontend/src/features/health/components/ServiceStatus.tsx` la recupera si
     la 8.1 la quiere de base. El endpoint `/health` del backend no se toca: lo
     consume el ALB.
-46. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
+50. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
     la API acepta credenciales y con ellas el comodín ni siquiera es válido.
 
 ## 4. Qué está construido
@@ -266,6 +282,10 @@ donde importa.
 | Preparación para la nube | ✅ | `/health/ready`, CORS, logs JSON, `X-Request-ID`, pool configurable, `deploy/aws/` |
 | 5 — Frontend y comprobante | ✅ | 5.1 fundación · 5.2 autenticación · 5.3 catálogo · 5.4 inscripción y horario · 5.5 comprobante PDF |
 | 6 — Reglas por carrera | ✅ | `GET /students/me/study-plan` con semáforo, ruta `/plan` en el frontend |
+
+**Fase 8 — Interfaz de administración** (en curso): 8.1 estructura, acceso y panel ✅ (esta
+iteración) · 8.2 períodos, materias y grupos · 8.3 planes de estudio y espacios · 8.4 reportes
+visuales.
 
 **Fase 7 — Aulas y espacios físicos: COMPLETA.** 7.1 el espacio como entidad ✅ (`804fe31`) ·
 7.2 doble reserva imposible ✅ (`642ee0a`) · 7.3 consulta de disponibilidad ✅ (esta iteración).

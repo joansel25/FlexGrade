@@ -176,3 +176,24 @@ def test_profile_returns_the_nested_program_block(
     assert cuerpo["program"]["code"] == estudiante_registrado["program_code"]
     assert cuerpo["program"]["name"] == estudiante_registrado["program_name"]
     assert "program_id" not in cuerpo
+
+
+@pytest.mark.integration
+def test_refresh_devuelve_la_cuenta_ademas_de_los_tokens(
+    client: TestClient, estudiante_registrado: dict[str, str]
+) -> None:
+    """El refresco es lo que restaura la sesión al recargar la página.
+
+    Sin la cuenta en la respuesta, el frontend recuperaría el acceso sin saber QUIÉN entró, y
+    las rutas protegidas por rol —las de administración— expulsarían a un administrador legítimo
+    en cuanto refrescara la pestaña. El caso de uso ya carga el usuario para comprobar que sigue
+    activo, así que devolverlo no cuesta ninguna consulta más.
+    """
+    tokens = _iniciar_sesion(client, estudiante_registrado)
+
+    renovado = client.post(RUTA_REFRESH, json={"refresh_token": tokens["refresh_token"]})
+
+    assert renovado.status_code == 200, renovado.text
+    cuenta = renovado.json()["user"]
+    assert cuenta["email"] == estudiante_registrado["email"]
+    assert cuenta["role"] == "STUDENT"

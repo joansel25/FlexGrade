@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.application.dtos.auth_dto import TokenPairDTO, TokenType
+from app.application.dtos.auth_dto import AuthenticatedUserDTO, TokenPairDTO, TokenType
 from app.application.ports.auth_service import AuthService
 from app.application.ports.repositories.user_repository import UserRepository
 from app.domain.exceptions.authentication import InvalidTokenError
@@ -50,4 +50,11 @@ class RefreshTokenUseCase:
                 usuario.id, usuario.role, TokenType.REFRESH
             ),
             expires_in=self._auth_service.access_token_expiration_seconds(),
+            # La cuenta viaja de vuelta porque el refresco es lo que restaura la sesión al
+            # recargar la página, y sin ella el frontend no sabría con qué rol entró. El usuario
+            # ya está cargado aquí arriba para comprobar que sigue activo: no cuesta una
+            # consulta más.
+            user=AuthenticatedUserDTO(
+                id=usuario.id, email=usuario.email.value, role=usuario.role
+            ),
         )

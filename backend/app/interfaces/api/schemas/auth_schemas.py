@@ -40,6 +40,18 @@ class TokenPairSchema(BaseModel):
     expires_in: int = Field(description="Vigencia del access token, en segundos")
 
 
+class RefreshResponseSchema(TokenPairSchema):
+    """Respuesta 200 de `POST /auth/refresh`.
+
+    Lleva la cuenta además de los tokens, y no es una comodidad: el refresco es lo que restaura
+    la sesión al recargar la página, así que sin este dato el frontend recuperaría el acceso sin
+    saber QUIÉN entró. Con el rol perdido, unas rutas protegidas por rol expulsarían a un
+    administrador legítimo en cuanto recargara.
+    """
+
+    user: AuthenticatedUserSchema
+
+
 class LoginResponseSchema(TokenPairSchema):
     """Respuesta 200 de `POST /auth/login`.
 

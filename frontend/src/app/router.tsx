@@ -11,7 +11,10 @@ import { Route, Routes } from "react-router-dom";
 
 import { NotFoundPage } from "@/app/NotFoundPage";
 import { AppLayout } from "@/app/layout/AppLayout";
+import { AdminHomePage } from "@/features/admin/AdminHomePage";
+import { AdminLayout } from "@/features/admin/AdminLayout";
 import { LoginPage } from "@/features/auth/LoginPage";
+import { RequireAdmin } from "@/features/auth/components/RequireAdmin";
 import { RequireAuth } from "@/features/auth/components/RequireAuth";
 import { CatalogPage } from "@/features/catalog/CatalogPage";
 import { CourseDetailPage } from "@/features/catalog/CourseDetailPage";
@@ -78,6 +81,21 @@ export function AppRoutes() {
             <RequireAuth>
               <SchedulePage />
             </RequireAuth>
+          }
+        />
+
+        {/* Administración. Protegida por ROL, no solo por sesión: un estudiante que escriba
+            `/admin` vería un panel llenándose de 403 sin entender por qué. Lo que protege de
+            verdad los datos es `require_admin` en el backend; esto es honestidad de la
+            interfaz. */}
+        <Route
+          path="/admin"
+          element={
+            <RequireAdmin>
+              <AdminLayout>
+                <AdminHomePage />
+              </AdminLayout>
+            </RequireAdmin>
           }
         />
 

@@ -9,7 +9,7 @@ import type {
   LoginRequest,
   LoginResponse,
   StudentProfile,
-  TokenPair,
+  RefreshResponse,
 } from "@/features/auth/api/types";
 import { api } from "@/lib/api/client";
 
@@ -26,7 +26,7 @@ export function iniciarSesion(credenciales: LoginRequest, signal?: AbortSignal) 
  * se cerraría sola sin motivo aparente.
  */
 export function renovarSesion(refreshToken: string, signal?: AbortSignal) {
-  return api.post<TokenPair>("/api/v1/auth/refresh", {
+  return api.post<RefreshResponse>("/api/v1/auth/refresh", {
     body: { refresh_token: refreshToken },
     signal,
   });

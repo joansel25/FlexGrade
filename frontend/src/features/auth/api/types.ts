@@ -36,6 +36,17 @@ export interface LoginResponse extends TokenPair {
   user: AuthenticatedUser;
 }
 
+/**
+ * Respuesta de `POST /auth/refresh`.
+ *
+ * Lleva la cuenta además de los tokens, y no por comodidad: el refresco es lo que restaura la
+ * sesión al recargar la página. Sin este dato se recuperaría el acceso sin saber QUIÉN entró, y
+ * las rutas protegidas por rol expulsarían a un administrador legítimo en cuanto recargara.
+ */
+export interface RefreshResponse extends TokenPair {
+  user: AuthenticatedUser;
+}
+
 /** Programa académico al que pertenece el estudiante. */
 export interface ProgramSummary {
   id: string;

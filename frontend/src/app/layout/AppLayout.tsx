@@ -38,12 +38,19 @@ const NAVEGACION = [
   { a: "/catalogo", etiqueta: "Catálogo", soloConSesion: true },
   { a: "/mis-materias", etiqueta: "Mis materias", soloConSesion: true },
   { a: "/horario", etiqueta: "Horario", soloConSesion: true },
+  // Administración va al final y solo para quien tiene el rol: ofrecérsela a un estudiante
+  // llevaría a una pantalla que le dice que no puede entrar, que es peor que no ofrecerla.
+  { a: "/admin", etiqueta: "Administración", soloConSesion: true, soloAdmin: true },
 ] as const;
 
 export function AppLayout({ children }: AppLayoutProps) {
-  const { estado } = useAuth();
+  const { estado, usuario } = useAuth();
   const haySesion = estado === "autenticado";
-  const enlaces = NAVEGACION.filter((enlace) => !enlace.soloConSesion || haySesion);
+  const enlaces = NAVEGACION.filter(
+    (enlace) =>
+      (!enlace.soloConSesion || haySesion) &&
+      (!("soloAdmin" in enlace) || usuario?.role === "ADMIN"),
+  );
 
   return (
     <div className="flex min-h-screen flex-col">

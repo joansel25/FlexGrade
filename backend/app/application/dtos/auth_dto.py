@@ -42,21 +42,6 @@ class TokenPayload:
 
 
 @dataclass(frozen=True)
-class TokenPairDTO:
-    """Par de tokens entregado tras un inicio de sesión o un refresco.
-
-    Attributes:
-        access_token: token de vida corta para llamar a la API.
-        refresh_token: token de vida larga que permite obtener uno nuevo.
-        expires_in: segundos de vigencia del token de acceso.
-    """
-
-    access_token: str
-    refresh_token: str
-    expires_in: int
-
-
-@dataclass(frozen=True)
 class AuthenticatedUserDTO:
     """Datos públicos de la cuenta autenticada.
 
@@ -72,6 +57,28 @@ class AuthenticatedUserDTO:
     id: UUID
     email: str
     role: UserRole
+
+
+@dataclass(frozen=True)
+class TokenPairDTO:
+    """Par de tokens entregado tras un inicio de sesión o un refresco.
+
+    Attributes:
+        access_token: token de vida corta para llamar a la API.
+        refresh_token: token de vida larga que permite obtener uno nuevo.
+        expires_in: segundos de vigencia del token de acceso.
+        user: la cuenta a la que pertenecen. Va también en el refresco, y no solo en el login,
+            porque al recargar la página el frontend restaura la sesión con el refresh token y
+            hasta ahora se quedaba sin saber QUIÉN había entrado. Con el rol perdido, unas rutas
+            protegidas por rol —las de administración de la Fase 8— expulsarían a un
+            administrador legítimo en cuanto recargara. El caso de uso ya carga el usuario para
+            comprobar que sigue activo, así que devolverlo no cuesta ninguna consulta más.
+    """
+
+    access_token: str
+    refresh_token: str
+    expires_in: int
+    user: AuthenticatedUserDTO | None = None
 
 
 @dataclass(frozen=True)

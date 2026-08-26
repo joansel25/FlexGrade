@@ -247,6 +247,52 @@ export const PLAN_DE_ESTUDIOS = {
 /** Identificadores de las materias del plan, para filtrar como lo hace el backend. */
 const IDS_DEL_PLAN = new Set(PLAN_DE_ESTUDIOS.courses.map((c) => c.id));
 
+/** Cifras del panel de administración. */
+export const REPORTE_INSCRIPCIONES = {
+  period_code: "2025-2-V1",
+  generated_at: "2025-11-16T09:00:00Z",
+  totals: { total_enrollments: 412, unique_students: 173, active_offerings: 19 },
+  by_program: [
+    { program_code: "ISIS", program_name: "Ingeniería de Sistemas", enrollments: 240, students: 98 },
+  ],
+};
+
+/**
+ * Ocupación, del grupo más lleno al más vacío.
+ *
+ * El primero está por encima del umbral crítico y el segundo por debajo: es lo que permite
+ * comprobar que la pantalla los distingue en vez de pintarlos todos igual.
+ */
+export const REPORTE_OCUPACION = {
+  period_code: "2025-2-V1",
+  generated_at: "2025-11-16T09:00:00Z",
+  offerings: [
+    {
+      offering_id: "g1",
+      course_code: "MAT101",
+      course_name: "Cálculo I",
+      group_number: "01",
+      total_capacity: 40,
+      enrolled_count: 39,
+      available_slots: 1,
+      occupancy_rate: 97.5,
+    },
+    {
+      offering_id: "g2",
+      course_code: "MAT102",
+      course_name: "Cálculo II",
+      group_number: "01",
+      total_capacity: 40,
+      enrolled_count: 20,
+      available_slots: 20,
+      occupancy_rate: 50.0,
+    },
+  ],
+  total: 2,
+  page: 1,
+  size: 5,
+};
+
 export const handlers = [
   http.get(`${API_URL}/health`, () => HttpResponse.json(ESTADO_SANO)),
 
@@ -263,7 +309,27 @@ export const handlers = [
     return HttpResponse.json({ ...parDeTokens(), user: USUARIO });
   }),
 
-  http.post(`${API_URL}/api/v1/auth/refresh`, () => HttpResponse.json(parDeTokens("renovado"))),
+  // El refresco devuelve la CUENTA además de los tokens desde la iteración 8.1: es la llamada
+  // que restaura la sesión al recargar, y sin ese dato las rutas por rol no sabrían con qué rol.
+  http.post(`${API_URL}/api/v1/auth/refresh`, () =>
+    HttpResponse.json({ ...parDeTokens("renovado"), user: USUARIO }),
+  ),
+
+  http.get(`${API_URL}/api/v1/admin/reports/enrollments`, ({ request }) => {
+    if (!request.headers.get("Authorization")?.startsWith("Bearer ")) {
+      return respuestaDeError(401, "MISSING_TOKEN", "Falta el token de acceso");
+    }
+
+    return HttpResponse.json(REPORTE_INSCRIPCIONES);
+  }),
+
+  http.get(`${API_URL}/api/v1/admin/reports/occupancy`, ({ request }) => {
+    if (!request.headers.get("Authorization")?.startsWith("Bearer ")) {
+      return respuestaDeError(401, "MISSING_TOKEN", "Falta el token de acceso");
+    }
+
+    return HttpResponse.json(REPORTE_OCUPACION);
+  }),
 
   http.post(`${API_URL}/api/v1/auth/logout`, () => new HttpResponse(null, { status: 204 })),
 
