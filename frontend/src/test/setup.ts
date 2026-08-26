@@ -11,7 +11,7 @@ import { cleanup } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll } from "vitest";
 
 import { limpiarTokens } from "@/features/auth/tokenStorage";
-import { resetearInscripciones } from "@/test/msw/handlers";
+import { resetearInscripciones, resetearPeriodos } from "@/test/msw/handlers";
 import { server } from "@/test/msw/server";
 
 beforeAll(() => {
@@ -32,6 +32,7 @@ afterEach(() => {
   // Los handlers de inscripción guardan estado entre llamadas para poder probar el
   // recorrido completo; sin este reinicio, un test empezaría con las materias del anterior.
   resetearInscripciones();
+  resetearPeriodos();
 });
 
 afterAll(() => {

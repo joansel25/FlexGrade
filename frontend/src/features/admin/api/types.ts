@@ -54,3 +54,67 @@ export interface OccupancyReport {
   page: number;
   size: number;
 }
+
+/** Una ventana de matrícula, tal como la lista `GET /admin/enrollment-periods`. */
+export interface EnrollmentPeriod {
+  id: string;
+  code: string;
+  academic_period: string;
+  name: string;
+  starts_at: string;
+  ends_at: string;
+  is_active: boolean;
+}
+
+/** Cuerpo de `POST /admin/enrollment-periods`. */
+export interface NewEnrollmentPeriod {
+  code: string;
+  academic_period: string;
+  name: string;
+  starts_at: string;
+  ends_at: string;
+}
+
+/** Cuerpo de `POST /admin/courses`. */
+export interface NewCourse {
+  code: string;
+  name: string;
+  credits: number;
+  description?: string | null;
+}
+
+/** Una franja al abrir un grupo: el aula viaja por CÓDIGO, no por identificador. */
+export interface NewScheduleBlock {
+  day_of_week: number;
+  start_time: string;
+  end_time: string;
+  space_code?: string | null;
+}
+
+/** Cuerpo de `POST /admin/offerings`. */
+export interface NewOffering {
+  course_id: string;
+  group_number: string;
+  total_capacity: number;
+  schedule: NewScheduleBlock[];
+}
+
+/** Un espacio libre, tal como lo devuelve `GET /admin/spaces/available`. */
+export interface AvailableSpace {
+  id: string;
+  code: string;
+  name: string | null;
+  space_type: string;
+  capacity: number | null;
+  campus: string | null;
+  building: string | null;
+}
+
+/** Respuesta de `GET /admin/spaces/available`. */
+export interface AvailableSpaces {
+  day_of_week: number;
+  start_time: string;
+  end_time: string;
+  items: AvailableSpace[];
+  total: number;
+}

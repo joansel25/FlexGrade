@@ -13,6 +13,9 @@ import { NotFoundPage } from "@/app/NotFoundPage";
 import { AppLayout } from "@/app/layout/AppLayout";
 import { AdminHomePage } from "@/features/admin/AdminHomePage";
 import { AdminLayout } from "@/features/admin/AdminLayout";
+import { CoursesPage as AdminCoursesPage } from "@/features/admin/CoursesPage";
+import { OfferingsPage } from "@/features/admin/OfferingsPage";
+import { PeriodsPage } from "@/features/admin/PeriodsPage";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { RequireAdmin } from "@/features/auth/components/RequireAdmin";
 import { RequireAuth } from "@/features/auth/components/RequireAuth";
@@ -94,6 +97,39 @@ export function AppRoutes() {
             <RequireAdmin>
               <AdminLayout>
                 <AdminHomePage />
+              </AdminLayout>
+            </RequireAdmin>
+          }
+        />
+
+        <Route
+          path="/admin/periodos"
+          element={
+            <RequireAdmin>
+              <AdminLayout>
+                <PeriodsPage />
+              </AdminLayout>
+            </RequireAdmin>
+          }
+        />
+
+        <Route
+          path="/admin/materias"
+          element={
+            <RequireAdmin>
+              <AdminLayout>
+                <AdminCoursesPage />
+              </AdminLayout>
+            </RequireAdmin>
+          }
+        />
+
+        <Route
+          path="/admin/grupos"
+          element={
+            <RequireAdmin>
+              <AdminLayout>
+                <OfferingsPage />
               </AdminLayout>
             </RequireAdmin>
           }

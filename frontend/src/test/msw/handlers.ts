@@ -293,6 +293,37 @@ export const REPORTE_OCUPACION = {
   size: 5,
 };
 
+/** Una ventana de matrícula inactiva, base de las que se crean en los tests. */
+const PERIODO_INACTIVO = {
+  id: "p-2026",
+  code: "2026-1-V1",
+  academic_period: "2026-1",
+  name: "Matrícula 2026-1",
+  starts_at: "2026-01-10T13:00:00Z",
+  ends_at: "2026-01-20T23:00:00Z",
+  is_active: false,
+};
+
+/**
+ * Ventanas de matrícula de los tests.
+ *
+ * Array mutable, como `inscripcionesDePrueba`: crear y activar lo modifican, así que los tests
+ * pueden comprobar el recorrido completo en vez de solo la llamada aislada.
+ */
+export const periodosDePrueba: (typeof PERIODO_INACTIVO)[] = [];
+
+export function resetearPeriodos() {
+  periodosDePrueba.length = 0;
+  periodosDePrueba.push(
+    { ...PERIODO_ABIERTO, academic_period: "2025-2", is_active: true },
+    { ...PERIODO_INACTIVO },
+  );
+}
+
+// Se puebla al cargar el módulo y no solo desde el `afterEach` del setup: sin esto el PRIMER
+// test de la suite correría con la lista vacía y fallaría por un motivo que no es el suyo.
+resetearPeriodos();
+
 export const handlers = [
   http.get(`${API_URL}/health`, () => HttpResponse.json(ESTADO_SANO)),
 
@@ -314,6 +345,65 @@ export const handlers = [
   http.post(`${API_URL}/api/v1/auth/refresh`, () =>
     HttpResponse.json({ ...parDeTokens("renovado"), user: USUARIO }),
   ),
+
+  http.get(`${API_URL}/api/v1/admin/enrollment-periods`, () =>
+    HttpResponse.json({ items: periodosDePrueba, total: periodosDePrueba.length, page: 1, size: 50 }),
+  ),
+
+  http.post(`${API_URL}/api/v1/admin/enrollment-periods`, async ({ request }) => {
+    const cuerpo = (await request.json()) as { code: string; name: string };
+
+    if (periodosDePrueba.some((p) => p.code === cuerpo.code)) {
+      return respuestaDeError(409, "DUPLICATE_PERIOD_CODE", "Ya existe ese código", {
+        code: cuerpo.code,
+      });
+    }
+
+    const creado = { ...PERIODO_INACTIVO, id: `p-${cuerpo.code}`, ...cuerpo, is_active: false };
+    periodosDePrueba.push(creado);
+
+    return HttpResponse.json(creado, { status: 201 });
+  }),
+
+  http.put(`${API_URL}/api/v1/admin/enrollment-periods/:id/activate`, ({ params }) => {
+    // El índice único parcial de PostgreSQL garantiza que solo haya una activa; el doble
+    // reproduce esa consecuencia porque es lo que la pantalla tiene que mostrar.
+    for (const periodo of periodosDePrueba) {
+      periodo.is_active = periodo.id === params.id;
+    }
+
+    return HttpResponse.json(periodosDePrueba.find((p) => p.id === params.id));
+  }),
+
+  http.post(`${API_URL}/api/v1/admin/courses`, async ({ request }) => {
+    const cuerpo = (await request.json()) as { code: string; name: string; credits: number };
+
+    if (MATERIAS.some((m) => m.code === cuerpo.code.toUpperCase())) {
+      return respuestaDeError(409, "DUPLICATE_COURSE_CODE", "Ya existe esa materia", {
+        code: cuerpo.code,
+      });
+    }
+
+    return HttpResponse.json({ id: `c-${cuerpo.code}`, description: null, ...cuerpo }, { status: 201 });
+  }),
+
+  http.post(`${API_URL}/api/v1/admin/offerings`, () =>
+    HttpResponse.json({ ...GRUPOS.offerings[0], group_number: "07" }, { status: 201 }),
+  ),
+
+  http.put(`${API_URL}/api/v1/admin/offerings/:id/capacity`, async ({ request }) => {
+    const cuerpo = (await request.json()) as { total_capacity: number };
+
+    // El grupo `g1` de la ocupación tiene 39 inscritos: bajar de ahí expulsaría gente.
+    if (cuerpo.total_capacity < 39) {
+      return respuestaDeError(409, "CAPACITY_BELOW_ENROLLED", "Hay más inscritos", {
+        enrolled: 39,
+        requested: cuerpo.total_capacity,
+      });
+    }
+
+    return HttpResponse.json({ ...GRUPOS.offerings[0], total_capacity: cuerpo.total_capacity });
+  }),
 
   http.get(`${API_URL}/api/v1/admin/reports/enrollments`, ({ request }) => {
     if (!request.headers.get("Authorization")?.startsWith("Bearer ")) {

@@ -20,13 +20,18 @@ import { NavLink } from "react-router-dom";
 import { cn } from "@/lib/cn";
 
 /**
- * Las secciones de administración.
+ * Las secciones de administración, en el orden en que se recorren al preparar un semestre:
+ * primero se abre la ventana, luego existen las materias, y solo entonces se les abre grupo.
  *
- * Solo el panel existe hoy. Las demás llegan en 8.2, 8.3 y 8.4 y NO se declaran todavía: un
- * enlace a una pantalla que no existe es peor que su ausencia, porque promete algo y lleva a un
- * 404.
+ * Las de 8.3 y 8.4 no se declaran todavía: un enlace a una pantalla que no existe es peor que
+ * su ausencia, porque promete algo y lleva a un 404.
  */
-const SECCIONES = [{ a: "/admin", etiqueta: "Panel", exacto: true }] as const;
+const SECCIONES = [
+  { a: "/admin", etiqueta: "Panel", exacto: true },
+  { a: "/admin/periodos", etiqueta: "Ventanas", exacto: false },
+  { a: "/admin/materias", etiqueta: "Materias", exacto: false },
+  { a: "/admin/grupos", etiqueta: "Grupos", exacto: false },
+] as const;
 
 export function AdminLayout({ children }: { children: ReactNode }) {
   return (

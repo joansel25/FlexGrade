@@ -5,10 +5,10 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al cerrar la iteración 8.1 (estructura, acceso y panel de administración).**
-> Última verificación real: backend con `pytest` en verde (579 tests) y `mypy --strict` limpio
-> sobre 162 archivos; frontend con `npm run lint`, `type-check`, `test` (103 tests) y `build` en
-> verde. Antes de esto:
+> **Actualizada al cerrar la iteración 8.2 (formularios de períodos, materias y grupos).**
+> Última verificación real: frontend con `npm run lint`, `type-check`, `test` (113 tests) y
+> `build` en verde; backend sin cambios desde la 8.1 (579 tests, `mypy --strict` limpio sobre
+> 162 archivos). Antes de esto:
 > frontend sin cambios desde la 6.4 (lint, type-check, 94 tests y build en verde). La migración
 > `0009` se aplicó sobre la base de desarrollo y dejó 21 espacios con CERO franjas huérfanas, y
 > se comprobó contra la API real que un código inexistente responde `SPACE_NOT_FOUND` y que
@@ -255,7 +255,25 @@ donde importa.
 48. **El estado de la API vuelve, y solo en el panel de administración.** Es donde la 6.4 dijo
     que tenía sentido operativo: quien administra sí puede actuar si la API cae en plena
     matrícula, y ver el ambiente evita tocar cupos reales creyendo estar en pruebas.
-49. **El estado de la API no se le muestra al estudiante.** El recuadro de la pantalla de
+49. **Los formularios de administración NO validan reglas de negocio.** Comprueban que los
+    campos estén llenos y nada más: si el aula está libre, si el cupo no baja de los inscritos o
+    si el horario se cruza lo decide el servidor, y `admin/mensajes.ts` traduce lo que responde.
+    Duplicar esas reglas en el navegador garantiza que un día discrepen, que es el error que la
+    Fase 6 se dedicó a eliminar.
+50. **`admin/mensajes.ts` existe por la misma razón que el del estudiante, con otro público.**
+    Allí los 409 son estados normales de una matrícula disputada; aquí son datos mal
+    introducidos, y el mensaje decide si quien administra corrige en diez segundos o abre un
+    ticket. Cada uno dice qué pasó y qué hacer, con los `details` del error: qué grupo ocupa el
+    aula, cuántos hay inscritos, los dos números del aforo.
+51. **El formulario de grupos no pide el docente**, aunque la API lo acepte. No existe endpoint
+    para listar profesores, así que el campo solo podría ser un UUID escrito a mano: causaría
+    más errores de los que evita. `professor_id` es opcional y se asigna después.
+52. **El listado de materias de administración reutiliza `GET /courses`**, el mismo endpoint
+    público del estudiante. Un endpoint gemelo solo añadiría un sitio donde las dos listas
+    podrían acabar diciendo cosas distintas. Eso sí, aquí se ve el catálogo COMPLETO: al
+    estudiante se le acota porque solo puede inscribir lo de su plan (6.1), y quien administra
+    necesita ver todo para no crear dos veces la misma materia.
+53. **El estado de la API no se le muestra al estudiante.** El recuadro de la pantalla de
     inicio y el indicador de la cabecera eran andamiaje de la 5.1, útil cuando no había
     pantallas reales y no se distinguía «la API está caída» de «mi código está mal». Al
     estudiante no le sirve —no puede hacer nada con un punto rojo— y ver el ambiente o un
@@ -267,7 +285,7 @@ donde importa.
     `git show 3315eeb:frontend/src/features/health/components/ServiceStatus.tsx` la recupera si
     la 8.1 la quiere de base. El endpoint `/health` del backend no se toca: lo
     consume el ALB.
-50. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
+54. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
     la API acepta credenciales y con ellas el comodín ni siquiera es válido.
 
 ## 4. Qué está construido
@@ -283,9 +301,9 @@ donde importa.
 | 5 — Frontend y comprobante | ✅ | 5.1 fundación · 5.2 autenticación · 5.3 catálogo · 5.4 inscripción y horario · 5.5 comprobante PDF |
 | 6 — Reglas por carrera | ✅ | `GET /students/me/study-plan` con semáforo, ruta `/plan` en el frontend |
 
-**Fase 8 — Interfaz de administración** (en curso): 8.1 estructura, acceso y panel ✅ (esta
-iteración) · 8.2 períodos, materias y grupos · 8.3 planes de estudio y espacios · 8.4 reportes
-visuales.
+**Fase 8 — Interfaz de administración** (en curso): 8.1 estructura, acceso y panel ✅
+(`ca86677`) · 8.2 períodos, materias y grupos ✅ (esta iteración) · 8.3 planes de estudio y
+espacios · 8.4 reportes visuales.
 
 **Fase 7 — Aulas y espacios físicos: COMPLETA.** 7.1 el espacio como entidad ✅ (`804fe31`) ·
 7.2 doble reserva imposible ✅ (`642ee0a`) · 7.3 consulta de disponibilidad ✅ (esta iteración).
