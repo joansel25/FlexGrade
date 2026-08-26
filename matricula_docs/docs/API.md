@@ -554,6 +554,20 @@ El código es la clave natural del espacio: es lo que aparece en un horario impr
 
 **Lo que se DEVUELVE no cambió.** Las respuestas con horario —catálogo, «Mis materias», horario y comprobante— siguen exponiendo `classroom` con el código del aula. El aula pasó a ser una entidad por dentro; quien lee un horario sigue queriendo leer «A-201», así que el contrato público se mantuvo estable a propósito.
 
+### Errores al asignar un aula
+
+| Código HTTP | error.code | Situación |
+|---|---|---|
+| 404 | `SPACE_NOT_FOUND` | El código de aula no está en el inventario |
+| 409 | `SPACE_DOUBLE_BOOKED` | El aula ya está ocupada a esa hora en el período |
+| 409 | `SPACE_CAPACITY_EXCEEDED` | El grupo no cabe en el aula |
+
+`SPACE_DOUBLE_BOOKED` trae en `details` el aula, el día, la hora y `occupied_by` con la materia y el grupo que la ocupan: «el aula está ocupada» deja a quien programa buscando a ciegas, y con el grupo delante sabe con quién hablar. `SPACE_CAPACITY_EXCEEDED` trae el aforo y los cupos pedidos.
+
+Un aula **sin aforo registrado no bloquea nada**. Los espacios que nacieron del traslado de textos de la 7.1 no traen ese dato, y tratar ese «no sé» como un «no cabe» inutilizaría aulas válidas por una laguna del inventario.
+
+Detrás de la validación hay una restricción de exclusión de PostgreSQL que rechaza el estado aunque el código falle; el reparto de papeles es el mismo que impide el sobrecupo y está explicado en `DATA_MODEL.md`, «Doble reserva de un espacio».
+
 ## 5. Períodos de matrícula
 
 ### GET /enrollment-periods/current

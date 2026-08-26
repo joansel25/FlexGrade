@@ -41,6 +41,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from typing import TypeVar
 from uuid import UUID
+from uuid import UUID as uuid_type
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -510,6 +511,33 @@ def _sembrar_periodo(session: Session) -> EnrollmentPeriodModel:
     )
 
 
+def _aula_libre(
+    ocupacion: dict[tuple[int, time], set[uuid_type]],
+    espacios: list[SpaceModel],
+    dia: int,
+    inicio: time,
+) -> uuid_type | None:
+    """Devuelve la primera aula libre en ese dia y esa hora, y la marca como ocupada.
+
+    Desde la iteracion 7.2 el reparto NO puede ser una rueda ciega sobre el inventario: la
+    restriccion de exclusion de la migracion `0010` rechaza dos franjas que se solapen en el
+    mismo espacio, asi que un seed que asignara aulas al azar fallaria al insertar. Se lleva la
+    cuenta de lo ya ocupado y se toma la primera libre.
+
+    Devuelve `None` cuando no queda ninguna, en vez de forzar una colision. Una franja sin aula
+    es un estado legitimo —el horario se publica antes de repartir espacios— y es preferible a
+    un seed que no se puede ejecutar.
+    """
+    tomadas = ocupacion.setdefault((dia, inicio), set())
+
+    for espacio in espacios:
+        if espacio.id not in tomadas:
+            tomadas.add(espacio.id)
+            return espacio.id
+
+    return None
+
+
 def _sembrar_grupos(
     session: Session,
     periodo: EnrollmentPeriodModel,
@@ -520,6 +548,8 @@ def _sembrar_grupos(
     """Crea los grupos con su horario y su ocupación inicial."""
     grupos: list[CourseOfferingModel] = []
     indice = 0
+    # Que aulas estan tomadas en cada (dia, hora). Ver `_aula_libre`.
+    ocupacion: dict[tuple[int, time], set[uuid_type]] = {}
 
     for definicion in MATERIAS:
         if definicion.code in MATERIAS_SIN_GRUPO:
@@ -566,11 +596,8 @@ def _sembrar_grupos(
                         "start_time": inicio,
                     },
                     end_time=fin,
-                    # Se reparten en rueda sobre el inventario. Deliberadamente SIN comprobar
-                    # colisiones: la doble reserva es justo lo que la iteracion 7.2 viene a
-                    # impedir, y un juego de datos que ya la evitara dejaria esa regla sin
-                    # nada contra lo que probarse a mano.
-                    space_id=espacios[indice % len(espacios)].id,
+                    enrollment_period_id=periodo.id,
+                    space_id=_aula_libre(ocupacion, espacios, dia, inicio),
                 )
 
             indice += 1

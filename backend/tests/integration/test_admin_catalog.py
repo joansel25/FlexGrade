@@ -10,6 +10,7 @@ dicen lo mismo.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, time, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -438,3 +439,186 @@ def test_el_aula_del_grupo_creado_vuelve_en_la_respuesta(
 
     assert respuesta.status_code == 201, respuesta.text
     assert respuesta.json()["schedule"][0]["classroom"] == "B-101"
+
+
+@pytest.mark.integration
+def test_abrir_un_grupo_en_un_aula_ocupada_devuelve_409_con_quien_la_ocupa(
+    client: TestClient, catalogo: CatalogoDePrueba, admin: dict[str, str]
+) -> None:
+    """La fixture ya tiene el grupo 01 en A-201 el lunes de 8 a 10.
+
+    El rechazo tiene que decir con QUIÉN chocas: «el aula está ocupada» deja a quien programa
+    buscando a ciegas, y con el grupo delante sabe con quién hablar.
+    """
+    respuesta = client.post(
+        "/api/v1/admin/offerings",
+        json={
+            "course_id": str(catalogo.calculo_ii_id),
+            "group_number": "60",
+            "total_capacity": 30,
+            "schedule": [
+                {
+                    "day_of_week": 1,
+                    "start_time": "09:00",
+                    "end_time": "11:00",
+                    "space_code": "A-201",
+                }
+            ],
+        },
+        headers=admin,
+    )
+
+    assert respuesta.status_code == 409, respuesta.text
+    error = respuesta.json()["error"]
+    assert error["code"] == "SPACE_DOUBLE_BOOKED"
+    assert error["details"]["space_code"] == "A-201"
+    assert error["details"]["occupied_by"]["course_code"] == "MAT101"
+
+
+@pytest.mark.integration
+def test_una_clase_consecutiva_en_la_misma_aula_se_acepta(
+    client: TestClient, catalogo: CatalogoDePrueba, admin: dict[str, str]
+) -> None:
+    # El grupo 01 ocupa A-201 hasta las 10:00. Empezar a las 10:00 es una clase seguida, no un
+    # choque, y tanto la validación como el rango `[)` de la restricción tienen que coincidir.
+    respuesta = client.post(
+        "/api/v1/admin/offerings",
+        json={
+            "course_id": str(catalogo.calculo_ii_id),
+            "group_number": "61",
+            "total_capacity": 30,
+            "schedule": [
+                {
+                    "day_of_week": 1,
+                    "start_time": "10:00",
+                    "end_time": "12:00",
+                    "space_code": "A-201",
+                }
+            ],
+        },
+        headers=admin,
+    )
+
+    assert respuesta.status_code == 201, respuesta.text
+
+
+@pytest.mark.integration
+def test_un_grupo_que_no_cabe_en_el_aula_devuelve_409(
+    client: TestClient, catalogo: CatalogoDePrueba, admin: dict[str, str]
+) -> None:
+    # B-102 tiene aforo para 30 en la fixture.
+    respuesta = client.post(
+        "/api/v1/admin/offerings",
+        json={
+            "course_id": str(catalogo.calculo_ii_id),
+            "group_number": "62",
+            "total_capacity": 45,
+            "schedule": [
+                {
+                    "day_of_week": 6,
+                    "start_time": "08:00",
+                    "end_time": "10:00",
+                    "space_code": "B-102",
+                }
+            ],
+        },
+        headers=admin,
+    )
+
+    assert respuesta.status_code == 409, respuesta.text
+    error = respuesta.json()["error"]
+    assert error["code"] == "SPACE_CAPACITY_EXCEEDED"
+    assert error["details"] == {"space_code": "B-102", "capacity": 30, "required": 45}
+
+
+@pytest.mark.integration
+def test_la_base_rechaza_la_doble_reserva_aunque_el_codigo_no_mire(
+    db_session: Session, catalogo: CatalogoDePrueba
+) -> None:
+    """LA RED FINAL, probada saltándose la aplicación entera.
+
+    Es la razón de existir de la restricción de exclusión: dos peticiones simultáneas pueden
+    comprobar a la vez que el aula está libre y reservarla las dos, y ninguna validación en la
+    aplicación cierra esa carrera. Se inserta directamente con SQL, que es lo más parecido a
+    «el código se equivocó» que se puede escribir en un test.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    from app.infrastructure.persistence.sqlalchemy.models.schedule_block import ScheduleBlockModel
+
+    ocupada = db_session.execute(
+        select(ScheduleBlockModel).where(ScheduleBlockModel.space_id.is_not(None)).limit(1)
+    ).scalar_one()
+
+    db_session.add(
+        ScheduleBlockModel(
+            course_offering_id=ocupada.course_offering_id,
+            enrollment_period_id=ocupada.enrollment_period_id,
+            day_of_week=ocupada.day_of_week,
+            # Solapada a medias: empieza dentro de la que ya existe.
+            start_time=time(ocupada.start_time.hour, 30),
+            end_time=time(ocupada.end_time.hour + 1, 0),
+            space_id=ocupada.space_id,
+        )
+    )
+
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+
+    db_session.rollback()
+
+
+@pytest.mark.integration
+def test_la_misma_aula_a_la_misma_hora_en_otro_periodo_si_se_permite(
+    db_session: Session, catalogo: CatalogoDePrueba
+) -> None:
+    """Reutilizar un aula el semestre siguiente es lo normal, no un conflicto.
+
+    Es lo que obliga a llevar `enrollment_period_id` en la propia franja: sin esa columna la
+    restricción no podría distinguir los dos casos y prohibiría el legítimo.
+    """
+    from app.infrastructure.persistence.sqlalchemy.models.course_offering import CourseOfferingModel
+    from app.infrastructure.persistence.sqlalchemy.models.enrollment_period import (
+        EnrollmentPeriodModel,
+    )
+    from app.infrastructure.persistence.sqlalchemy.models.schedule_block import ScheduleBlockModel
+
+    ocupada = db_session.execute(
+        select(ScheduleBlockModel).where(ScheduleBlockModel.space_id.is_not(None)).limit(1)
+    ).scalar_one()
+
+    otro_periodo = EnrollmentPeriodModel(
+        id=uuid4(),
+        code="2026-1-V1",
+        academic_period="2026-1",
+        name="Matrícula 2026-1",
+        starts_at=datetime.now(UTC) + timedelta(days=100),
+        ends_at=datetime.now(UTC) + timedelta(days=130),
+        is_active=False,
+    )
+    db_session.add(otro_periodo)
+    db_session.flush()
+
+    grupo = CourseOfferingModel(
+        id=uuid4(),
+        enrollment_period_id=otro_periodo.id,
+        course_id=catalogo.calculo_i_id,
+        group_number="01",
+        total_capacity=30,
+        enrolled_count=0,
+    )
+    db_session.add(grupo)
+    db_session.flush()
+
+    db_session.add(
+        ScheduleBlockModel(
+            course_offering_id=grupo.id,
+            enrollment_period_id=otro_periodo.id,
+            day_of_week=ocupada.day_of_week,
+            start_time=ocupada.start_time,
+            end_time=ocupada.end_time,
+            space_id=ocupada.space_id,
+        )
+    )
+
+    db_session.commit()  # no debe lanzar

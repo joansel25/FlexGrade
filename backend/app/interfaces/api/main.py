@@ -22,6 +22,8 @@ from app.domain.exceptions.admin import (
     DuplicatePeriodCodeError,
     InvalidPeriodRangeError,
     OverlappingScheduleError,
+    SpaceCapacityExceededError,
+    SpaceDoubleBookedError,
 )
 from app.domain.exceptions.authentication import (
     AdminRequiredError,
@@ -180,6 +182,10 @@ _MAPEO_ERRORES: dict[type[DomainError], tuple[int, str]] = {
     DuplicateOfferingGroupError: (409, "DUPLICATE_OFFERING_GROUP"),
     CapacityBelowEnrolledError: (409, "CAPACITY_BELOW_ENROLLED"),
     OverlappingScheduleError: (409, "OVERLAPPING_SCHEDULE"),
+    # Fase 7. Son 409 por la misma razón que el resto: la petición está bien formada y
+    # quien la envía tiene permiso; lo que impide la operación es el estado del sistema.
+    SpaceDoubleBookedError: (409, "SPACE_DOUBLE_BOOKED"),
+    SpaceCapacityExceededError: (409, "SPACE_CAPACITY_EXCEEDED"),
     # 409 y no 500: la escritura no se aplicó porque otra ganó la carrera, y repetir la misma
     # petición tiene todas las papeletas de funcionar. Un 500 diría que el servidor falló, que
     # es exactamente lo que no ocurrió.

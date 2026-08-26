@@ -400,6 +400,7 @@ def catalogo(db_session: Session) -> CatalogoDePrueba:
                 day_of_week=3,
                 start_time=time(8, 0),
                 end_time=time(10, 0),
+                enrollment_period_id=activo.id,
                 space_id=espacios["A-203"].id,
             ),
             ScheduleBlockModel(
@@ -407,6 +408,7 @@ def catalogo(db_session: Session) -> CatalogoDePrueba:
                 day_of_week=1,
                 start_time=time(8, 0),
                 end_time=time(10, 0),
+                enrollment_period_id=activo.id,
                 space_id=espacios["A-201"].id,
             ),
         ]

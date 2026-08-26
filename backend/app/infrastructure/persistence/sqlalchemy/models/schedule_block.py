@@ -11,7 +11,15 @@ from __future__ import annotations
 import uuid
 from datetime import time
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, SmallInteger, Time, text
+from sqlalchemy import (
+    CheckConstraint,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    SmallInteger,
+    Time,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -36,6 +44,13 @@ class ScheduleBlockModel(Base):
             veces a la misma hora. `ON DELETE SET NULL` y no `CASCADE`: retirar un espacio del
             inventario no debe borrar la clase, debe dejarla sin aula asignada, que es
             exactamente lo que ha pasado.
+        enrollment_period_id: período al que pertenece la franja. Es una COPIA del que lleva su
+            grupo, y no un descuido: la restricción de exclusión que impide la doble reserva
+            (migración `0010`) solo puede mirar columnas de ESTA tabla, y sin el período
+            prohibiría reutilizar un aula el semestre siguiente a la misma hora, que es lo
+            normal y no un conflicto. La copia no queda a merced del código: la clave foránea es
+            COMPUESTA sobre `(course_offering_id, enrollment_period_id)`, así que PostgreSQL
+            impide que una franja declare un período distinto al de su grupo.
     """
 
     __tablename__ = "schedule_blocks"
@@ -53,6 +68,7 @@ class ScheduleBlockModel(Base):
     day_of_week: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     start_time: Mapped[time] = mapped_column(Time, nullable=False)
     end_time: Mapped[time] = mapped_column(Time, nullable=False)
+    enrollment_period_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     space_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("spaces.id", ondelete="SET NULL"),
@@ -71,6 +87,13 @@ class ScheduleBlockModel(Base):
         # PostgreSQL tampoco indexa este lado de la clave foránea por su cuenta. Parcial,
         # porque las franjas sin aula asignada no responden nada en esa pregunta y con el
         # tiempo serían la mayoría de un índice que nunca las mira.
+        # La clave foránea compuesta: ata la copia del período a la del grupo.
+        ForeignKeyConstraint(
+            ["course_offering_id", "enrollment_period_id"],
+            ["course_offerings.id", "course_offerings.enrollment_period_id"],
+            name="fk_schedule_blocks_offering_period",
+            ondelete="CASCADE",
+        ),
         Index(
             "ix_schedule_space",
             "space_id",

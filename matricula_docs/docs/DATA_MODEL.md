@@ -371,6 +371,30 @@ Dos decisiones del modelo que conviene no revisar sin motivo:
 
 `ix_schedule_space` sobre `(space_id, day_of_week)` es PARCIAL, filtrado por `space_id IS NOT NULL`: las franjas sin aula no responden nada a la pregunta «qué hay reservado aquí», y con el tiempo serían la mayoría de un índice que nunca las mira. Es el que sostendrá la detección de doble reserva de la 7.2.
 
+### Doble reserva de un espacio
+
+**Dos defensas, igual que con el sobrecupo, y ninguna sustituye a la otra.** `SpaceConflictDetector` comprueba en el caso de uso que el aula esté libre y que el grupo quepa, y responde con el día, la hora y el grupo que la ocupa. La garantía la da PostgreSQL con una restricción de exclusión `GiST` (migración `0010`):
+
+```sql
+EXCLUDE USING gist (
+    space_id WITH =, enrollment_period_id WITH =, day_of_week WITH =,
+    tsrange(DATE '2000-01-01' + start_time, DATE '2000-01-01' + end_time, '[)') WITH &&
+) WHERE (space_id IS NOT NULL)
+```
+
+Sin la restricción, dos peticiones simultáneas comprueban a la vez que el aula está libre y la reservan las dos: ninguna validación en la aplicación cierra esa carrera. Sin la validación, esa carrera perdida le llega a una persona como un error de integridad y un 500.
+
+Cuatro decisiones dentro de esa restricción:
+
+- **`enrollment_period_id` está desnormalizado en `schedule_blocks`.** Una restricción de exclusión solo mira columnas de su tabla, y sin el período prohibiría reutilizar un aula el semestre siguiente a la misma hora, que es lo normal. La copia no queda a merced del código: la clave foránea es compuesta sobre `(course_offering_id, enrollment_period_id)`, el mismo recurso que usa `program_course_requirements`.
+- **`tsrange` sobre una fecha fija y no un tipo `timerange` propio.** PostgreSQL no trae rangos sobre `time`, y un tipo a medida complica el `downgrade` sin ganar nada. La fecha da igual mientras sea la misma para todas las filas: `day_of_week` ya separa los días.
+- **`[)` y no `[]`.** Una clase que termina a las 10:00 y otra que empieza a las 10:00 son consecutivas. Es la misma regla que aplica `ScheduleBlock.overlaps`, y si las dos no coincidieran una aceptaría lo que la otra rechaza.
+- **Parcial sobre `space_id IS NOT NULL`.** Una franja sin aula no ocupa nada; sin el filtro, todas las clases sin espacio del mismo día chocarían entre sí y publicar el horario antes de repartir aulas sería imposible.
+
+**La migración libera las dobles reservas que ya existían.** No es hipotético: mientras el aula fue texto libre nada las impidió, así que cualquier base real llega con conflictos y `ADD CONSTRAINT` los rechaza en bloque. Sobre los datos de desarrollo liberó 18 franjas. Se resuelve dejando **sin aula** a la que llegó después, nunca borrándola: la clase existe y su horario es correcto; lo que está mal es dónde se dijo que era.
+
+**El aforo solo bloquea cuando se conoce.** `Space.fits()` devuelve `None` para los espacios sin aforo medido, y tratar ese «no sé» como un «no cabe» inutilizaría aulas válidas por una laguna del inventario.
+
 ### Auditoría temporal
 
 No todas las tablas necesitan el mismo rastro temporal. La distinción sigue el ciclo de vida real de cada fila:

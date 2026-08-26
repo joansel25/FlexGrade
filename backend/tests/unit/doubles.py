@@ -44,6 +44,7 @@ from app.domain.entities.space import Space
 from app.domain.entities.student import Student
 from app.domain.entities.user import User
 from app.domain.exceptions.authentication import InvalidTokenError
+from app.domain.services.space_conflict_detector import SpaceReservation
 from app.domain.value_objects.course_code import CourseCode
 from app.domain.value_objects.email import Email
 from app.domain.value_objects.enrollment_status import EnrollmentStatus
@@ -327,6 +328,31 @@ class InMemoryOfferingRepository(OfferingRepository):
                 ),
                 key=lambda o: o.group_number,
             )
+        ]
+
+    def find_space_reservations(
+        self, space_ids: Sequence[UUID], enrollment_period_id: UUID
+    ) -> list[SpaceReservation]:
+        """Reproduce la consulta de ocupación sobre los grupos guardados.
+
+        El código de la materia no está en `CourseOffering` —solo su identificador—, así que el
+        doble devuelve una cadena vacía. Es suficiente: lo que los tests comprueban es QUÉ
+        franja choca y con qué grupo, no cómo se llama la materia, y eso lo cubre el test de
+        integración contra el `SELECT` real.
+        """
+        pedidos = set(space_ids)
+
+        return [
+            SpaceReservation(
+                space_id=franja.space.id,
+                block=franja,
+                course_code="",
+                group_number=o.group_number,
+            )
+            for o in self._offerings.values()
+            if o.enrollment_period_id == enrollment_period_id
+            for franja in o.schedule
+            if franja.space is not None and franja.space.id in pedidos
         ]
 
     def find_course_ids_offered_in(
@@ -616,6 +642,11 @@ class ContadorDeConsultas(OfferingRepository):
         self, course_ids: Sequence[UUID], enrollment_period_id: UUID
     ) -> set[UUID]:
         return self._interno.find_course_ids_offered_in(course_ids, enrollment_period_id)
+
+    def find_space_reservations(
+        self, space_ids: Sequence[UUID], enrollment_period_id: UUID
+    ) -> list[SpaceReservation]:
+        return self._interno.find_space_reservations(space_ids, enrollment_period_id)
 
     def try_reserve_slot(self, offering_id: UUID) -> bool:
         return self._interno.try_reserve_slot(offering_id)

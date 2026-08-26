@@ -277,6 +277,7 @@ def test_enrolling_in_two_groups_at_the_same_time_is_rejected(
     db_session.add(
         ScheduleBlockModel(
             course_offering_id=solapado.id,
+            enrollment_period_id=catalogo.period_id,
             day_of_week=1,
             start_time=time(9, 0),
             end_time=time(11, 0),
@@ -315,6 +316,7 @@ def test_enrolling_in_two_groups_at_different_times_is_allowed(
     db_session.add(
         ScheduleBlockModel(
             course_offering_id=sin_choque.id,
+            enrollment_period_id=catalogo.period_id,
             day_of_week=5,
             start_time=time(14, 0),
             end_time=time(16, 0),

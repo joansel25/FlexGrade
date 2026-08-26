@@ -479,6 +479,7 @@ def test_un_grupo_sin_aula_asignada_conserva_sus_franjas(
     db_session.add(
         ScheduleBlockModel(
             course_offering_id=catalogo.offering_grupo_02_id,
+            enrollment_period_id=catalogo.period_id,
             day_of_week=5,
             start_time=time(16, 0),
             end_time=time(18, 0),

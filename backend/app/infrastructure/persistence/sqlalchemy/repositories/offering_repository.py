@@ -13,8 +13,10 @@ from app.application.ports.repositories.offering_repository import OfferingRepos
 from app.domain.entities.course_offering import CourseOffering
 from app.domain.entities.professor import Professor
 from app.domain.entities.space import Space
+from app.domain.services.space_conflict_detector import SpaceReservation
 from app.domain.value_objects.schedule_block import ScheduleBlock
 from app.domain.value_objects.space_type import SpaceType
+from app.infrastructure.persistence.sqlalchemy.models.course import CourseModel
 from app.infrastructure.persistence.sqlalchemy.models.course_offering import CourseOfferingModel
 from app.infrastructure.persistence.sqlalchemy.models.professor import ProfessorModel
 from app.infrastructure.persistence.sqlalchemy.models.schedule_block import ScheduleBlockModel
@@ -89,6 +91,47 @@ class SQLAlchemyOfferingRepository(OfferingRepository):
         horarios = self._horarios_de([m.id for m in modelos])
 
         return [self._a_entidad(m, docentes=docentes, horarios=horarios) for m in modelos]
+
+    def find_space_reservations(
+        self, space_ids: Sequence[UUID], enrollment_period_id: UUID
+    ) -> list[SpaceReservation]:
+        if not space_ids:
+            return []
+
+        # Un solo `SELECT` con los tres joins: la franja da el horario, el grupo da su número y
+        # la materia su código. Traer las franjas y después preguntar por cada grupo sería un
+        # N+1 dentro de la operación que abre el grupo.
+        sentencia = (
+            select(
+                ScheduleBlockModel,
+                SpaceModel,
+                CourseModel.code,
+                CourseOfferingModel.group_number,
+            )
+            .join(SpaceModel, SpaceModel.id == ScheduleBlockModel.space_id)
+            .join(
+                CourseOfferingModel,
+                CourseOfferingModel.id == ScheduleBlockModel.course_offering_id,
+            )
+            .join(CourseModel, CourseModel.id == CourseOfferingModel.course_id)
+            .where(ScheduleBlockModel.space_id.in_(space_ids))
+            .where(ScheduleBlockModel.enrollment_period_id == enrollment_period_id)
+        )
+
+        return [
+            SpaceReservation(
+                space_id=espacio.id,
+                block=ScheduleBlock(
+                    day_of_week=franja.day_of_week,
+                    start_time=franja.start_time,
+                    end_time=franja.end_time,
+                    space=_espacio_a_entidad(espacio),
+                ),
+                course_code=codigo,
+                group_number=numero,
+            )
+            for franja, espacio, codigo, numero in self._session.execute(sentencia).all()
+        ]
 
     def find_course_ids_offered_in(
         self, course_ids: Sequence[UUID], enrollment_period_id: UUID
@@ -191,6 +234,9 @@ class SQLAlchemyOfferingRepository(OfferingRepository):
                     # caso de uso traduce el código que llegó en la petición y falla ahí si no
                     # existe. Aquí solo se guarda su identificador.
                     space_id=None if franja.space is None else franja.space.id,
+                    # La copia que necesita la restriccion de doble reserva. La clave foránea
+                    # compuesta impide que mienta.
+                    enrollment_period_id=offering.enrollment_period_id,
                 )
             )
 

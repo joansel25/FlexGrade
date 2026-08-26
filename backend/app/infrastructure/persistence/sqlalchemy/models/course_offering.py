@@ -108,6 +108,11 @@ class CourseOfferingModel(Base):
     )
 
     __table_args__ = (
+        # Redundante para los datos —`id` ya es clave primaria— y OBLIGATORIO para PostgreSQL:
+        # `schedule_blocks` referencia estas dos columnas con una clave foránea compuesta, y
+        # referenciar dos columnas exige un índice único sobre ellas. Es lo que permite atar la
+        # copia desnormalizada del período que necesita la restricción de doble reserva.
+        UniqueConstraint("id", "enrollment_period_id", name="id_enrollment_period_id"),
         # Nombres cortos: la convención los expande a `ck_course_offerings_<nombre>`.
         CheckConstraint("total_capacity > 0", name="total_capacity"),
         CheckConstraint("enrolled_count >= 0", name="enrolled_count_not_negative"),

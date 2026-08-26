@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from uuid import UUID
 
 from app.domain.entities.course_offering import CourseOffering
+from app.domain.services.space_conflict_detector import SpaceReservation
 
 
 class OfferingRepository(ABC):
@@ -43,6 +44,28 @@ class OfferingRepository(ABC):
         Returns:
             Los grupos ordenados por número de grupo, o una lista vacía si la materia no se
             ofrece en ese período.
+        """
+
+    @abstractmethod
+    def find_space_reservations(
+        self, space_ids: Sequence[UUID], enrollment_period_id: UUID
+    ) -> list[SpaceReservation]:
+        """Recupera lo que ya está reservado en esos espacios durante el período.
+
+        Es la consulta que alimenta la comprobación de doble reserva. Devuelve el grupo además
+        del horario porque el rechazo tiene que decir QUIÉN ocupa el aula: sin ese dato, quien
+        programa se queda buscando a ciegas.
+
+        En lote y por período: un grupo puede pedir tres aulas distintas, y preguntarlo aula por
+        aula sería una consulta por franja dentro de la operación que abre el grupo.
+
+        Args:
+            space_ids: espacios por los que se pregunta.
+            enrollment_period_id: período sobre el que mirar. Reservar la misma aula a la misma
+                hora en OTRO semestre no es un conflicto, es lo normal.
+
+        Returns:
+            Las reservas existentes. Vacío si ninguno de esos espacios tiene nada.
         """
 
     @abstractmethod

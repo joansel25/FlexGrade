@@ -20,6 +20,7 @@ from app.domain.exceptions.catalog import (
     ProfessorNotFoundError,
     SpaceNotFoundError,
 )
+from app.domain.services.space_conflict_detector import SpaceConflictDetector
 from app.domain.value_objects.schedule_block import ScheduleBlock
 
 
@@ -40,6 +41,7 @@ class CreateCourseOfferingUseCase:
         professor_reader: ProfessorReader,
         space_reader: SpaceReader,
         unit_of_work: UnitOfWork,
+        space_conflicts: SpaceConflictDetector | None = None,
     ) -> None:
         self._offerings = offering_repository
         self._courses = course_repository
@@ -47,6 +49,9 @@ class CreateCourseOfferingUseCase:
         self._professors = professor_reader
         self._spaces = space_reader
         self._uow = unit_of_work
+        # Sin estado y sin dependencias, como el resto de servicios de dominio: se construye
+        # aquí por defecto y se admite por parámetro para poder aislarlo en un test.
+        self._space_conflicts = space_conflicts or SpaceConflictDetector()
 
     def execute(
         self,
@@ -76,6 +81,8 @@ class CreateCourseOfferingUseCase:
             CourseNotFoundError: si la materia no existe.
             ProfessorNotFoundError: si se indicó un docente que no existe.
             SpaceNotFoundError: si alguna franja indica un aula que no está en el inventario.
+            SpaceCapacityExceededError: si el grupo no cabe en alguna de las aulas pedidas.
+            SpaceDoubleBookedError: si alguna aula ya está ocupada a esa hora en el período.
             DuplicateOfferingGroupError: si ese número de grupo ya existe para la materia en
                 el período activo.
             OverlappingScheduleError: si dos franjas del horario se cruzan entre sí.
@@ -101,6 +108,10 @@ class CreateCourseOfferingUseCase:
 
             if any(o.group_number == group_number for o in existentes):
                 raise DuplicateOfferingGroupError(course_id, group_number)
+
+            self._verificar_espacios(
+                franjas=franjas, total_capacity=total_capacity, periodo_id=periodo.id
+            )
 
             grupo = CourseOffering(
                 id=uuid4(),
@@ -160,6 +171,38 @@ class CreateCourseOfferingUseCase:
             )
             for f in schedule
         ]
+
+    def _verificar_espacios(
+        self, *, franjas: list[ScheduleBlock], total_capacity: int, periodo_id: UUID
+    ) -> None:
+        """Comprueba que el grupo quepa en sus aulas y que ninguna esté ya ocupada.
+
+        Es la PRIMERA de dos defensas. La segunda es la restricción de exclusión `GiST` de la
+        migración `0010`, que rechaza el estado imposible aunque este código no llegara a
+        ejecutarse o dos peticiones simultáneas lo pasaran a la vez. Esta existe para dar un
+        mensaje que diga qué aula, a qué hora y qué grupo la ocupa; una restricción solo sabe
+        decir que no.
+
+        Va DENTRO de la transacción a propósito, al revés que la resolución de los códigos: lo
+        que se consulta aquí —qué hay reservado— puede cambiar mientras se decide, y leerlo
+        fuera ampliaría la ventana entre la comprobación y la escritura. Cerrarla del todo no
+        está en manos de la aplicación, y de eso se encarga la restricción.
+        """
+        con_aula = [f for f in franjas if f.space is not None]
+
+        if not con_aula:
+            return
+
+        for franja in con_aula:
+            assert franja.space is not None  # lo garantiza el filtro de arriba
+            self._space_conflicts.ensure_fits(space=franja.space, total_capacity=total_capacity)
+
+        reservas = self._offerings.find_space_reservations(
+            [f.space.id for f in con_aula if f.space is not None], periodo_id
+        )
+
+        for franja in con_aula:
+            self._space_conflicts.ensure_free(candidate=franja, reservations=reservas)
 
     @staticmethod
     def _verificar_horario_coherente(schedule: list[ScheduleBlock]) -> None:

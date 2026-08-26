@@ -5,12 +5,14 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al cerrar la iteración 7.1 (el espacio como entidad).** Última verificación
-> real: backend con `pytest` en verde (553 tests) y `mypy --strict` limpio sobre 160 archivos;
+> **Actualizada al cerrar la iteración 7.2 (doble reserva imposible).** Última verificación
+> real: backend con `pytest` en verde (569 tests) y `mypy --strict` limpio sobre 161 archivos;
 > frontend sin cambios desde la 6.4 (lint, type-check, 94 tests y build en verde). La migración
 > `0009` se aplicó sobre la base de desarrollo y dejó 21 espacios con CERO franjas huérfanas, y
 > se comprobó contra la API real que un código inexistente responde `SPACE_NOT_FOUND` y que
-> `  lab-01 ` resuelve a `LAB-01`.
+> `  lab-01 ` resuelve a `LAB-01`. La migración `0010` liberó 18 franjas que ya estaban
+> doblemente reservadas y se comprobó a mano que PostgreSQL rechaza el `INSERT` solapado y
+> acepta la misma aula a la misma hora en OTRO período.
 > El semáforo de la 6.3 se comprobó además contra la API real con dos cuentas del seed —una sin
 > historial y otra con `MAT101` aprobada, que desbloquea `MAT102`—, verificando la promesa de la
 > iteración: `POST /enrollments` rechaza con `PREREQUISITES_NOT_MET` justo lo que el plan marca
@@ -220,7 +222,17 @@ donde importa.
 40. **`spaces.capacity` admite nulos a propósito.** Los espacios que nacieron del traslado de
     textos no traían aforo, e inventarlo habría creado el número contra el que la 7.2 valida.
     `Space.fits()` devuelve `None` cuando no se sabe: «no sé» no es «sí» ni «no».
-41. **El estado de la API no se le muestra al estudiante.** El recuadro de la pantalla de
+41. **La doble reserva se impide con DOS defensas, como el sobrecupo.**
+    `SpaceConflictDetector` da el mensaje —qué aula, a qué hora y qué grupo la ocupa— y la
+    restricción de exclusión `GiST` de la migración `0010` da la garantía. Quitar cualquiera
+    deja el sistema peor: sin la restricción, dos peticiones simultáneas reservan la misma aula;
+    sin el detector, esa carrera perdida se presenta como un 500.
+42. **`schedule_blocks.enrollment_period_id` es una copia deliberada.** Una restricción de
+    exclusión solo mira columnas de su tabla, y sin el período prohibiría reutilizar un aula el
+    semestre siguiente. La clave foránea COMPUESTA impide que la copia mienta.
+43. **El seed reparte aulas comprobando ocupación** (`_aula_libre`). Antes lo hacía en rueda
+    ciega a propósito; con la restricción puesta, ese seed ya no se puede ejecutar.
+44. **El estado de la API no se le muestra al estudiante.** El recuadro de la pantalla de
     inicio y el indicador de la cabecera eran andamiaje de la 5.1, útil cuando no había
     pantallas reales y no se distinguía «la API está caída» de «mi código está mal». Al
     estudiante no le sirve —no puede hacer nada con un punto rojo— y ver el ambiente o un
@@ -232,7 +244,7 @@ donde importa.
     `git show 3315eeb:frontend/src/features/health/components/ServiceStatus.tsx` la recupera si
     la 8.1 la quiere de base. El endpoint `/health` del backend no se toca: lo
     consume el ALB.
-42. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
+45. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
     la API acepta credenciales y con ellas el comodín ni siquiera es válido.
 
 ## 4. Qué está construido
@@ -248,8 +260,8 @@ donde importa.
 | 5 — Frontend y comprobante | ✅ | 5.1 fundación · 5.2 autenticación · 5.3 catálogo · 5.4 inscripción y horario · 5.5 comprobante PDF |
 | 6 — Reglas por carrera | ✅ | `GET /students/me/study-plan` con semáforo, ruta `/plan` en el frontend |
 
-**Fase 7 — Aulas y espacios físicos** (en curso): 7.1 el espacio como entidad ✅ (esta
-iteración) · 7.2 doble reserva imposible · 7.3 consulta de disponibilidad.
+**Fase 7 — Aulas y espacios físicos** (en curso): 7.1 el espacio como entidad ✅ (`804fe31`) ·
+7.2 doble reserva imposible ✅ (esta iteración) · 7.3 consulta de disponibilidad.
 
 **Fase 6 — Reglas académicas por carrera: COMPLETA.** 6.1 catálogo acotado ✅ (`c6782c0`) ·
 6.2 prerrequisitos y correquisitos por plan ✅ (`0c0131b`) ·

@@ -24,6 +24,49 @@ class InvalidPeriodRangeError(DomainError):
         )
 
 
+class SpaceDoubleBookedError(DomainError):
+    """El aula ya está ocupada por otro grupo a esa hora.
+
+    Es la cara legible de la restricción de exclusión que impide el estado. Lleva el grupo que
+    la ocupa además del día y la hora, porque «el aula está ocupada» deja a quien programa
+    buscando a ciegas y «la ocupa el grupo 02 de MAT101» le dice con quién hablar.
+    """
+
+    def __init__(
+        self,
+        *,
+        space_code: str,
+        day_of_week: int,
+        start_time: str,
+        course_code: str,
+        group_number: str,
+    ) -> None:
+        super().__init__(
+            f"El aula {space_code} ya está ocupada a esa hora",
+            details={
+                "space_code": space_code,
+                "day_of_week": day_of_week,
+                "start_time": start_time,
+                "occupied_by": {"course_code": course_code, "group_number": group_number},
+            },
+        )
+
+
+class SpaceCapacityExceededError(DomainError):
+    """El grupo no cabe en el aula.
+
+    Solo se lanza cuando el aforo se CONOCE. Un espacio sin aforo medido no bloquea nada: los
+    que nacieron del traslado de textos de la 7.1 no traían el dato, y tratar ese «no sé» como
+    un «no cabe» inutilizaría aulas válidas por una laguna del inventario.
+    """
+
+    def __init__(self, *, space_code: str, capacity: int, required: int) -> None:
+        super().__init__(
+            f"El aula {space_code} tiene aforo para {capacity} y el grupo es de {required}",
+            details={"space_code": space_code, "capacity": capacity, "required": required},
+        )
+
+
 class DuplicatePeriodCodeError(DomainError):
     """Ya existe una ventana de matrícula con ese código."""
 
