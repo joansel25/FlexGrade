@@ -94,6 +94,39 @@ class CreateOfferingSchema(BaseModel):
     )
 
 
+class SpaceSchema(BaseModel):
+    """Un espacio físico del inventario.
+
+    `capacity` puede venir en `null`, y no es un hueco que rellenar: los espacios que nacieron
+    del traslado de textos de la iteración 7.1 no traían aforo, y una capacidad inventada es
+    peor que una ausente porque nadie vuelve a revisarla. Quien consulta la disponibilidad ve
+    el `null` y decide.
+    """
+
+    id: UUID
+    code: str
+    name: str | None = None
+    space_type: str
+    capacity: int | None = None
+    campus: str | None = None
+    building: str | None = None
+
+
+class AvailableSpacesSchema(BaseModel):
+    """Respuesta de `GET /admin/spaces/available`.
+
+    Devuelve la franja consultada además de los espacios. Sin ella, una lista suelta no dice a
+    qué pregunta responde, y quien la lee más tarde —o la copia a un informe— no puede saber si
+    era el martes de 10 a 12 o el jueves de 14 a 16.
+    """
+
+    day_of_week: int
+    start_time: _time
+    end_time: _time
+    items: list[SpaceSchema] = Field(default_factory=list)
+    total: int
+
+
 class NewScheduleBlockSchema(BaseModel):
     """Una franja al ABRIR un grupo.
 

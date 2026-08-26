@@ -55,6 +55,7 @@ from app.domain.exceptions.enrollment import (
     PrerequisitesNotMetError,
     ScheduleConflictError,
 )
+from app.domain.exceptions.invalid_value import InvalidScheduleBlockError
 from app.infrastructure.config.settings import get_settings
 from app.infrastructure.logging.setup import configurar_logging
 from app.interfaces.api.middleware.request_logging import RequestLoggingMiddleware
@@ -153,6 +154,10 @@ _MAPEO_ERRORES: dict[type[DomainError], tuple[int, str]] = {
     PeriodNotFoundError: (404, "PERIOD_NOT_FOUND"),
     ProfessorNotFoundError: (404, "PROFESSOR_NOT_FOUND"),
     ProgramNotFoundError: (404, "PROGRAM_NOT_FOUND"),
+    # 400 y no 409: la franja pedida está MAL FORMADA —«de 12 a 10», un día fuera de rango—, no
+    # es un conflicto con el estado del sistema. Registrarla aquí evita que caiga en el
+    # `DOMAIN_ERROR` genérico del final, donde el cliente no puede distinguirla de nada más.
+    InvalidScheduleBlockError: (400, "INVALID_SCHEDULE_BLOCK"),
     SpaceNotFoundError: (404, "SPACE_NOT_FOUND"),
     # Inscripción (Fase 3), con los códigos que fija `API.md` sección 4.
     #

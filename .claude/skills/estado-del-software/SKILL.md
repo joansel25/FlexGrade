@@ -5,8 +5,9 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al cerrar la iteración 7.2 (doble reserva imposible).** Última verificación
-> real: backend con `pytest` en verde (569 tests) y `mypy --strict` limpio sobre 161 archivos;
+> **Actualizada al cerrar la iteración 7.3, y con ella la FASE 7 completa.** Última
+> verificación real: backend con `pytest` en verde (578 tests) y `mypy --strict` limpio sobre
+> 162 archivos;
 > frontend sin cambios desde la 6.4 (lint, type-check, 94 tests y build en verde). La migración
 > `0009` se aplicó sobre la base de desarrollo y dejó 21 espacios con CERO franjas huérfanas, y
 > se comprobó contra la API real que un código inexistente responde `SPACE_NOT_FOUND` y que
@@ -232,7 +233,13 @@ donde importa.
     semestre siguiente. La clave foránea COMPUESTA impide que la copia mienta.
 43. **El seed reparte aulas comprobando ocupación** (`_aula_libre`). Antes lo hacía en rueda
     ciega a propósito; con la restricción puesta, ese seed ya no se puede ejecutar.
-44. **El estado de la API no se le muestra al estudiante.** El recuadro de la pantalla de
+44. **La disponibilidad de espacios mide con la MISMA regla que el rechazo.**
+    `GET /admin/spaces/available` usa el solapamiento estricto de `SpaceConflictDetector` y el
+    rango `[)` de la restricción. Si divergieran, ofrecería aulas que la apertura del grupo
+    rechaza —o escondería las que acepta—, que es la contradicción que la Fase 6 se dedicó a
+    eliminar. Un aula sin aforo registrado aparece aunque se pida un mínimo: es la misma
+    decisión que `Space.fits` devolviendo `None`.
+45. **El estado de la API no se le muestra al estudiante.** El recuadro de la pantalla de
     inicio y el indicador de la cabecera eran andamiaje de la 5.1, útil cuando no había
     pantallas reales y no se distinguía «la API está caída» de «mi código está mal». Al
     estudiante no le sirve —no puede hacer nada con un punto rojo— y ver el ambiente o un
@@ -244,7 +251,7 @@ donde importa.
     `git show 3315eeb:frontend/src/features/health/components/ServiceStatus.tsx` la recupera si
     la 8.1 la quiere de base. El endpoint `/health` del backend no se toca: lo
     consume el ALB.
-45. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
+46. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
     la API acepta credenciales y con ellas el comodín ni siquiera es válido.
 
 ## 4. Qué está construido
@@ -260,8 +267,14 @@ donde importa.
 | 5 — Frontend y comprobante | ✅ | 5.1 fundación · 5.2 autenticación · 5.3 catálogo · 5.4 inscripción y horario · 5.5 comprobante PDF |
 | 6 — Reglas por carrera | ✅ | `GET /students/me/study-plan` con semáforo, ruta `/plan` en el frontend |
 
-**Fase 7 — Aulas y espacios físicos** (en curso): 7.1 el espacio como entidad ✅ (`804fe31`) ·
-7.2 doble reserva imposible ✅ (esta iteración) · 7.3 consulta de disponibilidad.
+**Fase 7 — Aulas y espacios físicos: COMPLETA.** 7.1 el espacio como entidad ✅ (`804fe31`) ·
+7.2 doble reserva imposible ✅ (`642ee0a`) · 7.3 consulta de disponibilidad ✅ (esta iteración).
+
+Lo siguiente es la **Fase 8 — Interfaz de administración**. No estaba en lo que pediste y la
+hoja de ruta la pone ahí a propósito: todo lo que viene después —expediente, comunicaciones,
+reportes— lo hace una persona de Registro Académico, y ahora mismo solo puede hacerlo
+escribiendo JSON en Swagger. Sin esa fase, cada funcionalidad nueva nace inutilizable para
+quien debe usarla.
 
 **Fase 6 — Reglas académicas por carrera: COMPLETA.** 6.1 catálogo acotado ✅ (`c6782c0`) ·
 6.2 prerrequisitos y correquisitos por plan ✅ (`0c0131b`) ·

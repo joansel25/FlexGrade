@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import time
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.application.ports.repositories.space_repository import SpaceRepository
 from app.domain.entities.space import Space
 from app.domain.value_objects.space_type import SpaceType
+from app.infrastructure.persistence.sqlalchemy.models.schedule_block import ScheduleBlockModel
 from app.infrastructure.persistence.sqlalchemy.models.space import SpaceModel
 
 
@@ -41,6 +43,45 @@ class SQLAlchemySpaceRepository(SpaceRepository):
         sentencia = select(SpaceModel).where(SpaceModel.id.in_(space_ids))
 
         return {m.id: self._a_entidad(m) for m in self._session.execute(sentencia).scalars()}
+
+    def find_available(
+        self,
+        *,
+        day_of_week: int,
+        start_time: time,
+        end_time: time,
+        enrollment_period_id: UUID,
+        min_capacity: int | None = None,
+        space_type: str | None = None,
+    ) -> list[Space]:
+        # `NOT EXISTS` y no un `LEFT JOIN ... IS NULL`: PostgreSQL corta en cuanto encuentra la
+        # primera franja que estorba, en vez de materializar todos los cruces para descartarlos
+        # después. La subconsulta la resuelve `ix_schedule_space`, que la 7.1 creó sobre
+        # `(space_id, day_of_week)` justo para esta pregunta.
+        ocupado = (
+            select(ScheduleBlockModel.id)
+            .where(ScheduleBlockModel.space_id == SpaceModel.id)
+            .where(ScheduleBlockModel.enrollment_period_id == enrollment_period_id)
+            .where(ScheduleBlockModel.day_of_week == day_of_week)
+            # Solapamiento ESTRICTO, igual que `ScheduleBlock.overlaps` y que el rango `[)` de la
+            # restricción de exclusión: terminar a las 10:00 y empezar a las 10:00 no es chocar.
+            .where(ScheduleBlockModel.start_time < end_time)
+            .where(start_time < ScheduleBlockModel.end_time)
+            .exists()
+        )
+
+        sentencia = select(SpaceModel).where(~ocupado).order_by(SpaceModel.code)
+
+        if space_type is not None:
+            sentencia = sentencia.where(SpaceModel.space_type == space_type)
+
+        if min_capacity is not None:
+            # `IS NULL OR >=`: el aforo desconocido no descarta el aula. Ver el puerto.
+            sentencia = sentencia.where(
+                or_(SpaceModel.capacity.is_(None), SpaceModel.capacity >= min_capacity)
+            )
+
+        return [self._a_entidad(m) for m in self._session.execute(sentencia).scalars()]
 
     def search(self, *, space_type: str | None = None, campus: str | None = None) -> list[Space]:
         sentencia = select(SpaceModel).order_by(SpaceModel.code)

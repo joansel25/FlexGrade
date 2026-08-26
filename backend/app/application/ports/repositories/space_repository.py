@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
+from datetime import time
 from uuid import UUID
 
 from app.domain.entities.space import Space
@@ -61,6 +62,44 @@ class SpaceReader(ABC):
 
         Returns:
             Los espacios encontrados. Los identificadores inexistentes se omiten.
+        """
+
+    @abstractmethod
+    def find_available(
+        self,
+        *,
+        day_of_week: int,
+        start_time: time,
+        end_time: time,
+        enrollment_period_id: UUID,
+        min_capacity: int | None = None,
+        space_type: str | None = None,
+    ) -> list[Space]:
+        """Recupera los espacios sin nada reservado en esa franja del período.
+
+        Un espacio está libre si NINGUNA de sus franjas se solapa con la pedida, con la misma
+        comparación estricta que usa `SpaceConflictDetector`: una clase que termina a las 10:00
+        no ocupa las 10:00. Si esta consulta usara otro criterio, ofrecería aulas que la
+        apertura del grupo rechazaría a continuación.
+
+        LOS ESPACIOS DE AFORO DESCONOCIDO SE INCLUYEN aunque se pida un mínimo. Es la misma
+        decisión que toma `Space.fits` al devolver `None` y que la 7.2 aplica al no bloquear por
+        un aforo que nadie midió: excluirlos escondería aulas que probablemente sirven, y quien
+        consulta ve `capacity: null` y decide. Prometer que caben sería peor; ocultarlas,
+        también.
+
+        Args:
+            day_of_week: día de la semana, de 1 (lunes) a 7 (domingo).
+            start_time: inicio de la franja que se quiere ocupar.
+            end_time: fin de la franja.
+            enrollment_period_id: período contra el que medir la ocupación. Lo reservado en
+                otro semestre no ocupa nada en este.
+            min_capacity: si se indica, se descartan los que tengan aforo conocido e
+                insuficiente.
+            space_type: si se indica, solo los de ese tipo.
+
+        Returns:
+            Los espacios libres, ordenados por código.
         """
 
     @abstractmethod

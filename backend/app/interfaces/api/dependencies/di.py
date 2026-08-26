@@ -36,6 +36,7 @@ from app.application.use_cases.admin.adjust_offering_capacity import AdjustOffer
 from app.application.use_cases.admin.create_course import CreateCourseUseCase
 from app.application.use_cases.admin.create_course_offering import CreateCourseOfferingUseCase
 from app.application.use_cases.admin.create_enrollment_period import CreateEnrollmentPeriodUseCase
+from app.application.use_cases.admin.find_available_spaces import FindAvailableSpacesUseCase
 from app.application.use_cases.admin.generate_enrollment_report import (
     GenerateEnrollmentReportUseCase,
 )
@@ -319,6 +320,23 @@ def get_study_plan_use_case(
 
 
 GetStudyPlanUseCaseDep = Annotated[GetStudyPlanUseCase, Depends(get_study_plan_use_case)]
+
+
+def get_find_available_spaces_use_case(
+    space_repository: SpaceRepositoryDep,
+    period_repository: PeriodRepositoryDep,
+) -> FindAvailableSpacesUseCase:
+    """Construye el caso de uso de disponibilidad de espacios.
+
+    Sin caché: la ocupación cambia con cada grupo que se abre, y una respuesta de hace
+    treinta segundos ofrecería un aula que otro acaba de tomar.
+    """
+    return FindAvailableSpacesUseCase(space_repository, period_repository)
+
+
+FindAvailableSpacesUseCaseDep = Annotated[
+    FindAvailableSpacesUseCase, Depends(get_find_available_spaces_use_case)
+]
 
 
 ListCoursesUseCaseDep = Annotated[ListCoursesUseCase, Depends(get_list_courses_use_case)]

@@ -554,10 +554,47 @@ El código es la clave natural del espacio: es lo que aparece en un horario impr
 
 **Lo que se DEVUELVE no cambió.** Las respuestas con horario —catálogo, «Mis materias», horario y comprobante— siguen exponiendo `classroom` con el código del aula. El aula pasó a ser una entidad por dentro; quien lee un horario sigue queriendo leer «A-201», así que el contrato público se mantuvo estable a propósito.
 
+### GET /admin/spaces/available
+
+Responde qué espacios están libres en una franja del período activo. Es lo que convierte la asignación de aulas de un ejercicio de memoria en una consulta: sin esto, la única forma de encontrar un aula libre es probar códigos contra `POST /admin/offerings` y coleccionar rechazos.
+
+**Query params**
+
+| Param | Tipo | Obligatorio | Descripción |
+|---|---|---|---|
+| `day_of_week` | 1–7 | sí | 1 = lunes … 7 = domingo |
+| `start_time` | `HH:MM` | sí | Inicio de la franja que se quiere ocupar |
+| `end_time` | `HH:MM` | sí | Fin de la franja; posterior al inicio |
+| `min_capacity` | entero | no | Personas que tienen que caber |
+| `space_type` | enum | no | `CLASSROOM`, `LABORATORY` o `AUDITORIUM` |
+
+**Response 200**
+```json
+{
+  "day_of_week": 2,
+  "start_time": "10:00:00",
+  "end_time": "12:00:00",
+  "items": [
+    { "id": "uuid", "code": "B-101", "name": null, "space_type": "CLASSROOM",
+      "capacity": 50, "campus": "Sede Principal", "building": "B" }
+  ],
+  "total": 1
+}
+```
+
+La respuesta repite la franja consultada. Una lista suelta no dice a qué pregunta contesta, y quien la lee más tarde —o la copia a un informe— no puede saber si era el martes de 10 a 12.
+
+**La disponibilidad usa el MISMO criterio que el rechazo.** Un espacio está libre si ninguna franja suya se solapa con la pedida, con la misma comparación estricta de `SpaceConflictDetector` y el rango `[)` de la restricción: una clase que termina a las 10:00 deja el aula libre a las 10:00. Si los dos criterios divergieran, esta consulta ofrecería aulas que `POST /admin/offerings` rechaza, o escondería aulas que acepta.
+
+**Un aula sin aforo registrado aparece igual aunque se pida un mínimo**, con `capacity: null`. Es la misma decisión que en toda la Fase 7: excluirla escondería un aula que probablemente sirve, y prometer que cabe sería peor. Quien consulta ve el `null` y decide.
+
+Una franja al revés —`start_time` posterior a `end_time`— responde `400`, no una lista vacía: devolver cero aulas dejaría a quien pregunta creyendo que no hay ninguna libre.
+
 ### Errores al asignar un aula
 
 | Código HTTP | error.code | Situación |
 |---|---|---|
+| 400 | `INVALID_SCHEDULE_BLOCK` | La franja está mal formada (fin anterior al inicio, día fuera de rango) |
 | 404 | `SPACE_NOT_FOUND` | El código de aula no está en el inventario |
 | 409 | `SPACE_DOUBLE_BOOKED` | El aula ya está ocupada a esa hora en el período |
 | 409 | `SPACE_CAPACITY_EXCEEDED` | El grupo no cabe en el aula |

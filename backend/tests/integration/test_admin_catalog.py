@@ -622,3 +622,153 @@ def test_la_misma_aula_a_la_misma_hora_en_otro_periodo_si_se_permite(
     )
 
     db_session.commit()  # no debe lanzar
+
+
+# ---------------------------------------------------------------------------
+# GET /admin/spaces/available (iteración 7.3)
+# ---------------------------------------------------------------------------
+
+RUTA_DISPONIBLES = "/api/v1/admin/spaces/available"
+
+
+def _disponibles(client, admin, **params):
+    respuesta = client.get(RUTA_DISPONIBLES, params=params, headers=admin)
+    assert respuesta.status_code == 200, respuesta.text
+    return respuesta.json()
+
+
+@pytest.mark.integration
+def test_un_aula_ocupada_no_aparece_como_disponible(
+    client: TestClient, catalogo: CatalogoDePrueba, admin: dict[str, str]
+) -> None:
+    # La fixture deja el grupo 01 en A-201 el lunes de 8 a 10.
+    cuerpo = _disponibles(client, admin, day_of_week=1, start_time="08:00", end_time="10:00")
+
+    codigos = {e["code"] for e in cuerpo["items"]}
+    assert "A-201" not in codigos
+    # Las demás sí: ocupar una no oculta el resto del inventario.
+    assert "B-101" in codigos
+
+
+@pytest.mark.integration
+def test_la_misma_aula_en_otro_dia_si_esta_disponible(
+    client: TestClient, catalogo: CatalogoDePrueba, admin: dict[str, str]
+) -> None:
+    cuerpo = _disponibles(client, admin, day_of_week=5, start_time="08:00", end_time="10:00")
+
+    assert "A-201" in {e["code"] for e in cuerpo["items"]}
+
+
+@pytest.mark.integration
+def test_una_franja_consecutiva_deja_el_aula_disponible(
+    client: TestClient, catalogo: CatalogoDePrueba, admin: dict[str, str]
+) -> None:
+    """La disponibilidad usa el MISMO criterio que el rechazo, y eso es lo que se prueba.
+
+    A-201 está ocupada hasta las 10:00. Si esta consulta contara las 10:00 como ocupadas,
+    ofrecería menos aulas de las que `POST /admin/offerings` acepta; si contara de más,
+    ofrecería aulas que ese endpoint va a rechazar. Las dos versiones del error son igual de
+    malas y las dos aparecen en cuanto los dos criterios divergen.
+    """
+    cuerpo = _disponibles(client, admin, day_of_week=1, start_time="10:00", end_time="12:00")
+
+    assert "A-201" in {e["code"] for e in cuerpo["items"]}
+
+
+@pytest.mark.integration
+def test_el_aforo_minimo_descarta_las_aulas_pequenas(
+    client: TestClient, catalogo: CatalogoDePrueba, admin: dict[str, str]
+) -> None:
+    # En la fixture: A-203 tiene 35 y B-101 tiene 50.
+    cuerpo = _disponibles(
+        client, admin, day_of_week=6, start_time="08:00", end_time="10:00", min_capacity=40
+    )
+
+    codigos = {e["code"] for e in cuerpo["items"]}
+    assert "B-101" in codigos
+    assert "A-203" not in codigos
+
+
+@pytest.mark.integration
+def test_un_aula_sin_aforo_registrado_sigue_apareciendo(
+    client: TestClient, catalogo: CatalogoDePrueba, db_session: Session, admin: dict[str, str]
+) -> None:
+    """Excluirla escondería un aula que probablemente sirve.
+
+    Es la misma decisión que toma `Space.fits` al devolver `None` y que la 7.2 aplica al no
+    bloquear por un aforo que nadie midió. Quien consulta ve `capacity: null` y decide.
+    """
+    from app.infrastructure.persistence.sqlalchemy.models.space import SpaceModel
+
+    db_session.add(SpaceModel(id=uuid4(), code="SIN-AFORO", space_type="CLASSROOM", capacity=None))
+    db_session.commit()
+
+    cuerpo = _disponibles(
+        client, admin, day_of_week=6, start_time="08:00", end_time="10:00", min_capacity=200
+    )
+
+    encontrada = next(e for e in cuerpo["items"] if e["code"] == "SIN-AFORO")
+    assert encontrada["capacity"] is None
+
+
+@pytest.mark.integration
+def test_se_puede_filtrar_por_tipo_de_espacio(
+    client: TestClient, catalogo: CatalogoDePrueba, db_session: Session, admin: dict[str, str]
+) -> None:
+    from app.infrastructure.persistence.sqlalchemy.models.space import SpaceModel
+
+    db_session.add(SpaceModel(id=uuid4(), code="LAB-99", space_type="LABORATORY", capacity=20))
+    db_session.commit()
+
+    cuerpo = _disponibles(
+        client,
+        admin,
+        day_of_week=6,
+        start_time="08:00",
+        end_time="10:00",
+        space_type="LABORATORY",
+    )
+
+    assert [e["code"] for e in cuerpo["items"]] == ["LAB-99"]
+
+
+@pytest.mark.integration
+def test_la_respuesta_dice_a_que_franja_responde(
+    client: TestClient, catalogo: CatalogoDePrueba, admin: dict[str, str]
+) -> None:
+    # Una lista suelta no dice a qué pregunta contesta, y quien la lee más tarde no puede saber
+    # si era el martes de 10 a 12 o el jueves de 14 a 16.
+    cuerpo = _disponibles(client, admin, day_of_week=2, start_time="10:00", end_time="12:00")
+
+    assert cuerpo["day_of_week"] == 2
+    assert cuerpo["start_time"] == "10:00:00"
+    assert cuerpo["total"] == len(cuerpo["items"])
+
+
+@pytest.mark.integration
+def test_una_franja_al_reves_se_rechaza(
+    client: TestClient, catalogo: CatalogoDePrueba, admin: dict[str, str]
+) -> None:
+    """«De 12 a 10» no es una franja vacía, es una pregunta mal hecha.
+
+    Devolver una lista vacía dejaría a quien pregunta creyendo que no hay aulas libres.
+    """
+    respuesta = client.get(
+        RUTA_DISPONIBLES,
+        params={"day_of_week": 1, "start_time": "12:00", "end_time": "10:00"},
+        headers=admin,
+    )
+
+    assert respuesta.status_code == 400, respuesta.text
+
+
+@pytest.mark.integration
+def test_la_disponibilidad_exige_rol_de_administracion(
+    client: TestClient, catalogo: CatalogoDePrueba
+) -> None:
+    assert (
+        client.get(
+            RUTA_DISPONIBLES, params={"day_of_week": 1, "start_time": "08:00", "end_time": "10:00"}
+        ).status_code
+        == 401
+    )

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import replace
+from datetime import time
 from uuid import UUID
 
 from app.application.dtos.auth_dto import TokenPayload, TokenType
@@ -491,6 +492,35 @@ class InMemorySpaceRepository(SpaceRepository):
 
     def find_by_ids(self, space_ids: Sequence[UUID]) -> dict[UUID, Space]:
         return {sid: self._spaces[sid] for sid in space_ids if sid in self._spaces}
+
+    def find_available(
+        self,
+        *,
+        day_of_week: int,
+        start_time: time,
+        end_time: time,
+        enrollment_period_id: UUID,
+        min_capacity: int | None = None,
+        space_type: str | None = None,
+    ) -> list[Space]:
+        """Filtra el inventario por tipo y aforo, sin ocupación.
+
+        El doble NO conoce las franjas reservadas: vive en el repositorio de espacios y las
+        franjas viven en el de grupos. Lo que se comprueba con él es que el caso de uso valide
+        la franja y resuelva el período; que la ocupación se calcule bien es cosa del `SELECT`
+        real, y eso se prueba contra PostgreSQL.
+
+        Sí reproduce la regla del aforo desconocido, que es una decisión de diseño y no un
+        detalle del SQL: `capacity is None` no descarta el espacio.
+        """
+        libres = [
+            s
+            for s in self._spaces.values()
+            if (space_type is None or s.space_type.value == space_type)
+            and (min_capacity is None or s.capacity is None or s.capacity >= min_capacity)
+        ]
+
+        return sorted(libres, key=lambda s: s.code)
 
     def search(self, *, space_type: str | None = None, campus: str | None = None) -> list[Space]:
         encontrados = [

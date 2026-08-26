@@ -9,6 +9,7 @@ protección sea el comportamiento por defecto y no algo que haya que recordar.
 
 from __future__ import annotations
 
+from datetime import time
 from typing import Annotated
 from uuid import UUID
 
@@ -18,6 +19,7 @@ from app.application.dtos.admin_dto import ScheduleBlockRequest
 from app.application.dtos.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.domain.entities.course_offering import CourseOffering
 from app.domain.entities.enrollment_period import EnrollmentPeriod
+from app.domain.value_objects.space_type import SpaceType
 from app.interfaces.api.dependencies.auth import require_admin
 from app.interfaces.api.dependencies.di import (
     ActivateEnrollmentPeriodUseCaseDep,
@@ -25,16 +27,19 @@ from app.interfaces.api.dependencies.di import (
     CreateCourseOfferingUseCaseDep,
     CreateCourseUseCaseDep,
     CreateEnrollmentPeriodUseCaseDep,
+    FindAvailableSpacesUseCaseDep,
     GenerateEnrollmentReportUseCaseDep,
     GenerateOccupancyReportUseCaseDep,
     ListEnrollmentPeriodsUseCaseDep,
 )
 from app.interfaces.api.routers.courses import a_schema_de_grupo
 from app.interfaces.api.schemas.admin_schemas import (
+    AvailableSpacesSchema,
     CreateCourseSchema,
     CreateEnrollmentPeriodSchema,
     CreateOfferingSchema,
     EnrollmentPeriodSchema,
+    SpaceSchema,
     UpdateCapacitySchema,
 )
 from app.interfaces.api.schemas.catalog_schemas import (
@@ -281,6 +286,65 @@ def _a_schema_de_grupo(offering: CourseOffering) -> OfferingDetailSchema:
         **base.model_dump(),
         course_id=offering.course_id,
         enrollment_period_id=offering.enrollment_period_id,
+    )
+
+
+@router.get(
+    "/spaces/available",
+    response_model=AvailableSpacesSchema,
+    status_code=status.HTTP_200_OK,
+    summary="Espacios libres en una franja horaria",
+    responses={
+        400: {"model": ErrorResponseSchema, "description": "La franja pedida no es válida"},
+        404: {"model": ErrorResponseSchema, "description": "No hay período activo"},
+    },
+)
+def available_spaces(
+    use_case: FindAvailableSpacesUseCaseDep,
+    day_of_week: Annotated[int, Query(ge=1, le=7, description="1 = lunes … 7 = domingo")],
+    start_time: Annotated[time, Query(description="Hora de inicio, `HH:MM`")],
+    end_time: Annotated[time, Query(description="Hora de fin, `HH:MM`")],
+    min_capacity: Annotated[
+        int | None, Query(ge=1, description="Personas que tienen que caber")
+    ] = None,
+    space_type: Annotated[
+        SpaceType | None, Query(description="Aula, laboratorio o auditorio")
+    ] = None,
+) -> AvailableSpacesSchema:
+    """Responde qué espacios están libres en esa franja del período activo.
+
+    Es lo que convierte la asignación de aulas de un ejercicio de memoria en una consulta: sin
+    esto, la única forma de encontrar un aula libre es probar códigos contra
+    `POST /admin/offerings` y coleccionar rechazos.
+
+    El período no se puede elegir: es siempre el activo. Uno copiado de otro semestre devolvería
+    disponibilidad de un período cerrado, y el error solo se notaría al abrir el grupo.
+    """
+    espacios = use_case.execute(
+        day_of_week=day_of_week,
+        start_time=start_time,
+        end_time=end_time,
+        min_capacity=min_capacity,
+        space_type=space_type,
+    )
+
+    return AvailableSpacesSchema(
+        day_of_week=day_of_week,
+        start_time=start_time,
+        end_time=end_time,
+        total=len(espacios),
+        items=[
+            SpaceSchema(
+                id=e.id,
+                code=e.code,
+                name=e.name,
+                space_type=e.space_type.value,
+                capacity=e.capacity,
+                campus=e.campus,
+                building=e.building,
+            )
+            for e in espacios
+        ],
     )
 
 
