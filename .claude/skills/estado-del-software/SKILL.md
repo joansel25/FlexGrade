@@ -5,7 +5,7 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al cerrar la iteración 8.3 completa (planes, espacios y requisitos).**
+> **Actualizada al cerrar la FASE 8 completa (interfaz de administración).**
 > Última verificación real: frontend con `npm run lint`, `type-check`, `test` (113 tests) y
 > `build` en verde; backend sin cambios desde la 8.1 (579 tests, `mypy --strict` limpio sobre
 > 162 archivos). Antes de esto:
@@ -301,9 +301,26 @@ donde importa.
 | 5 — Frontend y comprobante | ✅ | 5.1 fundación · 5.2 autenticación · 5.3 catálogo · 5.4 inscripción y horario · 5.5 comprobante PDF |
 | 6 — Reglas por carrera | ✅ | `GET /students/me/study-plan` con semáforo, ruta `/plan` en el frontend |
 
-**Fase 8 — Interfaz de administración** (en curso): 8.1 estructura, acceso y panel ✅
+**Fase 8 — Interfaz de administración: COMPLETA.** 8.1 estructura, acceso y panel ✅
 (`ca86677`) · 8.2 períodos, materias y grupos ✅ (`aed5063`) · 8.3 planes, espacios y requisitos
-✅ (fase A `15c5e80`, fase B esta iteración) · 8.4 reportes visuales.
+✅ (fase A `15c5e80`, fase B `d2d6d9e`) · 8.4 reportes visuales y CSV ✅ (esta iteración).
+
+De la 8.4, tres decisiones que no se vuelven a discutir:
+
+- **El CSV se arma en el cliente**, con los datos que ya están en pantalla. Los reportes se
+  calculan EN VIVO en cada llamada, así que pedir un CSV al servidor devolvería cifras distintas
+  de las que quien exporta está mirando. Un archivo que no cuadra con su pantalla es peor que no
+  tener exportación.
+- **Sin librería de gráficas.** El gráfico de barras son `div` con anchos en porcentaje
+  (`components/ui/BarChart.tsx`). Una dependencia de ese tamaño pesa más que la pantalla entera
+  que la usaría, y este es el único gráfico del producto. Las barras van `aria-hidden` y **la
+  tabla de al lado es la fuente de la verdad**: una barra no se puede leer con un lector de
+  pantalla ni copiar a un informe.
+- **`lib/csv.ts` neutraliza fórmulas.** Los nombres de materias y programas los escribe quien
+  administra; uno que empiece por `=`, `+`, `-` o `@` lo ejecuta Excel al abrir el archivo. Se
+  les antepone un apóstrofo. También lleva BOM y separador `;`, que es lo que Excel espera con la
+  configuración regional de Colombia: con comas, todas las columnas se apilan en una sola y
+  parece que la exportación está rota.
 
 La 8.3 se partió en dos a propósito. La **fase A** cubrió lo que no dependía de la decisión sobre
 retroactividad: seis endpoints (`POST`/`GET /admin/spaces`, `GET /admin/programs`,

@@ -16,6 +16,7 @@ import { AdminLayout } from "@/features/admin/AdminLayout";
 import { CoursesPage as AdminCoursesPage } from "@/features/admin/CoursesPage";
 import { OfferingsPage } from "@/features/admin/OfferingsPage";
 import { PeriodsPage } from "@/features/admin/PeriodsPage";
+import { ReportsPage } from "@/features/admin/ReportsPage";
 import { SpacesPage } from "@/features/admin/SpacesPage";
 import { StudyPlansPage } from "@/features/admin/StudyPlansPage";
 import { LoginPage } from "@/features/auth/LoginPage";
@@ -154,6 +155,17 @@ export function AppRoutes() {
             <RequireAdmin>
               <AdminLayout>
                 <SpacesPage />
+              </AdminLayout>
+            </RequireAdmin>
+          }
+        />
+
+        <Route
+          path="/admin/reportes"
+          element={
+            <RequireAdmin>
+              <AdminLayout>
+                <ReportsPage />
               </AdminLayout>
             </RequireAdmin>
           }

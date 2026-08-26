@@ -1,5 +1,7 @@
 /** Punto de entrada de los componentes de interfaz compartidos. */
 export { Alert } from "@/components/ui/Alert";
+export { BarChartConTabla } from "@/components/ui/BarChart";
+export type { Barra } from "@/components/ui/BarChart";
 export { Button } from "@/components/ui/Button";
 export { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
 export { EmptyState } from "@/components/ui/EmptyState";
