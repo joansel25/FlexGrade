@@ -4,7 +4,8 @@
 
 Siembra lo que describe `docs/DATA_MODEL.md` sección 4: 3 programas, 10 profesores, 16
 materias con sus requisitos, 1 período de matrícula activo, 21 grupos con horario y cupos, y 50
-estudiantes de prueba.
+estudiantes de prueba, mas el inventario de 9 espacios fisicos que la iteracion 7.1 convirtio
+en entidad.
 
 La materia número 16 y su grupo llegaron con la iteración 6.2: el laboratorio de Física existe
 para que haya en la base un par de CORREQUISITOS MUTUOS de verdad. Sin él, el único camino del
@@ -60,6 +61,7 @@ from app.infrastructure.persistence.sqlalchemy.models.program_course_requirement
     ProgramCourseRequirementModel,
 )
 from app.infrastructure.persistence.sqlalchemy.models.schedule_block import ScheduleBlockModel
+from app.infrastructure.persistence.sqlalchemy.models.space import SpaceModel
 from app.infrastructure.persistence.sqlalchemy.models.student import StudentModel
 from app.infrastructure.persistence.sqlalchemy.models.user import UserModel
 from app.infrastructure.persistence.sqlalchemy.session import get_session_factory
@@ -242,6 +244,30 @@ MATERIAS_CON_DOS_GRUPOS = (
     "DER101",
 )
 
+# Inventario de espacios (iteracion 7.1). Antes el aula era el texto `f"A-{201 + indice}"`
+# generado al vuelo dentro del bucle de grupos: no existia como fila, asi que no se podia
+# preguntar que habia reservado en ella ni impedir que dos grupos la ocuparan a la vez.
+#
+# Se declaran con AFORO, y no por adorno: es el dato contra el que la iteracion 7.2 comprobara
+# que un grupo de cuarenta no acabe en un salon de veinticinco. Los aforos van variados a
+# proposito, incluido alguno por debajo del cupo de los grupos grandes, para que ese caso se
+# pueda probar a mano en vez de tener que fabricarlo.
+ESPACIOS: tuple[tuple[str, str, str, int, str], ...] = (
+    # codigo, nombre, tipo, aforo, bloque
+    ("A-201", "", "CLASSROOM", 45, "A"),
+    ("A-202", "", "CLASSROOM", 40, "A"),
+    ("A-203", "", "CLASSROOM", 35, "A"),
+    ("B-101", "", "CLASSROOM", 50, "B"),
+    ("B-102", "", "CLASSROOM", 30, "B"),
+    # Mas pequeno que el cupo de los grupos de 40: es el caso que hace util la comprobacion.
+    ("B-103", "", "CLASSROOM", 25, "B"),
+    ("LAB-01", "Laboratorio de Redes", "LABORATORY", 24, "C"),
+    ("LAB-02", "Laboratorio de Fisica", "LABORATORY", 20, "C"),
+    ("AUD-01", "Auditorio Principal", "AUDITORIUM", 200, "D"),
+)
+
+SEDE = "Sede Principal"
+
 # Horarios base, rotados por grupo para que existan choques reales que la Fase 3 pueda detectar.
 FRANJAS: tuple[tuple[int, time, time], ...] = (
     (1, time(6, 0), time(8, 0)),
@@ -390,8 +416,9 @@ def sembrar(session: Session) -> tuple[dict[str, int], dict[str, list[str]]]:
                 tipo=RequirementType.COREQUISITE,
             )
 
+    espacios = _sembrar_espacios(session)
     periodo = _sembrar_periodo(session)
-    grupos = _sembrar_grupos(session, periodo, materias, profesores)
+    grupos = _sembrar_grupos(session, periodo, materias, profesores, espacios)
     _sembrar_cuentas(session, programas, password_hash)
     reparto = _sembrar_historial(session, programas, materias)
 
@@ -399,10 +426,31 @@ def sembrar(session: Session) -> tuple[dict[str, int], dict[str, list[str]]]:
         "programas": len(programas),
         "profesores": len(profesores),
         "materias": len(materias),
+        "espacios": len(espacios),
         "grupos": len(grupos),
         "estudiantes": session.query(StudentModel).count(),
         "historial": session.query(AcademicHistoryModel).count(),
     }, reparto
+
+
+def _sembrar_espacios(session: Session) -> list[SpaceModel]:
+    """Crea el inventario de espacios fisicos."""
+    return [
+        _obtener_o_crear(
+            session,
+            SpaceModel,
+            {"code": codigo},
+            # El nombre vacio se guarda como NULL: la mayoria de las aulas no se llaman de
+            # ninguna manera, solo se numeran, y un nombre en blanco no es lo mismo que no
+            # tener nombre.
+            name=nombre or None,
+            space_type=tipo,
+            capacity=aforo,
+            campus=SEDE,
+            building=bloque,
+        )
+        for codigo, nombre, tipo, aforo, bloque in ESPACIOS
+    ]
 
 
 def _sembrar_requisito(
@@ -467,6 +515,7 @@ def _sembrar_grupos(
     periodo: EnrollmentPeriodModel,
     materias: dict[str, CourseModel],
     profesores: list[ProfessorModel],
+    espacios: list[SpaceModel],
 ) -> list[CourseOfferingModel]:
     """Crea los grupos con su horario y su ocupación inicial."""
     grupos: list[CourseOfferingModel] = []
@@ -517,7 +566,11 @@ def _sembrar_grupos(
                         "start_time": inicio,
                     },
                     end_time=fin,
-                    classroom=f"{chr(65 + indice % 4)}-{201 + indice % 15}",
+                    # Se reparten en rueda sobre el inventario. Deliberadamente SIN comprobar
+                    # colisiones: la doble reserva es justo lo que la iteracion 7.2 viene a
+                    # impedir, y un juego de datos que ya la evitara dejaria esa regla sin
+                    # nada contra lo que probarse a mano.
+                    space_id=espacios[indice % len(espacios)].id,
                 )
 
             indice += 1

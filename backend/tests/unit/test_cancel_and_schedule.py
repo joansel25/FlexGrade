@@ -29,6 +29,7 @@ from tests.unit.doubles import (
 )
 from tests.unit.factories import (
     AHORA,
+    crear_espacio,
     crear_estudiante,
     crear_franja,
     crear_inscripcion,
@@ -413,7 +414,7 @@ def test_schedule_includes_the_course_data_that_makes_it_readable() -> None:
                 day_of_week=1,
                 start_time=time(8, 0),
                 end_time=time(10, 0),
-                classroom="A-201",
+                space=crear_espacio(code="A-201"),
             ),
         ),
     )

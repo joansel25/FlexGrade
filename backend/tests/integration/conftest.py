@@ -34,6 +34,7 @@ from app.infrastructure.persistence.sqlalchemy.models.program_course_requirement
     ProgramCourseRequirementModel,
 )
 from app.infrastructure.persistence.sqlalchemy.models.schedule_block import ScheduleBlockModel
+from app.infrastructure.persistence.sqlalchemy.models.space import SpaceModel
 from app.infrastructure.persistence.sqlalchemy.models.student import StudentModel
 from app.infrastructure.persistence.sqlalchemy.models.user import UserModel
 from app.infrastructure.persistence.sqlalchemy.session import get_session_factory
@@ -49,6 +50,7 @@ TABLAS_A_LIMPIAR: tuple[str, ...] = (
     "academic_history",
     "schedule_blocks",
     "course_offerings",
+    "spaces",
     "program_course_requirements",
     "program_courses",
     "courses",
@@ -378,6 +380,17 @@ def catalogo(db_session: Session) -> CatalogoDePrueba:
         enrolled_count=30,
     )
     db_session.add_all([grupo_01, grupo_02, grupo_viejo])
+
+    # Inventario mínimo de espacios. `A-201` y `A-203` los usan las franjas de abajo; `B-101` y
+    # `B-102` existen para que los tests que abren un grupo por la API tengan aulas que indicar
+    # sin inventarlas.
+    espacios = {
+        codigo: SpaceModel(
+            id=uuid4(), code=codigo, space_type="CLASSROOM", capacity=aforo, campus="Sede"
+        )
+        for codigo, aforo in (("A-201", 40), ("A-203", 35), ("B-101", 50), ("B-102", 30))
+    }
+    db_session.add_all(list(espacios.values()))
     db_session.flush()
 
     db_session.add_all(
@@ -387,14 +400,14 @@ def catalogo(db_session: Session) -> CatalogoDePrueba:
                 day_of_week=3,
                 start_time=time(8, 0),
                 end_time=time(10, 0),
-                classroom="A-203",
+                space_id=espacios["A-203"].id,
             ),
             ScheduleBlockModel(
                 course_offering_id=grupo_01.id,
                 day_of_week=1,
                 start_time=time(8, 0),
                 end_time=time(10, 0),
-                classroom="A-201",
+                space_id=espacios["A-201"].id,
             ),
         ]
     )

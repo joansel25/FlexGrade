@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import time
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, SmallInteger, String, Time, text
+from sqlalchemy import CheckConstraint, ForeignKey, Index, SmallInteger, Time, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -30,7 +30,12 @@ class ScheduleBlockModel(Base):
         start_time: hora de inicio, sin zona horaria: es una hora de calendario académico
             ("las ocho de la mañana"), no un instante absoluto.
         end_time: hora de fin. El `CHECK` garantiza que sea posterior al inicio.
-        classroom: aula asignada. Opcional: se publica el horario antes de asignar espacios.
+        space_id: espacio asignado. Opcional, porque el horario se publica antes de repartir
+            aulas. Sustituye desde la iteración 7.1 a la columna de texto `classroom`: un texto
+            no puede estar ocupado, y sin identidad nada impedia reservar el mismo salón dos
+            veces a la misma hora. `ON DELETE SET NULL` y no `CASCADE`: retirar un espacio del
+            inventario no debe borrar la clase, debe dejarla sin aula asignada, que es
+            exactamente lo que ha pasado.
     """
 
     __tablename__ = "schedule_blocks"
@@ -48,7 +53,11 @@ class ScheduleBlockModel(Base):
     day_of_week: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     start_time: Mapped[time] = mapped_column(Time, nullable=False)
     end_time: Mapped[time] = mapped_column(Time, nullable=False)
-    classroom: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    space_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("spaces.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     __table_args__ = (
         # Nombres cortos: la convención los expande a `ck_schedule_blocks_<nombre>`.
@@ -57,4 +66,15 @@ class ScheduleBlockModel(Base):
         # Toda consulta de horario parte del grupo, y PostgreSQL no indexa el lado hijo de una
         # clave foránea automáticamente.
         Index("ix_schedule_offering", "course_offering_id"),
+        # El otro lado de la pregunta: «¿qué hay reservado en este espacio?». Es la consulta
+        # que sostiene la deteccion de doble reserva y la disponibilidad de la Fase 7, y
+        # PostgreSQL tampoco indexa este lado de la clave foránea por su cuenta. Parcial,
+        # porque las franjas sin aula asignada no responden nada en esa pregunta y con el
+        # tiempo serían la mayoría de un índice que nunca las mira.
+        Index(
+            "ix_schedule_space",
+            "space_id",
+            "day_of_week",
+            postgresql_where=text("space_id IS NOT NULL"),
+        ),
     )

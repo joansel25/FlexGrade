@@ -8,6 +8,7 @@ consultas que no crece con el número de resultados.
 
 from __future__ import annotations
 
+from datetime import time
 from uuid import uuid4
 
 import pytest
@@ -27,6 +28,9 @@ from app.infrastructure.persistence.sqlalchemy.repositories.period_repository im
 )
 from app.infrastructure.persistence.sqlalchemy.repositories.program_repository import (
     SQLAlchemyProgramRepository,
+)
+from app.infrastructure.persistence.sqlalchemy.repositories.space_repository import (
+    SQLAlchemySpaceRepository,
 )
 from tests.integration.conftest import CatalogoDePrueba
 
@@ -415,3 +419,76 @@ def test_offering_query_count_does_not_grow_with_the_number_of_groups(
     assert len(grupos) == 2
     # Tres consultas fijas: los grupos, sus docentes y sus horarios. Nunca una por grupo.
     assert len(consultas) == 3, "\n\n".join(consultas)
+
+
+# ---------------------------------------------------------------------------
+# SpaceRepository (iteración 7.1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_space_find_by_code_ignora_mayusculas_y_espacios(
+    db_session: Session, catalogo: CatalogoDePrueba
+) -> None:
+    """Quien escribe `a-201 ` se refiere al mismo salón que quien escribe `A-201`.
+
+    Se prueba contra PostgreSQL y no con un doble porque lo que se comprueba es que la
+    normalización se aplique al TEXTO RECIBIDO y no a la columna: aplicarla a la columna
+    dejaría el índice único de `code` sin usar y convertiría cada búsqueda en un recorrido de
+    tabla, justo en la consulta que corre al abrir cada grupo.
+    """
+    repo = SQLAlchemySpaceRepository(db_session)
+
+    assert repo.find_by_code("  a-201 ") is not None
+    assert repo.find_by_code("A-201") is not None
+    assert repo.find_by_code("A-201").code == "A-201"  # type: ignore[union-attr]
+
+
+@pytest.mark.integration
+def test_space_find_by_code_inexistente_devuelve_none(
+    db_session: Session, catalogo: CatalogoDePrueba
+) -> None:
+    assert SQLAlchemySpaceRepository(db_session).find_by_code("NO-EXISTE") is None
+
+
+@pytest.mark.integration
+def test_el_horario_de_un_grupo_trae_el_espacio_resuelto(
+    db_session: Session, catalogo: CatalogoDePrueba
+) -> None:
+    """El aula llega como entidad, no como texto, y en la MISMA consulta que las franjas.
+
+    Un `LEFT JOIN` y no uno interno: una franja sin aula asignada es un estado normal —el
+    horario se publica antes de repartir espacios— y un join interno la haría desaparecer del
+    horario, que es un fallo peor que no saber el aula.
+    """
+    grupo = SQLAlchemyOfferingRepository(db_session).find_by_id(catalogo.offering_grupo_01_id)
+
+    assert grupo is not None
+    aulas = {f.space.code for f in grupo.schedule if f.space is not None}
+    assert aulas == {"A-201", "A-203"}
+    # El accesor de presentación sigue dando lo que la API expone bajo `classroom`.
+    assert {f.classroom for f in grupo.schedule} == {"A-201", "A-203"}
+
+
+@pytest.mark.integration
+def test_un_grupo_sin_aula_asignada_conserva_sus_franjas(
+    db_session: Session, catalogo: CatalogoDePrueba
+) -> None:
+    from app.infrastructure.persistence.sqlalchemy.models.schedule_block import ScheduleBlockModel
+
+    db_session.add(
+        ScheduleBlockModel(
+            course_offering_id=catalogo.offering_grupo_02_id,
+            day_of_week=5,
+            start_time=time(16, 0),
+            end_time=time(18, 0),
+            space_id=None,
+        )
+    )
+    db_session.commit()
+
+    grupo = SQLAlchemyOfferingRepository(db_session).find_by_id(catalogo.offering_grupo_02_id)
+
+    assert grupo is not None
+    assert len(grupo.schedule) == 1
+    assert grupo.schedule[0].space is None

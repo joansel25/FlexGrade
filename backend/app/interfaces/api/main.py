@@ -39,6 +39,7 @@ from app.domain.exceptions.catalog import (
     PeriodNotFoundError,
     ProfessorNotFoundError,
     ProgramNotFoundError,
+    SpaceNotFoundError,
 )
 from app.domain.exceptions.enrollment import (
     AlreadyEnrolledError,
@@ -150,6 +151,7 @@ _MAPEO_ERRORES: dict[type[DomainError], tuple[int, str]] = {
     PeriodNotFoundError: (404, "PERIOD_NOT_FOUND"),
     ProfessorNotFoundError: (404, "PROFESSOR_NOT_FOUND"),
     ProgramNotFoundError: (404, "PROGRAM_NOT_FOUND"),
+    SpaceNotFoundError: (404, "SPACE_NOT_FOUND"),
     # Inscripción (Fase 3), con los códigos que fija `API.md` sección 4.
     #
     # Casi todos son 409 y no 400: la petición está bien formada y el cliente tiene permiso;

@@ -25,6 +25,7 @@ from app.application.ports.repositories.period_repository import PeriodRepositor
 from app.application.ports.repositories.professor_repository import ProfessorReader
 from app.application.ports.repositories.program_repository import ProgramRepository
 from app.application.ports.repositories.report_repository import ReportReader
+from app.application.ports.repositories.space_repository import SpaceReader, SpaceRepository
 from app.application.ports.repositories.student_repository import StudentRepository
 from app.application.ports.repositories.user_repository import UserRepository
 from app.application.ports.unit_of_work import UnitOfWork
@@ -83,6 +84,9 @@ from app.infrastructure.persistence.sqlalchemy.repositories.program_repository i
 )
 from app.infrastructure.persistence.sqlalchemy.repositories.report_repository import (
     SQLAlchemyReportRepository,
+)
+from app.infrastructure.persistence.sqlalchemy.repositories.space_repository import (
+    SQLAlchemySpaceRepository,
 )
 from app.infrastructure.persistence.sqlalchemy.repositories.student_repository import (
     SQLAlchemyStudentRepository,
@@ -151,6 +155,15 @@ def get_professor_reader(session: SessionDep) -> ProfessorReader:
 
 
 ProfessorReaderDep = Annotated[ProfessorReader, Depends(get_professor_reader)]
+
+
+def get_space_repository(session: SessionDep) -> SpaceRepository:
+    """Resuelve el puerto de espacios físicos al adaptador de SQLAlchemy."""
+    return SQLAlchemySpaceRepository(session)
+
+
+SpaceRepositoryDep = Annotated[SpaceRepository, Depends(get_space_repository)]
+SpaceReaderDep = Annotated[SpaceReader, Depends(get_space_repository)]
 
 
 def get_period_repository(session: SessionDep) -> PeriodRepository:
@@ -511,6 +524,7 @@ def get_create_course_offering_use_case(
     course_repository: CourseRepositoryDep,
     period_repository: PeriodRepositoryDep,
     professor_reader: ProfessorReaderDep,
+    space_reader: SpaceReaderDep,
     unit_of_work: UnitOfWorkDep,
 ) -> CreateCourseOfferingUseCase:
     """Construye el caso de uso de apertura de grupos."""
@@ -519,6 +533,7 @@ def get_create_course_offering_use_case(
         course_repository,
         period_repository,
         professor_reader,
+        space_reader,
         unit_of_work,
     )
 

@@ -358,6 +358,19 @@ La contrapartida está asumida: entre la primera inscripción del bloque y la se
 
 **La regla vale en las dos direcciones.** Cancelar también la respeta, y omitirlo sería dejar una puerta trasera al estado que inscribir rechaza. Una dependencia en un solo sentido bloquea la cancelación con `COREQUISITE_DEPENDENCY` hasta que se cancele antes la materia que depende; una dependencia mutua cancela el bloque entero, porque rechazarla dejaría las dos imposibles de abandonar. La consulta que lo sostiene es la inversa —«qué materias exigen a esta»— y filtra por `(program_id, required_course_id)`, que no es prefijo de la clave primaria: por eso la migración `0008` le da índice propio. Sin él, PostgreSQL recorrería la tabla entera dentro de la transacción que libera un cupo mientras otras personas compiten por él.
 
+### Espacios físicos
+
+**El aula dejó de ser un texto.** Hasta la iteración 7.1 vivía como `schedule_blocks.classroom`, una columna de texto libre. Con eso, `A-201`, `A201` y `Aula A-201` eran tres aulas distintas para la base de datos y la misma para las personas, de lo que salen dos problemas que no se arreglan validando la cadena: no había forma fiable de responder «¿qué hay en A-201 el martes a las 10?», y por tanto tampoco de impedir que dos grupos reservaran el mismo salón a la misma hora. **Un texto no puede estar ocupado; una fila sí.**
+
+La migración `0009` crea `spaces` y sustituye la columna por `schedule_blocks.space_id`. El traslado convierte cada texto distinto en un espacio —normalizando con `TRIM` y mayúsculas, para no arrastrar a la tabla nueva el problema que viene a resolver— y reengancha cada franja al suyo ANTES de borrar la columna. Sobre los datos de desarrollo produjo 21 espacios y dejó **cero franjas sin aula**: no se perdió ninguna asignación.
+
+Dos decisiones del modelo que conviene no revisar sin motivo:
+
+- **`capacity` admite nulos.** En la cadena «A-201» no hay ningún número de sillas, así que los espacios creados por el traslado no traían aforo. Poner `NOT NULL` habría obligado a inventar una cifra, y una capacidad inventada no la revisa nadie: se convierte en el dato contra el que la 7.2 valida el aforo. El `CHECK` exige que, cuando exista, sea positiva. La entidad refleja lo mismo: `Space.fits()` devuelve `None` —ni `True` ni `False`— cuando el aforo se desconoce.
+- **`ON DELETE SET NULL` y no `CASCADE`.** Retirar un espacio del inventario no debe borrar la clase; debe dejarla sin aula asignada, que es lo que ha ocurrido.
+
+`ix_schedule_space` sobre `(space_id, day_of_week)` es PARCIAL, filtrado por `space_id IS NOT NULL`: las franjas sin aula no responden nada a la pregunta «qué hay reservado aquí», y con el tiempo serían la mayoría de un índice que nunca las mira. Es el que sostendrá la detección de doble reserva de la 7.2.
+
 ### Auditoría temporal
 
 No todas las tablas necesitan el mismo rastro temporal. La distinción sigue el ciclo de vida real de cada fila:
@@ -432,6 +445,7 @@ Al arrancar el sistema por primera vez se cargan datos mínimos mediante un seed
 - 3 programas académicos de ejemplo
 - 10 profesores
 - 16 materias con sus requisitos
+- 9 espacios físicos (aulas, laboratorios y un auditorio)
 - 1 período de matrícula activo
 - 21 grupos de oferta con horarios y cupos
 - 50 estudiantes de prueba

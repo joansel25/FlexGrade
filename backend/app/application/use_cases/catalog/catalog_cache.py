@@ -25,11 +25,17 @@ from uuid import UUID
 from app.domain.entities.course import Course
 from app.domain.entities.course_offering import CourseOffering
 from app.domain.entities.professor import Professor
+from app.domain.entities.space import Space
 from app.domain.exceptions.invalid_value import InvalidValueError
 from app.domain.value_objects.course_code import CourseCode
 from app.domain.value_objects.schedule_block import ScheduleBlock
+from app.domain.value_objects.space_type import SpaceType
 
-_VERSION = "v1"
+# v2 desde la iteracion 7.1: el aula dejo de ser un texto dentro de la franja y paso a ser una
+# entidad `Space` con codigo, tipo, aforo, sede y bloque. Es exactamente el caso que este numero
+# existe para cubrir: sin subirlo, durante los segundos de vida del TTL convivirian entradas con
+# el formato viejo y codigo que espera el nuevo.
+_VERSION = "v2"
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +152,19 @@ def grupo_a_json(offering: CourseOffering) -> str:
                     "day_of_week": f.day_of_week,
                     "start_time": f.start_time.isoformat(),
                     "end_time": f.end_time.isoformat(),
-                    "classroom": f.classroom,
+                    "space": (
+                        None
+                        if f.space is None
+                        else {
+                            "id": str(f.space.id),
+                            "code": f.space.code,
+                            "name": f.space.name,
+                            "space_type": f.space.space_type.value,
+                            "capacity": f.space.capacity,
+                            "campus": f.space.campus,
+                            "building": f.space.building,
+                        }
+                    ),
                 }
                 for f in offering.schedule
             ],
@@ -186,7 +204,7 @@ def grupo_desde_json(payload: str) -> CourseOffering | None:
                     day_of_week=int(f["day_of_week"]),
                     start_time=time.fromisoformat(f["start_time"]),
                     end_time=time.fromisoformat(f["end_time"]),
-                    classroom=f["classroom"],
+                    space=_espacio_desde_json(f["space"]),
                 )
                 for f in datos["schedule"]
             ),
@@ -198,6 +216,28 @@ def grupo_desde_json(payload: str) -> CourseOffering | None:
 # ---------------------------------------------------------------------------
 # Interno
 # ---------------------------------------------------------------------------
+
+
+def _espacio_desde_json(datos: dict[str, Any] | None) -> Space | None:
+    """Reconstruye el espacio de una franja, o `None` si no tenía aula asignada.
+
+    Se guarda el espacio ENTERO y no solo su código. Con el código habría que inventar un
+    identificador al reconstruirlo, y una entidad con identidad falsa es peor que no tenerla:
+    parece utilizable y no lo es. Guardar los siete campos cuesta unos bytes en una entrada que
+    vive treinta segundos.
+    """
+    if datos is None:
+        return None
+
+    return Space(
+        id=UUID(datos["id"]),
+        code=datos["code"],
+        name=datos["name"],
+        space_type=SpaceType(datos["space_type"]),
+        capacity=datos["capacity"],
+        campus=datos["campus"],
+        building=datos["building"],
+    )
 
 
 def _cargar(payload: str) -> dict[str, Any] | None:

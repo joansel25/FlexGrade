@@ -72,6 +72,20 @@ class ProfessorNotFoundError(DomainError):
         )
 
 
+class SpaceNotFoundError(DomainError):
+    """El espacio solicitado no existe en el inventario.
+
+    Lleva el CÓDIGO y no el identificador porque es lo que la petición envió: quien asigna un
+    aula escribe `A-201`, y devolverle un UUID que nunca escribió no le dice qué corregir.
+    """
+
+    def __init__(self, code: str) -> None:
+        super().__init__(
+            f"El espacio '{code}' no existe",
+            details={"code": code},
+        )
+
+
 class ProgramNotFoundError(DomainError):
     """El programa académico solicitado no existe.
 

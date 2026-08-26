@@ -12,10 +12,33 @@ from sqlalchemy.orm import Session
 from app.application.ports.repositories.offering_repository import OfferingRepository
 from app.domain.entities.course_offering import CourseOffering
 from app.domain.entities.professor import Professor
+from app.domain.entities.space import Space
 from app.domain.value_objects.schedule_block import ScheduleBlock
+from app.domain.value_objects.space_type import SpaceType
 from app.infrastructure.persistence.sqlalchemy.models.course_offering import CourseOfferingModel
 from app.infrastructure.persistence.sqlalchemy.models.professor import ProfessorModel
 from app.infrastructure.persistence.sqlalchemy.models.schedule_block import ScheduleBlockModel
+from app.infrastructure.persistence.sqlalchemy.models.space import SpaceModel
+
+
+def _espacio_a_entidad(modelo: SpaceModel) -> Space:
+    """Convierte el modelo ORM de un espacio en su entidad.
+
+    Está aquí y no se reutiliza el del repositorio de espacios porque este adaptador resuelve el
+    aula en el MISMO `SELECT` que trae las franjas, con un `LEFT JOIN`. Pedirle las entidades a
+    `SQLAlchemySpaceRepository` obligaría a una segunda consulta —o a que un repositorio llamara
+    a otro— para ahorrar seis líneas de traducción.
+    """
+    return Space(
+        id=modelo.id,
+        code=modelo.code,
+        name=modelo.name,
+        space_type=SpaceType(modelo.space_type),
+        capacity=modelo.capacity,
+        campus=modelo.campus,
+        building=modelo.building,
+        created_at=modelo.created_at,
+    )
 
 
 class SQLAlchemyOfferingRepository(OfferingRepository):
@@ -164,7 +187,10 @@ class SQLAlchemyOfferingRepository(OfferingRepository):
                     day_of_week=franja.day_of_week,
                     start_time=franja.start_time,
                     end_time=franja.end_time,
-                    classroom=franja.classroom,
+                    # El espacio ya viene resuelto a entidad por quien construyó la franja: el
+                    # caso de uso traduce el código que llegó en la petición y falla ahí si no
+                    # existe. Aquí solo se guarda su identificador.
+                    space_id=None if franja.space is None else franja.space.id,
                 )
             )
 
@@ -243,19 +269,23 @@ class SQLAlchemyOfferingRepository(OfferingRepository):
         if not offering_ids:
             return agrupados
 
+        # `LEFT JOIN` y no `JOIN`: una franja sin aula asignada es un estado normal —el horario
+        # se publica antes de repartir espacios— y un join interno la haría desaparecer del
+        # horario, que es un fallo mucho peor que no saber el aula.
         sentencia = (
-            select(ScheduleBlockModel)
+            select(ScheduleBlockModel, SpaceModel)
+            .outerjoin(SpaceModel, SpaceModel.id == ScheduleBlockModel.space_id)
             .where(ScheduleBlockModel.course_offering_id.in_(offering_ids))
             .order_by(ScheduleBlockModel.day_of_week, ScheduleBlockModel.start_time)
         )
 
-        for modelo in self._session.execute(sentencia).scalars():
+        for modelo, espacio in self._session.execute(sentencia).all():
             agrupados[modelo.course_offering_id].append(
                 ScheduleBlock(
                     day_of_week=modelo.day_of_week,
                     start_time=modelo.start_time,
                     end_time=modelo.end_time,
-                    classroom=modelo.classroom,
+                    space=None if espacio is None else _espacio_a_entidad(espacio),
                 )
             )
 

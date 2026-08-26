@@ -542,6 +542,18 @@ la acompaña. La decisión se reparte según la dirección del requisito:
   circular de la inscripción con el signo cambiado. Si el bloque se cursa como una unidad, se
   abandona como una unidad.
 
+### Espacios en el horario de un grupo
+
+Al abrir un grupo, cada franja indica el aula por su **código** (`space_code`), no por un identificador:
+
+```json
+{ "day_of_week": 1, "start_time": "08:00", "end_time": "10:00", "space_code": "A-201" }
+```
+
+El código es la clave natural del espacio: es lo que aparece en un horario impreso y lo que una persona escribe, así que exigir un UUID que nadie tiene a mano solo añadiría un paso. La comparación **no distingue mayúsculas ni espacios sobrantes** —`  a-201 ` encuentra `A-201`—, porque obligar a acertar el formato exacto convertiría un dato correcto en un 404. Un código ausente del inventario responde `404 SPACE_NOT_FOUND` con ese mismo código en `details`, y el grupo no se crea. `space_code` es opcional: una franja sin aula es normal, porque el horario se publica antes de repartir espacios.
+
+**Lo que se DEVUELVE no cambió.** Las respuestas con horario —catálogo, «Mis materias», horario y comprobante— siguen exponiendo `classroom` con el código del aula. El aula pasó a ser una entidad por dentro; quien lee un horario sigue queriendo leer «A-201», así que el contrato público se mantuvo estable a propósito.
+
 ## 5. Períodos de matrícula
 
 ### GET /enrollment-periods/current

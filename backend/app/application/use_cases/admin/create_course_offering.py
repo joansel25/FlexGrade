@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
+from app.application.dtos.admin_dto import ScheduleBlockRequest
 from app.application.ports.repositories.course_repository import CourseRepository
 from app.application.ports.repositories.offering_repository import OfferingRepository
 from app.application.ports.repositories.period_repository import PeriodRepository
 from app.application.ports.repositories.professor_repository import ProfessorReader
+from app.application.ports.repositories.space_repository import SpaceReader
 from app.application.ports.unit_of_work import UnitOfWork
 from app.domain.entities.course_offering import CourseOffering
 from app.domain.entities.professor import Professor
@@ -16,6 +18,7 @@ from app.domain.exceptions.catalog import (
     CourseNotFoundError,
     NoActivePeriodError,
     ProfessorNotFoundError,
+    SpaceNotFoundError,
 )
 from app.domain.value_objects.schedule_block import ScheduleBlock
 
@@ -35,12 +38,14 @@ class CreateCourseOfferingUseCase:
         course_repository: CourseRepository,
         period_repository: PeriodRepository,
         professor_reader: ProfessorReader,
+        space_reader: SpaceReader,
         unit_of_work: UnitOfWork,
     ) -> None:
         self._offerings = offering_repository
         self._courses = course_repository
         self._periods = period_repository
         self._professors = professor_reader
+        self._spaces = space_reader
         self._uow = unit_of_work
 
     def execute(
@@ -49,7 +54,7 @@ class CreateCourseOfferingUseCase:
         course_id: UUID,
         group_number: str,
         total_capacity: int,
-        schedule: list[ScheduleBlock],
+        schedule: list[ScheduleBlockRequest],
         professor_id: UUID | None = None,
     ) -> CourseOffering:
         """Crea el grupo.
@@ -58,7 +63,9 @@ class CreateCourseOfferingUseCase:
             course_id: materia que se dicta.
             group_number: número de grupo dentro de la materia (`01`, `02`).
             total_capacity: cupos totales; tiene que ser positivo.
-            schedule: franjas semanales en las que se dicta.
+            schedule: franjas semanales en las que se dicta, con el aula por CÓDIGO. Se
+                resuelve aquí y no en el router porque traducir un código en un espacio es
+                buscarlo y fallar si no existe, o sea una decisión, no una traducción.
             professor_id: docente asignado, o `None` si aún está por asignar.
 
         Returns:
@@ -68,11 +75,13 @@ class CreateCourseOfferingUseCase:
             NoActivePeriodError: si no hay ninguna ventana de matrícula activa.
             CourseNotFoundError: si la materia no existe.
             ProfessorNotFoundError: si se indicó un docente que no existe.
+            SpaceNotFoundError: si alguna franja indica un aula que no está en el inventario.
             DuplicateOfferingGroupError: si ese número de grupo ya existe para la materia en
                 el período activo.
             OverlappingScheduleError: si dos franjas del horario se cruzan entre sí.
         """
-        self._verificar_horario_coherente(schedule)
+        franjas = self._resolver_espacios(schedule)
+        self._verificar_horario_coherente(franjas)
 
         with self._uow:
             periodo = self._periods.find_active()
@@ -107,7 +116,7 @@ class CreateCourseOfferingUseCase:
                 professor=(
                     None if professor_id is None else Professor(id=professor_id, full_name="")
                 ),
-                schedule=tuple(schedule),
+                schedule=tuple(franjas),
             )
 
             self._offerings.save(grupo)
@@ -119,6 +128,38 @@ class CreateCourseOfferingUseCase:
         creado = self._offerings.find_by_id(grupo.id)
 
         return creado if creado is not None else grupo
+
+    def _resolver_espacios(self, schedule: list[ScheduleBlockRequest]) -> list[ScheduleBlock]:
+        """Convierte las franjas de la petición en value objects, resolviendo el aula.
+
+        Se resuelve ANTES de abrir la transacción: es una lectura del inventario de espacios,
+        no depende del estado del grupo, y hacerla fuera acorta lo que la transacción mantiene
+        tomado. Un código inexistente falla aquí, antes de tocar nada.
+
+        Cada código distinto se busca UNA vez aunque aparezca en varias franjas, que es el caso
+        normal: un grupo que se dicta lunes y miércoles en la misma aula son dos franjas y un
+        solo espacio.
+        """
+        codigos = {f.space_code for f in schedule if f.space_code is not None}
+        espacios = {}
+
+        for codigo in codigos:
+            espacio = self._spaces.find_by_code(codigo)
+
+            if espacio is None:
+                raise SpaceNotFoundError(codigo)
+
+            espacios[codigo] = espacio
+
+        return [
+            ScheduleBlock(
+                day_of_week=f.day_of_week,
+                start_time=f.start_time,
+                end_time=f.end_time,
+                space=None if f.space_code is None else espacios[f.space_code],
+            )
+            for f in schedule
+        ]
 
     @staticmethod
     def _verificar_horario_coherente(schedule: list[ScheduleBlock]) -> None:

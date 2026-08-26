@@ -30,6 +30,7 @@ from app.application.ports.repositories.period_repository import PeriodRepositor
 from app.application.ports.repositories.professor_repository import ProfessorReader
 from app.application.ports.repositories.program_repository import ProgramRepository
 from app.application.ports.repositories.report_repository import ReportReader
+from app.application.ports.repositories.space_repository import SpaceRepository
 from app.application.ports.repositories.student_repository import StudentRepository
 from app.application.ports.repositories.user_repository import UserRepository
 from app.application.ports.unit_of_work import UnitOfWork
@@ -39,6 +40,7 @@ from app.domain.entities.course_requirement import CourseRequirement
 from app.domain.entities.enrollment import Enrollment
 from app.domain.entities.enrollment_period import EnrollmentPeriod
 from app.domain.entities.program import Program
+from app.domain.entities.space import Space
 from app.domain.entities.student import Student
 from app.domain.entities.user import User
 from app.domain.exceptions.authentication import InvalidTokenError
@@ -439,6 +441,43 @@ class InMemoryPeriodRepository(PeriodRepository):
 
     def save(self, period: EnrollmentPeriod) -> None:
         self._periods[period.id] = period
+
+
+class InMemorySpaceRepository(SpaceRepository):
+    """Inventario de espacios en memoria, indexado por código además de por identificador.
+
+    Reproduce la normalización del adaptador SQL —`strip()` y mayúsculas al buscar por código—
+    porque es comportamiento observable: un test que pase `a-201 ` tiene que encontrar el mismo
+    espacio que uno que pase `A-201`, o el doble y el adaptador dejarían de ser
+    intercambiables.
+    """
+
+    def __init__(self, spaces: list[Space] | None = None) -> None:
+        self._spaces: dict[UUID, Space] = {s.id: s for s in (spaces or [])}
+
+    def find_by_id(self, space_id: UUID) -> Space | None:
+        return self._spaces.get(space_id)
+
+    def find_by_code(self, code: str) -> Space | None:
+        normalizado = code.strip().upper()
+
+        return next((s for s in self._spaces.values() if s.code == normalizado), None)
+
+    def find_by_ids(self, space_ids: Sequence[UUID]) -> dict[UUID, Space]:
+        return {sid: self._spaces[sid] for sid in space_ids if sid in self._spaces}
+
+    def search(self, *, space_type: str | None = None, campus: str | None = None) -> list[Space]:
+        encontrados = [
+            s
+            for s in self._spaces.values()
+            if (space_type is None or s.space_type.value == space_type)
+            and (campus is None or (s.campus or "").upper() == campus.strip().upper())
+        ]
+
+        return sorted(encontrados, key=lambda s: s.code)
+
+    def save(self, space: Space) -> None:
+        self._spaces[space.id] = space
 
 
 class InMemoryProfessorReader(ProfessorReader):

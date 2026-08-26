@@ -296,7 +296,7 @@ def test_offering_round_trip_preserves_every_field() -> None:
         enrolled_count=37,
         version=7,
         professor=crear_profesor(),
-        schedule=(crear_franja(day_of_week=1), crear_franja(day_of_week=3, classroom=None)),
+        schedule=(crear_franja(day_of_week=1), crear_franja(day_of_week=3, space=None)),
     )
 
     recuperado = catalog_cache.grupo_desde_json(catalog_cache.grupo_a_json(original))
@@ -327,5 +327,5 @@ def test_cache_keys_carry_a_version_prefix() -> None:
     # La versión en la clave es lo que permite invalidar todas las entradas de golpe cuando
     # cambie el formato. Sin ella, durante los segundos del TTL convivirían entradas viejas
     # con código que espera el formato nuevo.
-    assert catalog_cache.clave_grupo(uuid4()).startswith("catalog:v1:")
-    assert catalog_cache.clave_materia(uuid4()).startswith("catalog:v1:")
+    assert catalog_cache.clave_grupo(uuid4()).startswith("catalog:v2:")
+    assert catalog_cache.clave_materia(uuid4()).startswith("catalog:v2:")

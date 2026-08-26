@@ -14,7 +14,7 @@ import pytest
 
 from app.domain.exceptions.invalid_value import InvalidScheduleBlockError
 from app.domain.value_objects.schedule_block import ScheduleBlock
-from tests.unit.factories import crear_franja
+from tests.unit.factories import crear_espacio, crear_franja
 
 
 @pytest.mark.unit
@@ -98,7 +98,11 @@ def test_overlaps_is_symmetric() -> None:
 @pytest.mark.unit
 def test_schedule_block_when_values_are_equal_instances_are_equal() -> None:
     # Es un value object: no tiene identidad, se compara por contenido.
-    assert crear_franja() == crear_franja()
+    # El MISMO espacio en las dos: desde la iteración 7.1 el aula forma parte de la
+    # identidad de la franja, y dos clases en salones distintos no son la misma clase.
+    aula = crear_espacio()
+
+    assert crear_franja(space=aula) == crear_franja(space=aula)
 
 
 @pytest.mark.unit
@@ -110,7 +114,7 @@ def test_schedule_block_is_immutable() -> None:
 
 
 @pytest.mark.unit
-def test_schedule_block_when_classroom_is_unknown_is_accepted() -> None:
+def test_schedule_block_when_space_is_unknown_is_accepted() -> None:
     # El horario se publica antes de asignar aulas.
     assert ScheduleBlock(day_of_week=1, start_time=time(8, 0), end_time=time(10, 0)).classroom is (
         None

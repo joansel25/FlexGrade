@@ -35,6 +35,7 @@ from tests.unit.doubles import (
     InMemoryStudentRepository,
 )
 from tests.unit.factories import (
+    crear_espacio,
     crear_estudiante,
     crear_franja,
     crear_inscripcion,
@@ -274,7 +275,10 @@ def _materia(codigo: str, nombre: str = "Cálculo I", creditos: int = 4) -> Rece
         professor="Ana Pérez",
         schedule=[
             ReceiptScheduleBlockDTO(
-                day_of_week=1, start_time=time(8, 0), end_time=time(10, 0), classroom="A-201"
+                day_of_week=1,
+                start_time=time(8, 0),
+                end_time=time(10, 0),
+                classroom="A-201",
             )
         ],
     )

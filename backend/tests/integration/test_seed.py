@@ -26,6 +26,7 @@ from app.infrastructure.persistence.sqlalchemy.models.program_course_requirement
     ProgramCourseRequirementModel,
 )
 from app.infrastructure.persistence.sqlalchemy.models.schedule_block import ScheduleBlockModel
+from app.infrastructure.persistence.sqlalchemy.models.space import SpaceModel
 from app.infrastructure.persistence.sqlalchemy.models.student import StudentModel
 from app.infrastructure.persistence.sqlalchemy.models.user import UserModel
 from app.infrastructure.seed import CORREO_ADMIN, PASSWORD_DE_EJEMPLO, sembrar
@@ -36,6 +37,7 @@ ESPERADO = {
     ProfessorModel: 10,
     CourseModel: 16,
     CourseOfferingModel: 21,
+    SpaceModel: 9,
     StudentModel: 50,
 }
 
@@ -342,3 +344,51 @@ def test_seed_leaves_students_on_both_sides_of_the_prerequisite_rule(
         .where(AcademicHistoryModel.status == "FAILED")
     ).scalar_one()
     assert perdidas > 0
+
+
+@pytest.mark.integration
+def test_todas_las_franjas_sembradas_tienen_aula_de_verdad(db_session: Session) -> None:
+    """Ninguna franja queda con un aula que no exista en el inventario.
+
+    Es lo que el texto libre no podía garantizar: antes el aula se generaba al vuelo dentro del
+    bucle de grupos y no correspondía a ninguna fila, así que preguntar qué había reservado en
+    ella no tenía respuesta.
+    """
+    sembrar(db_session)
+    db_session.commit()
+
+    huerfanas = db_session.execute(
+        select(func.count())
+        .select_from(ScheduleBlockModel)
+        .where(ScheduleBlockModel.space_id.is_(None))
+    ).scalar_one()
+
+    assert huerfanas == 0
+
+
+@pytest.mark.integration
+def test_el_inventario_sembrado_cubre_los_tres_tipos_de_espacio(db_session: Session) -> None:
+    # Con un solo tipo, la distinción entre aula, laboratorio y auditorio no se ejercitaría
+    # nunca y daría igual haberla modelado.
+    sembrar(db_session)
+    db_session.commit()
+
+    tipos = {s.space_type for s in db_session.execute(select(SpaceModel)).scalars()}
+
+    assert tipos == {"CLASSROOM", "LABORATORY", "AUDITORIUM"}
+
+
+@pytest.mark.integration
+def test_algun_espacio_sembrado_es_mas_pequeno_que_los_grupos_grandes(
+    db_session: Session,
+) -> None:
+    """Sin un aula pequeña, la comprobación de aforo de la 7.2 no tendría caso que rechazar.
+
+    Un juego de datos donde todo cabe deja la regla sin nada contra lo que probarse a mano.
+    """
+    sembrar(db_session)
+    db_session.commit()
+
+    aforos = [s.capacity for s in db_session.execute(select(SpaceModel)).scalars() if s.capacity]
+
+    assert min(aforos) < 40

@@ -8,7 +8,8 @@ no funcional central: `course_offerings.version` (bloqueo optimista) y el
 `CHECK (enrolled_count <= total_capacity)`. La Fase 3 cierra el esquema con `enrollments` y
 `academic_history`. La Fase 6 mueve los requisitos académicos a `program_course_requirements`,
 que sustituye a la antigua `course_prerequisites`: un prerrequisito no une dos materias, une
-dos materias dentro de un plan de estudios.
+dos materias dentro de un plan de estudios. La Fase 7 añade `spaces` y convierte el aula de
+`schedule_blocks` en una clave foránea: un texto no puede estar ocupado.
 
 Aquí se declaran columnas, restricciones e índices. Estos modelos son **solo persistencia**: no
 contienen lógica de negocio y no son las entidades del dominio; los repositorios traducen entre
@@ -33,6 +34,7 @@ from app.infrastructure.persistence.sqlalchemy.models.program_course_requirement
     ProgramCourseRequirementModel,
 )
 from app.infrastructure.persistence.sqlalchemy.models.schedule_block import ScheduleBlockModel
+from app.infrastructure.persistence.sqlalchemy.models.space import SpaceModel
 from app.infrastructure.persistence.sqlalchemy.models.student import StudentModel
 from app.infrastructure.persistence.sqlalchemy.models.user import UserModel
 
@@ -49,6 +51,7 @@ __all__ = [
     "ProgramCourseRequirementModel",
     "ProgramModel",
     "ScheduleBlockModel",
+    "SpaceModel",
     "StudentModel",
     "UserModel",
 ]

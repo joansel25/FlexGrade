@@ -14,10 +14,10 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
 
+from app.application.dtos.admin_dto import ScheduleBlockRequest
 from app.application.dtos.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.domain.entities.course_offering import CourseOffering
 from app.domain.entities.enrollment_period import EnrollmentPeriod
-from app.domain.value_objects.schedule_block import ScheduleBlock
 from app.interfaces.api.dependencies.auth import require_admin
 from app.interfaces.api.dependencies.di import (
     ActivateEnrollmentPeriodUseCaseDep,
@@ -226,11 +226,13 @@ def create_offering(
         group_number=payload.group_number,
         total_capacity=payload.total_capacity,
         schedule=[
-            ScheduleBlock(
+            # El aula viaja como CÓDIGO y sin resolver: buscarla en el inventario y fallar si
+            # no existe es una decisión, y este router no decide.
+            ScheduleBlockRequest(
                 day_of_week=f.day_of_week,
                 start_time=f.start_time,
                 end_time=f.end_time,
-                classroom=f.classroom,
+                space_code=f.space_code,
             )
             for f in payload.schedule
         ],

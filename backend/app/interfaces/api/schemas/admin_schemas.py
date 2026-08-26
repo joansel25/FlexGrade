@@ -6,11 +6,10 @@ Siguen los ejemplos de `API.md` sección 6.
 from __future__ import annotations
 
 from datetime import datetime
+from datetime import time as _time
 from uuid import UUID
 
 from pydantic import BaseModel, Field
-
-from app.interfaces.api.schemas.catalog_schemas import ScheduleBlockSchema
 
 
 class CreateEnrollmentPeriodSchema(BaseModel):
@@ -90,8 +89,37 @@ class CreateOfferingSchema(BaseModel):
         examples=["02"],
     )
     total_capacity: int = Field(gt=0, description="Cupos totales del grupo", examples=[40])
-    schedule: list[ScheduleBlockSchema] = Field(
+    schedule: list[NewScheduleBlockSchema] = Field(
         default_factory=list, description="Franjas semanales en las que se dicta"
+    )
+
+
+class NewScheduleBlockSchema(BaseModel):
+    """Una franja al ABRIR un grupo.
+
+    Se declara aquí y no se reutiliza el `ScheduleBlockSchema` del catálogo, aunque hasta la
+    iteración 7.1 fuera el mismo objeto para las dos cosas. Dejaron de coincidir en cuanto el
+    aula pasó a ser una entidad: la salida lleva el NOMBRE del espacio (`classroom`) porque
+    quien lee un horario quiere leerlo, y la entrada lleva su CÓDIGO (`space_code`) porque hay
+    que buscarlo en el inventario y fallar si no existe. Compartir un schema entre lo que se
+    recibe y lo que se devuelve funciona solo mientras son casualmente iguales.
+
+    Attributes:
+        day_of_week: día de la semana, de 1 (lunes) a 7 (domingo).
+        start_time: hora de inicio.
+        end_time: hora de fin.
+        space_code: código del aula. Opcional: el horario se publica antes de repartir los
+            espacios, así que una franja sin aula es un estado normal y no un dato incompleto.
+    """
+
+    day_of_week: int = Field(ge=1, le=7, description="1 = lunes … 7 = domingo (ISO 8601)")
+    start_time: _time
+    end_time: _time
+    space_code: str | None = Field(
+        default=None,
+        max_length=20,
+        description="Código del aula en el inventario de espacios",
+        examples=["A-201"],
     )
 
 

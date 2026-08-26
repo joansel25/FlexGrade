@@ -132,7 +132,7 @@ def _cuerpo_de_grupo(catalogo: CatalogoDePrueba, group_number: str = "03") -> di
                 "day_of_week": 2,
                 "start_time": "10:00",
                 "end_time": "12:00",
-                "classroom": "B-101",
+                "space_code": "B-101",
             }
         ],
     }
@@ -222,8 +222,8 @@ def test_crear_grupo_con_horario_solapado_devuelve_409(
 ) -> None:
     cuerpo = _cuerpo_de_grupo(catalogo)
     cuerpo["schedule"] = [
-        {"day_of_week": 2, "start_time": "10:00", "end_time": "12:00", "classroom": "B-101"},
-        {"day_of_week": 2, "start_time": "11:00", "end_time": "13:00", "classroom": "B-102"},
+        {"day_of_week": 2, "start_time": "10:00", "end_time": "12:00", "space_code": "B-101"},
+        {"day_of_week": 2, "start_time": "11:00", "end_time": "13:00", "space_code": "B-102"},
     ]
 
     respuesta = client.post(RUTA_GRUPOS, json=cuerpo, headers=admin)
@@ -376,3 +376,65 @@ def test_un_estudiante_no_puede_tocar_el_catalogo(
     ):
         assert respuesta.status_code == 403, respuesta.text
         assert respuesta.json()["error"]["code"] == "ADMIN_REQUIRED"
+
+
+@pytest.mark.integration
+def test_abrir_un_grupo_con_un_aula_inexistente_devuelve_404(
+    client: TestClient, catalogo: CatalogoDePrueba, admin: dict[str, str]
+) -> None:
+    """Antes cualquier cadena era un aula válida y se guardaba tal cual.
+
+    Un texto que nadie reconoce no es un error visible: es un horario que dice que la clase es
+    en un salón que no existe, y nadie se entera hasta que alguien va a buscarlo.
+    """
+    respuesta = client.post(
+        "/api/v1/admin/offerings",
+        json={
+            "course_id": str(catalogo.calculo_i_id),
+            "group_number": "77",
+            "total_capacity": 30,
+            "schedule": [
+                {
+                    "day_of_week": 4,
+                    "start_time": "14:00",
+                    "end_time": "16:00",
+                    "space_code": "NO-EXISTE",
+                }
+            ],
+        },
+        headers=admin,
+    )
+
+    assert respuesta.status_code == 404, respuesta.text
+    error = respuesta.json()["error"]
+    assert error["code"] == "SPACE_NOT_FOUND"
+    # Lleva el CÓDIGO que se envió, no un identificador que nadie escribió.
+    assert error["details"]["code"] == "NO-EXISTE"
+
+
+@pytest.mark.integration
+def test_el_aula_del_grupo_creado_vuelve_en_la_respuesta(
+    client: TestClient, catalogo: CatalogoDePrueba, admin: dict[str, str]
+) -> None:
+    # El contrato público no cambió al convertirse el aula en entidad: sigue siendo `classroom`
+    # con el código del espacio, que es lo que quien lee un horario quiere leer.
+    respuesta = client.post(
+        "/api/v1/admin/offerings",
+        json={
+            "course_id": str(catalogo.calculo_i_id),
+            "group_number": "78",
+            "total_capacity": 30,
+            "schedule": [
+                {
+                    "day_of_week": 4,
+                    "start_time": "14:00",
+                    "end_time": "16:00",
+                    "space_code": "b-101",
+                }
+            ],
+        },
+        headers=admin,
+    )
+
+    assert respuesta.status_code == 201, respuesta.text
+    assert respuesta.json()["schedule"][0]["classroom"] == "B-101"

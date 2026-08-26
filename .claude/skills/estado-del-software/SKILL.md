@@ -5,9 +5,12 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al cerrar la iteración 6.4, y con ella la FASE 6 completa.** Última
-> verificación real: backend con `pytest` en verde (535 tests) y `mypy --strict` limpio sobre
-> 154 archivos; frontend con `npm run lint`, `type-check`, `test` (94 tests) y `build` en verde.
+> **Actualizada al cerrar la iteración 7.1 (el espacio como entidad).** Última verificación
+> real: backend con `pytest` en verde (553 tests) y `mypy --strict` limpio sobre 160 archivos;
+> frontend sin cambios desde la 6.4 (lint, type-check, 94 tests y build en verde). La migración
+> `0009` se aplicó sobre la base de desarrollo y dejó 21 espacios con CERO franjas huérfanas, y
+> se comprobó contra la API real que un código inexistente responde `SPACE_NOT_FOUND` y que
+> `  lab-01 ` resuelve a `LAB-01`.
 > El semáforo de la 6.3 se comprobó además contra la API real con dos cuentas del seed —una sin
 > historial y otra con `MAT101` aprobada, que desbloquea `MAT102`—, verificando la promesa de la
 > iteración: `POST /enrollments` rechaza con `PREREQUISITES_NOT_MET` justo lo que el plan marca
@@ -207,7 +210,17 @@ donde importa.
     estudiantes de la misma carrera reciben cuerpos distintos y el de cada uno cambia con cada
     inscripción. Tampoco falla fuera de la ventana de matrícula: «qué me falta para graduarme»
     se pregunta todo el año, y sin período activo lo que cumple requisitos sale `NOT_OFFERED`.
-39. **El estado de la API no se le muestra al estudiante.** El recuadro de la pantalla de
+39. **El aula es una entidad, no un texto, y el contrato público no se enteró.**
+    `spaces` + `schedule_blocks.space_id` sustituyen a `classroom` (migración `0009`). Un texto
+    no puede estar ocupado: con `A-201` y `A201` como cadenas distintas no había forma de
+    impedir la doble reserva. Las respuestas siguen exponiendo `classroom` con el código del
+    aula —quien lee un horario quiere leer «A-201»—, y solo la ENTRADA cambió: `POST
+    /admin/offerings` recibe `space_code`, se resuelve en el caso de uso y un código
+    desconocido da `404 SPACE_NOT_FOUND` en vez de guardarse como una cadena sin significado.
+40. **`spaces.capacity` admite nulos a propósito.** Los espacios que nacieron del traslado de
+    textos no traían aforo, e inventarlo habría creado el número contra el que la 7.2 valida.
+    `Space.fits()` devuelve `None` cuando no se sabe: «no sé» no es «sí» ni «no».
+41. **El estado de la API no se le muestra al estudiante.** El recuadro de la pantalla de
     inicio y el indicador de la cabecera eran andamiaje de la 5.1, útil cuando no había
     pantallas reales y no se distinguía «la API está caída» de «mi código está mal». Al
     estudiante no le sirve —no puede hacer nada con un punto rojo— y ver el ambiente o un
@@ -219,7 +232,7 @@ donde importa.
     `git show 3315eeb:frontend/src/features/health/components/ServiceStatus.tsx` la recupera si
     la 8.1 la quiere de base. El endpoint `/health` del backend no se toca: lo
     consume el ALB.
-40. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
+42. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
     la API acepta credenciales y con ellas el comodín ni siquiera es válido.
 
 ## 4. Qué está construido
@@ -234,6 +247,9 @@ donde importa.
 | Preparación para la nube | ✅ | `/health/ready`, CORS, logs JSON, `X-Request-ID`, pool configurable, `deploy/aws/` |
 | 5 — Frontend y comprobante | ✅ | 5.1 fundación · 5.2 autenticación · 5.3 catálogo · 5.4 inscripción y horario · 5.5 comprobante PDF |
 | 6 — Reglas por carrera | ✅ | `GET /students/me/study-plan` con semáforo, ruta `/plan` en el frontend |
+
+**Fase 7 — Aulas y espacios físicos** (en curso): 7.1 el espacio como entidad ✅ (esta
+iteración) · 7.2 doble reserva imposible · 7.3 consulta de disponibilidad.
 
 **Fase 6 — Reglas académicas por carrera: COMPLETA.** 6.1 catálogo acotado ✅ (`c6782c0`) ·
 6.2 prerrequisitos y correquisitos por plan ✅ (`0c0131b`) ·

@@ -40,8 +40,20 @@ from tests.unit.doubles import (
     InMemoryOfferingRepository,
     InMemoryPeriodRepository,
     InMemoryProfessorReader,
+    InMemorySpaceRepository,
 )
-from tests.unit.factories import crear_franja, crear_materia, crear_oferta, crear_periodo
+from tests.unit.factories import (
+    crear_espacio,
+    crear_franja_pedida,
+    crear_materia,
+    crear_oferta,
+    crear_periodo,
+)
+
+#: El único espacio del inventario de estos tests. `crear_franja_pedida` pide «A-201» por
+#: defecto, así que tiene que existir o toda alta de grupo fallaría con `SpaceNotFoundError`
+#: por un motivo que no es el que se está probando.
+_ESPACIO = crear_espacio(code="A-201")
 
 # ---------------------------------------------------------------------------
 # Alta de materias
@@ -122,6 +134,7 @@ def _caso_de_grupos(
         materias or InMemoryCourseRepository(),
         periodos,
         docentes or InMemoryProfessorReader(),
+        InMemorySpaceRepository([_ESPACIO]),
         uow,
     )
 
@@ -142,12 +155,13 @@ def test_crear_grupo_lo_abre_en_el_periodo_activo() -> None:
         InMemoryCourseRepository([materia]),
         periodos,
         InMemoryProfessorReader(),
+        InMemorySpaceRepository([_ESPACIO]),
         uow,
     ).execute(
         course_id=materia.id,
         group_number="02",
         total_capacity=40,
-        schedule=[crear_franja()],
+        schedule=[crear_franja_pedida()],
     )
 
     assert creado.enrollment_period_id == periodo.id
@@ -228,6 +242,7 @@ def test_crear_grupo_repetido_en_el_mismo_periodo_falla() -> None:
         InMemoryCourseRepository([materia]),
         InMemoryPeriodRepository([periodo]),
         InMemoryProfessorReader(),
+        InMemorySpaceRepository([_ESPACIO]),
         uow,
     )
 
@@ -254,8 +269,8 @@ def test_crear_grupo_con_franjas_que_se_cruzan_falla() -> None:
             group_number="01",
             total_capacity=30,
             schedule=[
-                crear_franja(day_of_week=2, start_time=time(8, 0), end_time=time(10, 0)),
-                crear_franja(day_of_week=2, start_time=time(9, 0), end_time=time(11, 0)),
+                crear_franja_pedida(day_of_week=2, start_time=time(8, 0), end_time=time(10, 0)),
+                crear_franja_pedida(day_of_week=2, start_time=time(9, 0), end_time=time(11, 0)),
             ],
         )
 
@@ -274,8 +289,8 @@ def test_crear_grupo_admite_franjas_consecutivas() -> None:
         group_number="01",
         total_capacity=30,
         schedule=[
-            crear_franja(day_of_week=2, start_time=time(8, 0), end_time=time(10, 0)),
-            crear_franja(day_of_week=2, start_time=time(10, 0), end_time=time(12, 0)),
+            crear_franja_pedida(day_of_week=2, start_time=time(8, 0), end_time=time(10, 0)),
+            crear_franja_pedida(day_of_week=2, start_time=time(10, 0), end_time=time(12, 0)),
         ],
     )
 

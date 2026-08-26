@@ -9,18 +9,21 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID, uuid4
 
+from app.application.dtos.admin_dto import ScheduleBlockRequest
 from app.domain.entities.course import Course
 from app.domain.entities.course_offering import CourseOffering
 from app.domain.entities.enrollment import Enrollment
 from app.domain.entities.enrollment_period import EnrollmentPeriod
 from app.domain.entities.professor import Professor
 from app.domain.entities.program import Program
+from app.domain.entities.space import Space
 from app.domain.entities.student import Student
 from app.domain.entities.user import User
 from app.domain.value_objects.course_code import CourseCode
 from app.domain.value_objects.email import Email
 from app.domain.value_objects.enrollment_status import EnrollmentStatus
 from app.domain.value_objects.schedule_block import ScheduleBlock
+from app.domain.value_objects.space_type import SpaceType
 from app.domain.value_objects.student_code import StudentCode
 from app.domain.value_objects.user_role import UserRole
 
@@ -136,19 +139,74 @@ def crear_periodo(
     )
 
 
+def crear_espacio(
+    *,
+    space_id: UUID | None = None,
+    code: str = "A-201",
+    name: str | None = None,
+    space_type: SpaceType = SpaceType.CLASSROOM,
+    capacity: int | None = 40,
+    campus: str | None = "Sede Principal",
+    building: str | None = "A",
+) -> Space:
+    """Construye un `Space`."""
+    return Space(
+        id=space_id or uuid4(),
+        code=code,
+        name=name,
+        space_type=space_type,
+        capacity=capacity,
+        campus=campus,
+        building=building,
+    )
+
+
+#: Valor con el que `crear_franja` distingue «no me lo pasaron» de «me pasaron None».
+#: `None` es un valor con significado propio aquí —franja sin aula asignada—, así que no puede
+#: servir también de «usa el de por defecto».
+_SIN_INDICAR = object()
+
+
 def crear_franja(
     *,
     day_of_week: int = 1,
     start_time: time = time(8, 0),
     end_time: time = time(10, 0),
-    classroom: str | None = "A-201",
+    space: Space | None | object = _SIN_INDICAR,
 ) -> ScheduleBlock:
-    """Construye un `ScheduleBlock`."""
+    """Construye un `ScheduleBlock`.
+
+    Por defecto trae un espacio asignado, porque es el caso normal y ahorra declararlo en cada
+    test. `space=None` produce la franja sin aula, que es el otro estado legítimo.
+    """
+    asignado = crear_espacio() if space is _SIN_INDICAR else space
+
     return ScheduleBlock(
         day_of_week=day_of_week,
         start_time=start_time,
         end_time=end_time,
-        classroom=classroom,
+        space=asignado if isinstance(asignado, Space) else None,
+    )
+
+
+def crear_franja_pedida(
+    *,
+    day_of_week: int = 1,
+    start_time: time = time(8, 0),
+    end_time: time = time(10, 0),
+    space_code: str | None = "A-201",
+) -> ScheduleBlockRequest:
+    """Construye la franja tal como LLEGA en la petición, con el aula sin resolver.
+
+    Se distingue de `crear_franja` porque son dos cosas distintas desde la iteración 7.1: lo
+    que entra trae el CÓDIGO del aula y lo que circula por el dominio trae la ENTIDAD. Tener
+    una sola factoría para las dos ocultaría justo el paso que el caso de uso tiene que dar.
+    """
+    return ScheduleBlockRequest(
+        day_of_week=day_of_week,
+        start_time=start_time,
+        end_time=end_time,
+        space_code=space_code,
     )
 
 
