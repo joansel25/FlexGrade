@@ -245,6 +245,72 @@ export const PLAN_DE_ESTUDIOS = {
 };
 
 /**
+ * Expediente académico de prueba (iteración 9.4).
+ *
+ * Está construido a propósito con los tres casos que la pantalla tiene que respetar y que no se
+ * pueden inventar en el cliente:
+ *
+ * - **Cálculo I aparece DOS VECES**, perdida en `2024-1` y aprobada en `2024-2`. Es lo que
+ *   permite el `UNIQUE (student_id, course_id, academic_period)` de la base, y lo que un
+ *   expediente tiene que enseñar tal cual.
+ * - **Las notas y los promedios llegan como `string`** con dos decimales, igual que los manda
+ *   Pydantic desde un `Decimal`. Si el doble los mandara como números, el test dejaría pasar
+ *   una pantalla que los convierte a coma flotante.
+ * - **El promedio de `2024-1` es ponderado por créditos**: `(2.10×4 + 4.00×3) / 7 = 2.91`. Con
+ *   media simple daría `3.05`. Es la comprobación de que la pantalla PINTA el número del
+ *   servidor en vez de rehacer la cuenta.
+ */
+export const EXPEDIENTE = {
+  student_code: PERFIL.student_code,
+  full_name: PERFIL.full_name,
+  // Del más reciente al más antiguo, que es como se lee un expediente.
+  periods: [
+    {
+      academic_period: "2024-2",
+      entries: [
+        {
+          course_id: "c1",
+          code: "MAT101",
+          name: "Cálculo I",
+          credits: 4,
+          final_grade: "3.80",
+          status: "APPROVED",
+        },
+      ],
+      credits_attempted: 4,
+      credits_approved: 4,
+      average: "3.80",
+    },
+    {
+      academic_period: "2024-1",
+      entries: [
+        {
+          course_id: "c1",
+          code: "MAT101",
+          name: "Cálculo I",
+          credits: 4,
+          final_grade: "2.10",
+          status: "FAILED",
+        },
+        {
+          course_id: "c3",
+          code: "FIS101",
+          name: "Física",
+          credits: 3,
+          final_grade: "4.00",
+          status: "APPROVED",
+        },
+      ],
+      credits_attempted: 7,
+      credits_approved: 3,
+      average: "2.91",
+    },
+  ],
+  total_credits_approved: 7,
+  cumulative_average: "3.30",
+};
+
+/**
  * El plan tal como lo devuelve ADMINISTRACIÓN, que no es el mismo objeto.
  *
  * No trae el semáforo —aquí no hay persona sobre la que calcularlo— y sí trae `requirements`,
@@ -838,6 +904,8 @@ export const handlers = [
   http.get(`${API_URL}/api/v1/students/me/study-plan`, () =>
     HttpResponse.json(PLAN_DE_ESTUDIOS),
   ),
+
+  http.get(`${API_URL}/api/v1/students/me/history`, () => HttpResponse.json(EXPEDIENTE)),
 
   http.get(`${API_URL}/api/v1/students/me/receipt`, () =>
     // Un PDF mínimo pero con la firma real del formato: lo que se prueba es que la descarga

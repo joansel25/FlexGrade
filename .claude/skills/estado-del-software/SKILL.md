@@ -5,10 +5,23 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al cerrar la 9.4 en el BACKEND (expediente académico). Falta su pantalla.**
-> Última verificación real: frontend con `npm run lint`, `type-check`, `test` (113 tests) y
-> `build` en verde; backend sin cambios desde la 8.1 (579 tests, `mypy --strict` limpio sobre
-> 162 archivos). Antes de esto:
+> **Actualizada al cerrar la 9.4 con su PANTALLA. Con ella la Fase 9 queda COMPLETA.** En la
+> misma sesión se migró el repositorio entero de AWS a Azure (decisión 55).
+> Última verificación real: frontend con `npm run lint`, `type-check`, `build` y `test`
+> (**169 tests en 20 archivos**) en verde; backend con `black --check`, `isort --check-only`,
+> `mypy` (limpio sobre 178 archivos) y `pytest` (**658 tests**) en verde tras la migración. Los
+> cuatro workflows de despliegue vuelven a ser YAML válido. El expediente se comprobó además
+> **contra la API real** con `estudiante01@tdea.edu.co` del seed: las notas llegan como cadena
+> (`"3.60"`), y el ponderado del semestre (`3.60`) NO coincide con la media simple (`3.52`),
+> que es justo lo que la pantalla no debe recalcular.
+> **Dos avisos de método de esta sesión.** Los 12 errores de integración que aparecieron en una
+> corrida intermedia no eran del cambio: venían de haber matado un `pytest` a media ejecución,
+> que deja sucia `matricula_test`. Repetida sin nada más corriendo, verde — es la regla de la
+> sección 1, nunca dos suites a la vez. Y `docencia.test.tsx` empezó a fallar al añadir un
+> archivo de test más: no era el cambio, era una carrera latente suya —el `<nav>` existe antes
+> de que llegue el rol, y el enlace se consultaba de forma síncrona—. Se arregló esperándolo, y
+> las comprobaciones de AUSENCIA de un enlace de rol se anclan ahora a la espera de otro que sí
+> debe estar; sin ese anclaje pasan aunque la regla se rompa. Antes de esto:
 > frontend sin cambios desde la 6.4 (lint, type-check, 94 tests y build en verde). La migración
 > `0009` se aplicó sobre la base de desarrollo y dejó 21 espacios con CERO franjas huérfanas, y
 > se comprobó contra la API real que un código inexistente responde `SPACE_NOT_FOUND` y que
@@ -35,9 +48,9 @@ la raíz). Nada se ejecuta en el host: los comandos van por `docker-compose exec
 | PostgreSQL | contenedor `matricula-postgres-1`, `localhost:5432` | Imagen `postgres:16`, base `matricula`, usuario `matricula`. Volumen `pgdata`. **Los tests usan otra base: `matricula_test`**, que crea y migra `tests/integration/conftest.py` |
 | Redis | contenedor `matricula-redis-1`, `localhost:6379` | Imagen `redis:7`, base lógica **0** en desarrollo y **1** en los tests (`tests/conftest.py` reescribe la URL) |
 | Migraciones | Alembic, dentro del backend | Los tests corren `alembic upgrade head`, nunca `create_all`: así prueban el esquema real, con triggers, índices parciales y `CHECK` |
-| Configuración | `app/infrastructure/config/settings.py` (Pydantic Settings) | `DATABASE_URL`, `REDIS_URL` y `JWT_SECRET` son obligatorios; sin ellos la app no arranca. En AWS los inyecta Elastic Beanstalk desde Secrets Manager |
+| Configuración | `app/infrastructure/config/settings.py` (Pydantic Settings) | `DATABASE_URL`, `REDIS_URL` y `JWT_SECRET` son obligatorios; sin ellos la app no arranca. En Azure los inyecta Azure App Service desde Key Vault |
 | Frontend | `frontend/`, `http://localhost:5173` | React 18 + TS + Vite. Corre en la máquina, NO en Docker. `npm run dev`. Habla con la API por `VITE_API_BASE_URL`; **hay que copiar `.env.example` a `.env.local`** (sin él, en desarrollo cae a `http://localhost:8000` con un aviso por consola; en un build de producción falla al arrancar). El 5173 es el único origen que la API autoriza por CORS en desarrollo |
-| Despliegue en AWS | `deploy/aws/` | `Dockerrun.aws.json` (lo que lee Elastic Beanstalk) y el README con variables por ambiente, health checks, cuenta de conexiones a RDS y grupos de seguridad |
+| Despliegue en Azure | `deploy/azure/` | `app-settings.example.json` (las opciones de aplicación del App Service, con los secretos como referencias `@Microsoft.KeyVault(...)`) y el README con variables por ambiente, health checks, ranuras de despliegue, cuenta de conexiones y reglas de red |
 
 Comandos que se usan de verdad (equivalentes en el `Makefile`):
 
@@ -96,14 +109,16 @@ donde importa.
 8. **Un grupo se abre siempre en el período activo**, que no viaja en la petición.
 9. **Los códigos de materia se normalizan** en el value object `CourseCode` antes de comprobar
    duplicados; si no, `mat101` y `MAT101` convivirían.
-10. **`/health` es liveness y `/health/ready` es readiness.** El ALB mira la primera; la segunda
+10. **`/health` es liveness y `/health/ready` es readiness.** El Application Gateway mira la primera; la segunda
     comprueba PostgreSQL y Redis y solo se consulta tras un despliegue. Poner dependencias en la
-    del balanceador convierte una caída de RDS en una caída total.
+    del balanceador convierte una caída de PostgreSQL Flexible Server en una caída total.
 11. **Los logs son JSON de una línea a stdout** en todo lo que no sea `dev`, porque los lee
-    CloudWatch Logs Insights. Cada respuesta lleva `X-Request-ID`, que reutiliza el
-    `X-Amzn-Trace-Id` del ALB cuando existe.
+    Log Analytics. Cada respuesta lleva `X-Request-ID`, que reutiliza la traza que ya venía
+    puesta desde el borde: `X-Azure-Ref` (Front Door) y, si no, `traceparent`. El orden es de
+    FUERA hacia dentro porque `X-Azure-Ref` es el único valor que aparece en los registros de
+    Front Door.
 12. **El tamaño del pool de PostgreSQL es configurable por entorno.** El límite real es
-    `max_connections` de RDS repartido entre todas las instancias del autoescalado.
+    `max_connections` del Flexible Server repartido entre todas las instancias del autoescalado.
 13. **En el frontend, el estado del servidor lo gestiona TanStack Query**, los cupos no se
     consideran frescos nunca, las mutaciones no se reintentan solas y los errores se deciden
     por `error.code`, jamás por el mensaje.
@@ -113,8 +128,8 @@ donde importa.
 15. **Los tokens: access en MEMORIA, refresh en `localStorage`.** El access token firma cada
     petición y es el que más daño hace si se filtra; al vivir en una variable de módulo, un
     script inyectado no puede leerlo. El refresh se persiste porque, si no, recargar la pestaña
-    cerraría la sesión en plena matrícula. La cookie `httpOnly` se descartó: CloudFront y el
-    balanceador son dominios distintos, así que sería una cookie de terceros. Todo en
+    cerraría la sesión en plena matrícula. La cookie `httpOnly` se descartó: Azure Front Door y
+    el Application Gateway son dominios distintos, así que sería una cookie de terceros. Todo en
     `frontend/src/features/auth/tokenStorage.ts`, el único archivo a reescribir si se unifican
     los dominios.
 16. **La sesión se renueva un minuto ANTES de caducar**, y el refresh token se rota en cada
@@ -139,13 +154,13 @@ donde importa.
     lleva el identificador de la inscripción, y sin él no se puede cancelar.
 22. **El comprobante en PDF se genera al vuelo con ReportLab, nunca se almacena.** ReportLab
     y no WeasyPrint/wkhtmltopdf porque esas exigen librerías del sistema (Cairo, Pango, un
-    navegador) que engordarían la imagen de Elastic Beanstalk. El renderizador es un puerto
+    navegador) que engordarían la imagen de Azure App Service. El renderizador es un puerto
     (`ReceiptRenderer`), así que el contenido se prueba sin generar un byte de PDF.
 23. **El comprobante reutiliza `ListStudentEnrollmentsUseCase`**, no repite sus consultas: es
     lo que garantiza que el PDF y la pantalla «Mis materias» sumen los mismos créditos.
 24. **La descarga del PDF va por `fetch`, no por un `<a href>`.** El endpoint exige
     `Authorization: Bearer` y un enlace no envía cabeceras; poner el token en la URL lo dejaría
-    en el historial, en los registros del ALB y en la cabecera `Referer`.
+    en el historial, en los registros del Application Gateway y en la cabecera `Referer`.
 25. **El catálogo se acota por defecto a la carrera del estudiante.** `GET /courses` sigue
     siendo público y sin filtro, pero la interfaz consulta `GET /students/me/study-plan` y usa
     ese programa. Antes se listaba todo y la persona descubría el `403 COURSE_NOT_IN_PROGRAM`
@@ -284,9 +299,21 @@ donde importa.
     cada archivo tiene un propósito; vive en el commit `3315eeb`, del que
     `git show 3315eeb:frontend/src/features/health/components/ServiceStatus.tsx` la recupera si
     la 8.1 la quiere de base. El endpoint `/health` del backend no se toca: lo
-    consume el ALB.
-54. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en CloudFront, otro dominio;
-    la API acepta credenciales y con ellas el comodín ni siquiera es válido.
+    consume el Application Gateway.
+54. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en Azure Front Door, otro
+    dominio; la API acepta credenciales y con ellas el comodín ni siquiera es válido.
+55. **La nube del proyecto es AZURE, no AWS.** El documento de la Fase I cambió de proveedor y el
+    repositorio se migró entero: `deploy/azure/`, los cuatro workflows de despliegue, la
+    documentación y los comentarios del código. El mapeo, para no volver a discutirlo: App
+    Service (era Elastic Beanstalk), Azure Database for PostgreSQL Flexible Server (RDS), Azure
+    Cache for Redis (ElastiCache), Azure Storage + Front Door (S3 + CloudFront), Application
+    Gateway con WAF (ALB), Key Vault (Secrets Manager), Azure Monitor y Log Analytics
+    (CloudWatch), Microsoft Entra External ID (Cognito), ACR (ECR), VNet con subredes
+    públicas/privadas y NAT Gateway (VPC). **El código de la aplicación no tenía acoplamiento
+    real con AWS**: todo lo específico llegaba por variable de entorno. La única línea funcional
+    que cambió fue la cabecera de traza del middleware de logs. El `.docx` del proyecto no se
+    versiona: `*.docx` está en `.gitignore` porque es binario, git no lo puede fusionar y cada
+    guardado reescribe el archivo entero.
 
 ## 4. Qué está construido
 
@@ -297,14 +324,15 @@ donde importa.
 | 2 — Catálogo | ✅ | `GET /courses`, `/courses/{id}`, `/courses/{id}/offerings`, `/offerings/{id}`, `/enrollment-periods/current` |
 | 3 — Inscripción | ✅ | `POST /enrollments`, `DELETE /enrollments/{id}`, `GET /students/me/schedule` |
 | 4 — Admin y reportes | ✅ | ver desglose abajo |
-| Preparación para la nube | ✅ | `/health/ready`, CORS, logs JSON, `X-Request-ID`, pool configurable, `deploy/aws/` |
+| Preparación para la nube | ✅ | `/health/ready`, CORS, logs JSON, `X-Request-ID`, pool configurable, `deploy/azure/` |
 | 5 — Frontend y comprobante | ✅ | 5.1 fundación · 5.2 autenticación · 5.3 catálogo · 5.4 inscripción y horario · 5.5 comprobante PDF |
 | 6 — Reglas por carrera | ✅ | `GET /students/me/study-plan` con semáforo, ruta `/plan` en el frontend |
+| 9 — Cierre del ciclo | ✅ | docente, notas, consolidación y `GET /students/me/history` con la ruta `/expediente` |
 
-**Fase 9 — Cierre del ciclo académico** (en curso): 9.1 el docente como actor ✅
+**Fase 9 — Cierre del ciclo académico: COMPLETA.** 9.1 el docente como actor ✅
 (`8fe425c`) · 9.2 registro de notas ✅ (`75bc0d6`) · 9.3 cierre y consolidación del período ✅
-(`0c6f7d0`, **incluye la 9.5**) · 9.4 expediente del estudiante — **backend ✅ (esta
-iteración), frontend PENDIENTE**.
+(`0c6f7d0`, **incluye la 9.5**) · 9.4 expediente del estudiante ✅ (backend `4c2ba2b`,
+**pantalla en esta iteración**).
 
 De la 9.4, lo que no se vuelve a discutir:
 
@@ -319,6 +347,39 @@ De la 9.4, lo que no se vuelve a discutir:
   no ha cerrado ningún semestre.
 - `find_by_student` trae TODAS las filas, al contrario que `find_approved_course_ids`, que
   filtra porque responde otra pregunta: «qué habilita esta persona», no «qué ha cursado».
+
+De la PANTALLA de la 9.4 (`frontend/src/features/transcript/`, ruta `/expediente`):
+
+- **Las notas y los promedios se quedan en `string` de punta a punta.** El backend los modela
+  con `Decimal` y los serializa con dos decimales exactos —comprobado contra la API real: llegan
+  como `"3.60"`, no como número—. Convertirlos a `number` en el cliente desharía esa decisión en
+  el último paso: `4.00` se pintaría como `4` y dejaría de coincidir con el certificado oficial.
+  Es la misma regla que la 9.2 fijó para el `final_grade` del listado del docente.
+- **La pantalla no recalcula NINGÚN promedio.** Con los datos del seed, el ponderado del semestre
+  da `3.60` y la media simple `3.52`: son cifras distintas, y la segunda no coincide con ningún
+  documento de la institución. Un test lo fija con un caso donde las dos difieren, así que
+  reintroducir la cuenta en el cliente rompe la suite.
+- **Es una TABLA, no una rejilla de tarjetas.** Un expediente se lee comparando filas, se copia
+  a un correo y se recorre con lector de pantalla saltando por columnas. Va dentro de un
+  `overflow-x-auto`: sin él, en un móvil la tabla ensancha el `body` y toda la interfaz se
+  desplaza en horizontal.
+- **`course_id` basta como clave de fila DENTRO de un semestre**, y no hace falta un
+  identificador de la fila del expediente: el `UNIQUE (student_id, course_id, academic_period)`
+  impide que una materia salga dos veces en el mismo período. Repetida en otro semestre es otra
+  fila en otra tabla, que es exactamente como debe verse.
+- **El acumulado no se anuncia cuando no hay semestres cerrados.** «Promedio acumulado 0.00» en
+  la primera pantalla de quien acaba de ingresar se lee como una nota, no como un vacío.
+- **La cabecera dice «créditos aprobados EN TOTAL».** Cada semestre anuncia también los suyos, y
+  sin esa palabra las dos cifras se leen como la misma.
+- **El expediente se consulta todo el año**, dentro y fuera de la ventana de matrícula, y se
+  considera fresco cinco minutos: solo lo mueve el cierre de un período, que ocurre una vez por
+  semestre. Refrescarlo al volver a la pestaña gastaría una petición para traer lo mismo. Es la
+  política CONTRARIA a la de los cupos, y por la misma razón: cada consulta se refresca según
+  cada cuánto cambia de verdad lo que devuelve.
+- **Los accesos de la pantalla de inicio siguen el MISMO orden que la barra de navegación**, y
+  eso obliga a tocar los dos sitios a la vez. Al añadir «Expediente» al menú y no a `HomePage`,
+  el test de la pantalla de inicio falló: está escrito contra la lista completa y en orden
+  justamente para que las dos no puedan divergir en silencio.
 
 **EL CICLO ESTÁ CERRADO.** `POST /admin/enrollment-periods/{id}/close` convierte las notas del
 período en `academic_history`, y `tests/integration/test_academic_cycle.py` lo demuestra de punta
@@ -488,7 +549,7 @@ exclusión GiST de PostgreSQL sobre el rango horario, la misma filosofía de dos
 impide el sobrecupo.
 
 El plan completo de las fases 6 a 10 está en el artefacto «Hoja de ruta FlexGrade».
-Aprovisionar AWS sigue pendiente (ver `deploy/aws/README.md`).
+Aprovisionar Azure sigue pendiente (ver `deploy/azure/README.md`).
 
 Desglose de la Fase 4 por iteraciones (la numeración es nuestra; los documentos solo describen
 la fase completa):
@@ -537,16 +598,14 @@ Ausencias que sí son deuda, pendientes de decidir cuándo se pagan:
 
 - **Rate limiting.** `API.md` fija límites por endpoint (login 5/min por IP, inscripción 30/min,
   catálogo 120/min, admin 60/min) y no hay nada implementado. Con varias instancias detrás del
-  ALB, un contador en memoria no sirve: o AWS WAF con reglas por IP, o un contador en Redis para
+  Application Gateway, un contador en memoria no sirve: o el WAF de Application Gateway con reglas por IP, o un contador en Redis para
   los límites por usuario.
-- **Autenticación propia frente a Cognito.** El documento del proyecto nombra Cognito; el código
+- **Autenticación propia frente a Microsoft Entra External ID.** El documento del proyecto nombra Microsoft Entra External ID; el código
   emite y valida sus propios JWT con bcrypt. `AuthService` es un puerto, así que cambiarlo sería
   escribir un adaptador nuevo y tocar `di.py`, sin rozar el dominio. Decisión pendiente.
 - **`GET /enrollment-periods` público.** `API.md` sección 5 lo documenta como listado paginado
   de períodos; el único listado que existe es `GET /admin/enrollment-periods`, que exige rol
   ADMIN.
-- **`GET /students/me/history`.** Documentado en `API.md` sección 2, sin implementar. No lo
-  necesita ninguna pantalla todavía.
 - **El seed no comparte ninguna materia entre programas.** El esquema sí lo admite
   (`program_courses` tiene clave primaria compuesta), pero los datos de ejemplo dan a cada
   programa materias propias, así que ese camino no se ejercita nunca. La fixture `catalogo`
@@ -585,6 +644,7 @@ frontend/src/
 ├── app/            proveedores, rutas y layout: la forma de ESTA aplicación
 ├── components/ui/  piezas visuales reutilizables (Button, Card, StatusDot)
 ├── features/       una carpeta por funcionalidad, con su API, sus hooks y sus pantallas
+│                   (admin · auth · catalog · enrollment · health · home · teaching · transcript)
 ├── lib/            cliente HTTP, errores de la API y configuración de TanStack Query
 └── test/           MSW y el render con proveedores
 ```
@@ -595,9 +655,9 @@ alguno de esos scripts, el job falla.
 
 **Las acciones se fijan por versión MAYOR y estan en la que corre sobre Node 24**
 (`checkout@v5`, `setup-python@v6`, `setup-node@v5`, `gitleaks-action@v3`). GitHub retira Node 20
-de los runners en septiembre de 2026; hasta entonces avisa en cada corrida. Los bloques de AWS y
+de los runners en septiembre de 2026; hasta entonces avisa en cada corrida. Los bloques de Azure y
 Docker que siguen COMENTADOS a la espera de aprovisionar la nube conservan versiones antiguas
-—`aws-actions/*`, `docker/*`— y hay que revisarlas al descomentarlas, porque nadie las ha
+—`azure-actions/*`, `docker/*`— y hay que revisarlas al descomentarlas, porque nadie las ha
 ejecutado nunca.
 
 **Este repositorio tiene `.gitattributes` y no es decorativo.** Fija `text=auto` y `eol=lf` para

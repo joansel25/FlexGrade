@@ -38,8 +38,14 @@ describe("acceso del docente", () => {
     // pantallas que fallan con un error que parece del sistema.
     montar("PROFESSOR", "/docencia");
 
+    // El `<nav>` existe ANTES de que llegue el rol —se pinta con «Inicio» mientras la sesión se
+    // restaura—, así que el enlace se ESPERA en vez de consultarse de golpe. Consultarlo de
+    // forma síncrona pasa en una máquina descargada y falla en cuanto la suite corre varios
+    // archivos a la vez, con un mensaje que no dice que el problema era la espera.
     const navegacion = await screen.findByRole("navigation");
-    expect(within(navegacion).getByRole("link", { name: "Mis grupos" })).toBeInTheDocument();
+    expect(
+      await within(navegacion).findByRole("link", { name: "Mis grupos" }),
+    ).toBeInTheDocument();
     expect(within(navegacion).queryByRole("link", { name: "Mi plan" })).not.toBeInTheDocument();
     expect(
       within(navegacion).queryByRole("link", { name: "Mis materias" }),
@@ -50,7 +56,7 @@ describe("acceso del docente", () => {
     montar("STUDENT", "/");
 
     const navegacion = await screen.findByRole("navigation");
-    expect(within(navegacion).getByRole("link", { name: "Mi plan" })).toBeInTheDocument();
+    expect(await within(navegacion).findByRole("link", { name: "Mi plan" })).toBeInTheDocument();
     expect(within(navegacion).queryByRole("link", { name: "Mis grupos" })).not.toBeInTheDocument();
   });
 

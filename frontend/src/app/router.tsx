@@ -31,6 +31,7 @@ import { StudyPlanPage } from "@/features/catalog/StudyPlanPage";
 import { MyEnrollmentsPage } from "@/features/enrollment/MyEnrollmentsPage";
 import { SchedulePage } from "@/features/enrollment/SchedulePage";
 import { HomePage } from "@/features/home/HomePage";
+import { TranscriptPage } from "@/features/transcript/TranscriptPage";
 
 export function AppRoutes() {
   return (
@@ -89,6 +90,17 @@ export function AppRoutes() {
           element={
             <RequireAuth>
               <SchedulePage />
+            </RequireAuth>
+          }
+        />
+
+        {/* El expediente se consulta todo el año, dentro y fuera de la ventana de matrícula:
+            «qué he cursado y con qué nota» no es una pregunta de la semana de inscripción. */}
+        <Route
+          path="/expediente"
+          element={
+            <RequireAuth>
+              <TranscriptPage />
             </RequireAuth>
           }
         />

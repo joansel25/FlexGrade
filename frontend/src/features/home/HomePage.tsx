@@ -48,6 +48,11 @@ const ACCESOS = [
     titulo: "Horario",
     descripcion: "Tus clases de la semana, ordenadas por día y hora.",
   },
+  {
+    a: "/expediente",
+    titulo: "Mi expediente",
+    descripcion: "Todo lo que has cursado, semestre a semestre, con su nota y tu promedio.",
+  },
 ] as const;
 
 export function HomePage() {

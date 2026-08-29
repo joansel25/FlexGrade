@@ -48,6 +48,9 @@ const NAVEGACION: readonly { a: string; etiqueta: string; roles: readonly UserRo
   { a: "/catalogo", etiqueta: "Catálogo", roles: ["STUDENT"] },
   { a: "/mis-materias", etiqueta: "Mis materias", roles: ["STUDENT"] },
   { a: "/horario", etiqueta: "Horario", roles: ["STUDENT"] },
+  // El expediente cierra el recorrido: es lo ya cursado, mientras que todo lo anterior mira al
+  // semestre en curso.
+  { a: "/expediente", etiqueta: "Expediente", roles: ["STUDENT"] },
   { a: "/docencia", etiqueta: "Mis grupos", roles: ["PROFESSOR"] },
   { a: "/admin", etiqueta: "Administración", roles: ["ADMIN"] },
 ];

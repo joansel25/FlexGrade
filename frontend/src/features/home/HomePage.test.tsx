@@ -38,7 +38,7 @@ describe("pantalla de inicio", () => {
     expect(screen.queryByText("0.1.0")).not.toBeInTheDocument();
   });
 
-  it("lleva a las cuatro pantallas del estudiante", async () => {
+  it("lleva a las cinco pantallas del estudiante", async () => {
     // Una pantalla de inicio que no lleva a ninguna parte obliga a buscar en la barra de
     // navegación lo que debería estar delante.
     montarConSesion();
@@ -48,6 +48,14 @@ describe("pantalla de inicio", () => {
       .getAllByRole("link")
       .map((enlace) => enlace.getAttribute("href"));
 
-    expect(destinos).toEqual(["/plan", "/catalogo", "/mis-materias", "/horario"]);
+    // El orden es el MISMO de la barra de navegación, a propósito: dos ordenaciones
+    // distintas para los mismos destinos obligan a releer cada vez.
+    expect(destinos).toEqual([
+      "/plan",
+      "/catalogo",
+      "/mis-materias",
+      "/horario",
+      "/expediente",
+    ]);
   });
 });
