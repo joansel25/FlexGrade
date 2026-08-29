@@ -16,6 +16,40 @@ az webapp config container set \
   --container-registry-url "https://${ACR_LOGIN_SERVER}"
 ```
 
+## 0. El orden de aprovisionamiento, y por qué es ese
+
+Cada recurso necesita algo del anterior, así que saltarse el orden obliga a volver atrás. La
+columna de la derecha es **el dato que hay que anotar**: es lo que después se pega en un secreto
+de GitHub o en una opción de la aplicación.
+
+| # | Recurso | Dato que hay que anotar | El detalle que arruina el paso |
+|---|---|---|---|
+| 1 | Grupo de recursos (`matricula`, `eastus`) | su nombre | Todo va dentro; con uno solo se borra todo junto al terminar el curso |
+| 2 | Azure Container Registry | el *login server* (`xxx.azurecr.io`) | → secreto `ACR_LOGIN_SERVER` |
+| 3 | PostgreSQL Flexible Server B1ms + base `matricula` | la cadena de conexión | Necesita `?sslmode=require`: el servidor rechaza las conexiones en claro |
+| 4 | Azure Cache for Redis Basic C0 | la cadena de conexión | Es `rediss://` y puerto **6380**, no 6379: Azure exige TLS |
+| 5 | Key Vault con `database-url`, `redis-url`, `jwt-secret` | el nombre del vault | Los tres valores salen de los pasos 3 y 4 |
+| 6 | App Service Plan **B1** + Web App **for Containers** | el nombre de la app | Apuntando al ACR del paso 2 |
+| 7 | Identidad administrada de la Web App + permiso `get`/`list` en el Key Vault | — | **Sin esto la app arranca con la cadena literal `@Microsoft.KeyVault(...)` como valor** y falla al conectarse, con un error que no menciona el Key Vault por ningún lado |
+| 8 | Application settings desde `app-settings.example.json` | — | `WEBSITES_PORT=8000`, o App Service busca a uvicorn en el 80 y marca el sitio como caído |
+| 9 | Entidad de servicio con rol Contributor sobre el grupo | su JSON | → secreto `AZURE_CREDENTIALS` |
+| 10 | Storage Account con **Static website** activado | el nombre de la cuenta | → secreto `AZURE_STORAGE_ACCOUNT`. Aquí van los archivos del frontend |
+| 11 | Front Door: origen al Storage (frontend) y al App Service (API) | perfil y endpoint | → secretos `FRONTDOOR_PROFILE` y `FRONTDOOR_ENDPOINT`; su dominio va a `CORS_ALLOWED_ORIGINS` y a la variable `VITE_API_BASE_URL_*` |
+| 12 | VNet, NSG, NAT Gateway y Application Gateway | — | Es el aislamiento de red del documento de la Fase I |
+
+**Con los pasos 1–9 el backend ya está desplegado y respondiendo.** Del 10 al 12 son la entrega
+del frontend y el aislamiento de red: se pueden hacer después, y conviene, porque así un fallo
+se atribuye a la aplicación o a la red, y no a las dos a la vez.
+
+**Aviso de coste:** el Application Gateway (paso 12) cuesta más que todo lo demás junto y se
+paga por hora mientras exista. Con crédito de Azure for Students conviene levantarlo al final y
+solo cuando haga falta demostrarlo.
+
+**Una nota sobre el diagrama de la Fase I.** La regla «Application Gateway → aplicación :8000»
+no se traduce literal en App Service: el 8000 es el puerto INTERNO del contenedor
+(`WEBSITES_PORT`), y el Gateway habla con el App Service por 443. El aislamiento se consigue con
+restricciones de acceso, no publicando el 8000.
+
 ## 1. `app-settings.example.json` — la configuración del ambiente
 
 App Service llama «application settings» a lo que el contenedor lee como variables de entorno.
@@ -197,3 +231,40 @@ valor encuentra la línea exacta:
 AppServiceConsoleLogs
 | where ResultDescription contains "el-valor-reportado"
 ```
+
+## 8. El frontend — archivos estáticos, no un servidor
+
+El frontend compilado son archivos: `npm run build` produce `frontend/dist/`, que se sube al
+contenedor `$web` del Storage Account y lo distribuye Front Door. No hay proceso, no hay
+contenedor y no hay nada que reiniciar.
+
+De ahí sale la consecuencia que más sorprende: **`VITE_API_BASE_URL` se fija al COMPILAR**. La
+URL de la API queda incrustada en el JavaScript, así que no se puede cambiar después sin volver
+a compilar y volver a publicar. Por eso el job del frontend en los workflows va **después** del
+despliegue del backend: compilarlo antes produciría un paquete que apunta a un sitio que
+todavía no existe.
+
+```bash
+# Lo que hace el pipeline, si alguna vez hay que repetirlo a mano:
+cd frontend && VITE_API_BASE_URL="https://<tu-front-door>/api" npm run build
+
+az storage blob upload-batch   --account-name "$AZURE_STORAGE_ACCOUNT"   --destination '$web' --source dist --overwrite --auth-mode login
+
+az afd endpoint purge   --resource-group "$AZURE_RESOURCE_GROUP" --profile-name "$FRONTDOOR_PROFILE"   --endpoint-name "$FRONTDOOR_ENDPOINT" --content-paths '/*'
+```
+
+**La purga no es opcional.** Sin ella Front Door sigue sirviendo el JavaScript anterior desde
+sus nodos durante horas: el despliegue habría terminado y nadie vería el cambio.
+
+Dos cosas que hay que configurar en el Storage y que no se descubren solas:
+
+- **El documento de índice y el de error, los dos a `index.html`.** La aplicación es una SPA con
+  rutas propias (`/expediente`, `/admin/grupos`): quien entre directamente a una de ellas o
+  recargue la página pide al Storage un archivo que no existe, y sin esa regla recibe un 404 en
+  vez de la aplicación.
+- **`CORS_ALLOWED_ORIGINS` del backend tiene que llevar el dominio de Front Door.** Frontend y
+  API viven en orígenes distintos; sin esa lista el navegador bloquea todas las llamadas y la
+  interfaz se ve, pero no funciona.
+
+El **rollback del frontend no existe**: el despliegue sobrescribe los archivos y no queda
+versión anterior. Recuperar una es volver a lanzar el workflow con el tag previo.

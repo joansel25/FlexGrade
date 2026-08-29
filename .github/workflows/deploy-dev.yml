@@ -14,7 +14,14 @@
 #   - AZURE_CREDENTIALS ....... JSON de la entidad de servicio de Entra ID con
 #                               rol Contributor sobre el grupo de recursos
 #   - ACR_LOGIN_SERVER ........ p. ej. `matricula.azurecr.io`
+#   - AZURE_STORAGE_ACCOUNT ... cuenta con Static website activado (frontend)
+#   - FRONTDOOR_PROFILE ....... perfil de Front Door
+#   - FRONTDOOR_ENDPOINT ...... endpoint de Front Door, para purgar su cache
 #   - SLACK_WEBHOOK_URL ....... opcional, solo para el paso de notificacion
+#
+# VARIABLES (no son secretos: viajan DENTRO del JavaScript compilado, asi que
+# esconderlas no protegeria nada):
+#   - VITE_API_BASE_URL_DEV / _STAGING / _PROD ... URL publica de la API
 #
 # SECRETOS QUE **NO** VAN AQUI (viven en Azure Key Vault y los resuelve el App
 # Service con su identidad administrada, CI_CD.md seccion 7):
@@ -112,6 +119,16 @@ jobs:
       # # hay ningun artefacto de despliegue que empaquetar aqui. Las opciones de aplicacion
       # # —incluida WEBSITES_PORT=8000, sin la cual App Service busca a uvicorn en el 80 y
       # # marca el sitio como caido— se cargan una sola vez desde deploy/azure/.
+      # #
+      # # `APP_VERSION` es la EXCEPCION: cambia en cada despliegue, asi que se escribe aqui y
+      # # no en la plantilla. Sin esto `/health` responde siempre el valor por defecto del
+      # # codigo, y ante un fallo no habria forma de saber que version esta arriba.
+      # - name: Registrar la version desplegada
+      #   run: |
+      #     az webapp config appsettings set \
+      #       --name "${AZURE_WEBAPP_NAME}" --resource-group "${AZURE_RESOURCE_GROUP}" \
+      #       --settings "APP_VERSION=${IMAGE_TAG}"
+      #
       # - name: Desplegar en Azure App Service
       #   uses: azure/webapps-deploy@v3
       #   with:
@@ -131,7 +148,23 @@ jobs:
       #     curl --fail --silent --show-error --max-time 10 "${url}/health"
       #     curl --fail --silent --show-error --max-time 10 "${url}/health/ready"
       #
-      # # 7. Notificacion del resultado (requiere SLACK_WEBHOOK_URL).
+      # # 7. Datos de ejemplo. SOLO EN DEV, y por eso este paso no existe en los
+      # #    workflows de staging ni de produccion: alli sembraria datos falsos sobre
+      # #    matriculas reales.
+      # #
+      # #    El seed es IDEMPOTENTE por contrato —comprueba antes de crear—, asi que
+      # #    correrlo en cada despliegue no duplica nada y garantiza que el ambiente de
+      # #    pruebas nunca este vacio. Va DESPUES de las migraciones: escribe sobre el
+      # #    esquema que ellas dejan.
+      # - name: Sembrar datos de ejemplo en DEV
+      #   working-directory: backend
+      #   env:
+      #     DATABASE_URL: ${{ secrets.DATABASE_URL_DEV }}
+      #     REDIS_URL: ${{ secrets.REDIS_URL_DEV }}
+      #     JWT_SECRET: ${{ secrets.JWT_SECRET_DEV }}
+      #   run: python -m app.infrastructure.seed
+      #
+      # # 8. Notificacion del resultado (requiere SLACK_WEBHOOK_URL).
       # - name: Notificar resultado
       #   if: always()
       #   run: |
@@ -139,4 +172,77 @@ jobs:
       #       --header "Content-Type: application/json" \
       #       --data "{\"text\":\"Deploy DEV ${IMAGE_TAG}: ${{ job.status }}\"}" \
       #       "${{ secrets.SLACK_WEBHOOK_URL }}"
+      # ---------------------------------------------------------------------
+
+  # -------------------------------------------------------------------------
+  # 2. Frontend: archivos estaticos en Azure Storage, distribuidos por Front Door.
+  #
+  # Va en un job APARTE y DESPUES del backend, y las dos cosas importan:
+  #
+  # - Aparte, porque son dos artefactos distintos con dos destinos distintos. Una imagen
+  #   Docker en ACR y un `dist/` de archivos estaticos no comparten ni construccion ni
+  #   despliegue.
+  # - Despues, porque `VITE_API_BASE_URL` se fija en tiempo de BUILD. El frontend compilado
+  #   son archivos estaticos: no hay proceso donde leer una variable de entorno al arrancar,
+  #   asi que la URL de la API queda incrustada en el JavaScript. Compilarlo antes de que la
+  #   API responda produciria un paquete que apunta a un sitio que todavia no existe.
+  # -------------------------------------------------------------------------
+  desplegar-frontend:
+    name: Desplegar el frontend en DEV
+    runs-on: ubuntu-latest
+    needs: deploy
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Estado del frontend
+        run: |
+          echo "::warning title=Frontend no publicado::El Storage Account y Front Door aun no estan aprovisionados (Fase 0). Los pasos estan comentados en .github/workflows/deploy-dev.yml."
+
+      # ---------------------------------------------------------------------
+      # TODO(devops): descomentar junto con el resto, cuando existan el Storage
+      # Account con Static website activado y el endpoint de Front Door, y esten
+      # cargados los secretos AZURE_STORAGE_ACCOUNT / FRONTDOOR_PROFILE /
+      # FRONTDOOR_ENDPOINT y la variable VITE_API_BASE_URL_DEV.
+      # ---------------------------------------------------------------------
+      #
+      # - uses: actions/setup-node@v5
+      #   with:
+      #     node-version: "24"
+      #     cache: npm
+      #     cache-dependency-path: frontend/package-lock.json
+      #
+      # - name: Instalar dependencias
+      #   working-directory: frontend
+      #   run: npm ci
+      #
+      # # La URL de la API queda DENTRO del paquete: ver el comentario del job.
+      # - name: Compilar el frontend
+      #   working-directory: frontend
+      #   env:
+      #     VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL_DEV }}
+      #   run: npm run build
+      #
+      # - name: Autenticarse en Azure
+      #   uses: azure/login@v2
+      #   with:
+      #     creds: ${{ secrets.AZURE_CREDENTIALS }}
+      #
+      # # `$web` es el contenedor que Azure Storage sirve como sitio estatico; el nombre es
+      # # fijo y no se elige. `--overwrite` porque el despliegue REEMPLAZA la version
+      # # anterior: no se acumulan builds.
+      # - name: Subir dist/ al sitio estatico
+      #   run: |
+      #     az storage blob upload-batch \
+      #       --account-name "${{ secrets.AZURE_STORAGE_ACCOUNT }}" \
+      #       --destination '$web' --source frontend/dist --overwrite --auth-mode login
+      #
+      # # Sin purgar, Front Door sigue sirviendo el JavaScript anterior desde sus nodos
+      # # durante horas: el despliegue habria terminado y nadie veria el cambio.
+      # - name: Purgar la cache de Front Door
+      #   run: |
+      #     az afd endpoint purge \
+      #       --resource-group "${AZURE_RESOURCE_GROUP}" \
+      #       --profile-name "${{ secrets.FRONTDOOR_PROFILE }}" \
+      #       --endpoint-name "${{ secrets.FRONTDOOR_ENDPOINT }}" \
+      #       --content-paths '/*'
       # ---------------------------------------------------------------------

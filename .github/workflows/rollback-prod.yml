@@ -11,6 +11,14 @@
 # el codigo NO recupera los datos: hay que evaluar `alembic downgrade` a mano,
 # con respaldo previo, y aceptar que puede no ser reversible.
 #
+# SEGUNDA ADVERTENCIA: este rollback revierte SOLO EL BACKEND. El frontend son
+# archivos estaticos que el despliegue SOBRESCRIBE en Azure Storage, asi que no
+# hay version anterior a la que volver: recuperarlo es volver a compilar el tag
+# previo y publicarlo. Se deja asi a proposito y no se automatiza, porque una
+# interfaz vieja contra una API vieja es un estado coherente y poco frecuente;
+# lo urgente en un incidente es que la API vuelva a responder. Si el fallo esta
+# en el frontend, se lanza deploy-prod.yml con el tag anterior.
+#
 # ESTADO ACTUAL (Fase 0): los ambientes de Azure todavia NO estan aprovisionados.
 # Los pasos que tocan Azure estan comentados con un TODO; la estructura del
 # workflow y las comprobaciones locales si estan activas y son YAML valido.

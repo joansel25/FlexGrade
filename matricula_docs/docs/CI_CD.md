@@ -220,6 +220,9 @@ Secretos que existen:
 |---|---|---|
 | `AZURE_CREDENTIALS` | GitHub Secrets | Autenticar el pipeline contra Azure |
 | `ACR_LOGIN_SERVER` | GitHub Secrets | URL del registro de imágenes |
+| `AZURE_STORAGE_ACCOUNT` | GitHub Secrets | Cuenta de Storage que sirve el frontend estático |
+| `FRONTDOOR_PROFILE` / `FRONTDOOR_ENDPOINT` | GitHub Secrets | Purgar la caché tras publicar el frontend |
+| `VITE_API_BASE_URL_DEV/STAGING/PROD` | GitHub **Variables** | URL de la API. No es secreto: viaja dentro del JavaScript compilado, así que esconderla no protegería nada |
 | `DATABASE_URL_DEV/STAGING/PROD` | Azure Key Vault | Conexión a PostgreSQL Flexible Server por ambiente |
 | `JWT_SECRET_KEY` | Azure Key Vault | Firma de tokens |
 | `REDIS_URL` | Azure Key Vault | Conexión a Azure Cache for Redis |

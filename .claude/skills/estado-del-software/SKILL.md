@@ -314,6 +314,46 @@ donde importa.
     que cambió fue la cabecera de traza del middleware de logs. El `.docx` del proyecto no se
     versiona: `*.docx` está en `.gitignore` porque es binario, git no lo puede fusionar y cada
     guardado reescribe el archivo entero.
+56. **El software ya está listo para Azure; lo que falta es aprovisionar.** Se auditó antes
+    de tocar nada, y esto quedó comprobado, no supuesto: el refresh token es *stateless* (firma
+    más consulta del usuario), así que no hay sesión en memoria que se rompa con varias
+    instancias; no hay estado mutable a nivel de módulo salvo el cortacircuitos de Redis, que es
+    por proceso a propósito; `Redis.from_url` acepta `rediss://` sin tocar nada, que es lo que
+    exige Azure Cache; y nada ejecuta migraciones al arrancar. Lo único que faltaba en el
+    repositorio eran tres cosas, y dos ya están:
+
+    - **El frontend no se desplegaba.** Se compilaba en CI y nadie lo publicaba. Ahora hay un
+      job `desplegar-frontend` en dev, staging y producción. Va APARTE del backend porque son
+      dos artefactos con dos destinos, y DESPUÉS porque `VITE_API_BASE_URL` se fija al compilar:
+      la URL queda incrustada en el JavaScript, así que compilar antes de que la API responda
+      produce un paquete que apunta a un sitio que no existe. Incluye la purga de Front Door,
+      que no es opcional: sin ella se sigue sirviendo el JavaScript anterior durante horas y el
+      despliegue parece no haber ocurrido.
+    - **`APP_VERSION` se escribe en cada despliegue**, no en la plantilla de
+      `app-settings.example.json`, porque es el único valor que cambia cada vez. Sin eso
+      `/health` responde siempre el valor por defecto del código y ante un fallo no hay forma de
+      saber qué versión está arriba. En producción se escribe en la RANURA, para que viaje con
+      el intercambio y no toque lo que está sirviendo.
+    - **El seed corre SOLO en dev**, y por eso el paso no existe en staging ni en producción:
+      allí sembraría datos falsos sobre matrículas reales. Es idempotente por contrato, así que
+      correrlo en cada despliegue no duplica nada y garantiza que el ambiente de pruebas nunca
+      esté vacío.
+
+    Queda **el rate limiting**, que sigue en la lista de deuda y es la única pieza de software
+    que el despliegue todavía echa en falta.
+
+    **El rollback NO cubre el frontend**, y es deliberado: el despliegue sobrescribe los
+    archivos estáticos y no queda versión anterior. En un incidente lo urgente es que la API
+    vuelva a responder; una interfaz vieja contra una API vieja es un estado coherente. Se
+    recupera relanzando `deploy-prod.yml` con el tag previo.
+
+    **Dos cosas del diagrama de la Fase I que no se traducen literales.** La regla «Application
+    Gateway → aplicación :8000» no aplica: el 8000 es el puerto INTERNO del contenedor
+    (`WEBSITES_PORT`) y el Gateway habla con App Service por 443; el aislamiento se consigue con
+    restricciones de acceso. Y el Storage del frontend necesita el documento de índice **y el de
+    error** apuntando los dos a `index.html`: la aplicación usa `BrowserRouter`, así que quien
+    entre directo a `/expediente` o recargue pide un archivo que no existe y sin esa regla
+    recibe un 404 en vez de la aplicación.
 
 ## 4. Qué está construido
 
