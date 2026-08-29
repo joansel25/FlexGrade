@@ -7,7 +7,7 @@ tiene forma de saber si detrás hay un PDF o un HTML.
 **Por qué ReportLab y no una conversión desde HTML.** Las alternativas habituales —WeasyPrint,
 wkhtmltopdf— convierten HTML a PDF y permiten maquetar con CSS, que es más cómodo. A cambio
 exigen librerías del sistema: Cairo, Pango, o un navegador entero. En una imagen que se
-despliega en Elastic Beanstalk eso significa cientos de megabytes más y un conjunto de
+despliega en Azure App Service eso significa cientos de megabytes más y un conjunto de
 dependencias nativas que hay que mantener parcheadas. ReportLab es Python puro: se instala con
 `pip` y la imagen no cambia de tamaño de forma apreciable.
 

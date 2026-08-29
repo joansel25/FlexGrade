@@ -17,7 +17,7 @@ estudiantes concurrentes** durante las ventanas de matrícula, sin sobrecupo ni 
 duplicadas.
 
 Es el desarrollo de software para el proyecto de la asignatura de **Computación en la Nube**. La
-arquitectura de despliegue (AWS, modelo PaaS, VPC Multi-AZ) ya está definida en los documentos
+arquitectura de despliegue (Azure, modelo PaaS, VNet con alta disponibilidad zonal) ya está definida en los documentos
 de la Fase I.
 
 ## Stack tecnológico
@@ -38,7 +38,7 @@ de la Fase I.
 
 **Infraestructura**
 - Docker + Docker Compose (dev local)
-- AWS Elastic Beanstalk + RDS PostgreSQL Multi-AZ + ElastiCache Redis + S3/CloudFront + Cognito
+- Azure App Service + Azure Database for PostgreSQL Flexible Server + Azure Cache for Redis + Azure Storage + Front Door + Microsoft Entra External ID
 
 ## Arquitectura
 
@@ -104,7 +104,7 @@ Definidos en `.claude/agents/`. Invócalos por su nombre:
 | `api-developer` | Routers FastAPI, schemas Pydantic, dependencias de inyección |
 | `database-engineer` | Modelos SQLAlchemy, migraciones Alembic, repositorios, queries lentas |
 | `testing-engineer` | Tests unit / integration / e2e, y reproducir bugs antes de arreglarlos |
-| `devops-engineer` | Docker, docker-compose, GitHub Actions, Elastic Beanstalk, secretos |
+| `devops-engineer` | Docker, docker-compose, GitHub Actions, Azure App Service, secretos |
 | `frontend-developer` | Componentes React, hooks, TanStack Query, accesibilidad |
 | `code-reviewer` | Revisión antes de commit o PR (solo lectura) |
 

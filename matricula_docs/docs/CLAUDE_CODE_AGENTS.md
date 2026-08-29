@@ -118,10 +118,10 @@ Los ocho subagentes son:
 
 6. @devops-engineer (DevOps / Cloud Engineer)
    Propósito: configurar Docker, docker-compose, GitHub Actions y despliegue
-   en AWS Elastic Beanstalk.
+   en Azure App Service.
    Se invoca cuando: hay que crear un Dockerfile, actualizar el
    docker-compose, modificar los workflows de .github/workflows/, preparar
-   el despliegue en Elastic Beanstalk o gestionar secretos.
+   el despliegue en Azure App Service o gestionar secretos.
    Debe: leer docs/CI_CD.md como fuente de verdad del pipeline, seguir
    12-factor (config por variables de entorno), no incluir secretos en
    imágenes ni en el código, optimizar el tamaño de las imágenes con

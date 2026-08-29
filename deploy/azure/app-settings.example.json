@@ -1,0 +1,52 @@
+[
+  {
+    "name": "DATABASE_URL",
+    "value": "@Microsoft.KeyVault(SecretUri=https://REEMPLAZAR_KEYVAULT.vault.azure.net/secrets/database-url/)",
+    "slotSetting": true
+  },
+  {
+    "name": "REDIS_URL",
+    "value": "@Microsoft.KeyVault(SecretUri=https://REEMPLAZAR_KEYVAULT.vault.azure.net/secrets/redis-url/)",
+    "slotSetting": true
+  },
+  {
+    "name": "JWT_SECRET",
+    "value": "@Microsoft.KeyVault(SecretUri=https://REEMPLAZAR_KEYVAULT.vault.azure.net/secrets/jwt-secret/)",
+    "slotSetting": true
+  },
+  {
+    "name": "CORS_ALLOWED_ORIGINS",
+    "value": "https://REEMPLAZAR_FRONTDOOR.azurefd.net",
+    "slotSetting": true
+  },
+  {
+    "name": "ENVIRONMENT",
+    "value": "REEMPLAZAR_AMBIENTE",
+    "slotSetting": true
+  },
+  {
+    "name": "DOCS_ENABLED",
+    "value": "false",
+    "slotSetting": true
+  },
+  {
+    "name": "LOG_LEVEL",
+    "value": "INFO",
+    "slotSetting": false
+  },
+  {
+    "name": "DB_POOL_SIZE",
+    "value": "10",
+    "slotSetting": false
+  },
+  {
+    "name": "DB_MAX_OVERFLOW",
+    "value": "20",
+    "slotSetting": false
+  },
+  {
+    "name": "WEBSITES_PORT",
+    "value": "8000",
+    "slotSetting": false
+  }
+]

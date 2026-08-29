@@ -21,7 +21,7 @@ def test_health_when_service_is_running_returns_200(client: TestClient) -> None:
 
 @pytest.mark.e2e
 def test_health_when_service_is_running_reports_status_ok(client: TestClient) -> None:
-    """El cuerpo reporta `status: ok`, el literal que verifica el health check del ALB."""
+    """El cuerpo reporta `status: ok`, el literal que verifica el health check del gateway."""
     response = client.get("/health")
 
     assert response.json()["status"] == "ok"

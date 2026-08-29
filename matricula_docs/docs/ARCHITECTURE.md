@@ -7,7 +7,7 @@ Este documento describe la arquitectura del backend del Sistema de Matrícula Ac
 Se adopta **Arquitectura Hexagonal** (también conocida como Ports & Adapters o Clean Architecture) porque es la que mejor se ajusta a los objetivos del proyecto:
 
 - **Separar el núcleo del negocio de la infraestructura.** La lógica de matrícula (validar prerrequisitos, descontar cupos, verificar horarios) no debe depender de PostgreSQL, Redis ni FastAPI. Debe poder ejecutarse y probarse sin ellos.
-- **Facilitar cambios de infraestructura sin tocar el dominio.** Si mañana se cambia PostgreSQL por otra base de datos, o Cognito por otro proveedor de auth, el núcleo del software no cambia.
+- **Facilitar cambios de infraestructura sin tocar el dominio.** Si mañana se cambia PostgreSQL por otra base de datos, o Microsoft Entra External ID por otro proveedor de auth, el núcleo del software no cambia.
 - **Habilitar testing rápido y confiable.** Los tests del dominio corren en milisegundos sin base de datos ni red.
 - **Reflejar SOLID de forma natural.** El patrón obliga a usar inversión de dependencias y separación de responsabilidades.
 
@@ -35,7 +35,7 @@ Se adopta **Arquitectura Hexagonal** (también conocida como Ports & Adapters o 
                               │
 ┌─────────────────────────────────────────────────────────────┐
 │                    INFRASTRUCTURE                            │
-│  (Adaptadores de salida: SQLAlchemy, Redis, Cognito, SMTP)  │
+│  (Adaptadores de salida: SQLAlchemy, Redis, Entra ID, SMTP)  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -47,7 +47,7 @@ Se adopta **Arquitectura Hexagonal** (también conocida como Ports & Adapters o 
 |---|---|---|
 | **Domain** | Entidades, value objects, reglas de negocio, excepciones de dominio | ORMs, HTTP, DBs, frameworks |
 | **Application** | Casos de uso, puertos (interfaces), DTOs | Implementaciones concretas de infraestructura |
-| **Infrastructure** | Adaptadores concretos: SQLAlchemy, Redis, Cognito, S3 | Lógica de negocio |
+| **Infrastructure** | Adaptadores concretos: SQLAlchemy, Redis, Microsoft Entra External ID, Azure Storage | Lógica de negocio |
 | **Interfaces** | Routers FastAPI, schemas Pydantic, CLI | Lógica de negocio, acceso directo a DB |
 
 ## 2. Estructura de carpetas del backend

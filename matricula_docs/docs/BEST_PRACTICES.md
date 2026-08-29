@@ -248,7 +248,7 @@ Cuando se abre uno:
 
 - **Nunca se comitean credenciales**, tokens ni llaves. `.gitignore` cubre `.env`, `*.key`, `*.pem`.
 - **Variables de entorno** para toda configuración sensible (12-factor).
-- **AWS Secrets Manager** en producción para credenciales de DB, Redis, etc.
+- **Azure Key Vault** en producción para credenciales de DB, Redis, etc.
 
 ### Logs
 

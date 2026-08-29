@@ -14,7 +14,9 @@ from fastapi.testclient import TestClient
 
 @pytest.mark.integration
 def test_el_liveness_no_toca_las_dependencias(client: TestClient) -> None:
-    """El ALB mira esta ruta: si dependiera de RDS, una caída de RDS retiraría instancias sanas."""
+    """El Application Gateway mira esta ruta: si dependiera de PostgreSQL, una caída retiraría
+    instancias sanas.
+    """
     respuesta = client.get("/health")
 
     assert respuesta.status_code == 200, respuesta.text
@@ -47,20 +49,37 @@ def test_cada_respuesta_lleva_su_identificador_de_peticion(client: TestClient) -
 
 
 @pytest.mark.integration
-def test_el_identificador_de_peticion_reutiliza_la_traza_del_balanceador(
-    client: TestClient,
+@pytest.mark.parametrize("cabecera", ["X-Azure-Ref", "traceparent"])
+def test_el_identificador_de_peticion_reutiliza_la_traza_del_borde(
+    client: TestClient, cabecera: str
 ) -> None:
-    """Así la línea de la aplicación y la del ALB hablan del mismo viaje."""
-    traza = "Root=1-5e1b4151-5ac6c58f5b0f5b0f5b0f5b0f"
+    """Así la línea de la aplicación y la de Front Door hablan del mismo viaje."""
+    traza = "20240301T101010Z-r1abc2de3f4g5h6i-BOG"
 
-    respuesta = client.get("/health", headers={"X-Amzn-Trace-Id": traza})
+    respuesta = client.get("/health", headers={cabecera: traza})
 
     assert respuesta.headers["X-Request-ID"] == traza
 
 
 @pytest.mark.integration
+def test_x_azure_ref_gana_a_traceparent(client: TestClient) -> None:
+    """El identificador se toma de FUERA hacia dentro.
+
+    Front Door toca la petición antes que nadie y es el único valor que aparece en sus
+    registros: si ganara `traceparent`, buscar allí por el identificador que reportó el
+    estudiante no encontraría nada.
+    """
+    respuesta = client.get(
+        "/health",
+        headers={"X-Azure-Ref": "el-del-borde", "traceparent": "el-de-dentro"},
+    )
+
+    assert respuesta.headers["X-Request-ID"] == "el-del-borde"
+
+
+@pytest.mark.integration
 def test_la_api_autoriza_al_origen_declarado(client: TestClient) -> None:
-    """En la nube el frontend vive en CloudFront, otro dominio: sin esto el navegador bloquea."""
+    """En la nube el frontend vive en Front Door, otro dominio: sin esto el navegador bloquea."""
     respuesta = client.get("/health", headers={"Origin": "http://localhost:5173"})
 
     assert respuesta.headers.get("access-control-allow-origin") == "http://localhost:5173"

@@ -2,20 +2,21 @@
 
 Se registran en la raíz, fuera de `API_V1_PREFIX`, porque no forman parte del contrato de
 negocio versionado: los consumen el `HEALTHCHECK` de Docker y el health check del balanceador
-(ALB) de Elastic Beanstalk, que apuntan a una ruta fija e independiente de la versión de la API.
+(Application Gateway) de Azure App Service, que apuntan a una ruta fija e independiente de la
+versión de la API.
 
 **Son dos rutas y la distinción importa en la nube.**
 
-- `/health` (*liveness*) responde si el proceso está vivo. Es la que debe mirar el ALB para
-  decidir si retira una instancia del balanceo.
+- `/health` (*liveness*) responde si el proceso está vivo. Es la que debe mirar el Application
+  Gateway para decidir si retira una instancia del balanceo.
 - `/health/ready` (*readiness*) comprueba además que PostgreSQL y Redis respondan. Es la que se
   consulta después de un despliegue, a mano o desde el pipeline, para saber si la instancia
   quedó bien configurada.
 
-Poner las dependencias en `/health` sería un error caro: una caída momentánea de RDS haría que
-el ALB retirase instancias que están perfectamente sanas, el autoescalado las reemplazaría por
-otras que fallarían igual, y una incidencia de base de datos se convertiría en una caída total
-del servicio.
+Poner las dependencias en `/health` sería un error caro: una caída momentánea de PostgreSQL haría
+que el Application Gateway retirase instancias que están perfectamente sanas, el autoescalado las
+reemplazaría por otras que fallarían igual, y una incidencia de base de datos se convertiría en una
+caída total del servicio.
 """
 
 from typing import Annotated
@@ -63,9 +64,10 @@ async def get_readiness(response: Response) -> dict[str, object]:
     """Comprueba que la instancia puede hacer su trabajo, no solo que arrancó.
 
     Responde `200` si PostgreSQL y Redis contestan, y `503` si alguno falla, indicando cuál.
-    Es lo que convierte un despliegue mal configurado —una `DATABASE_URL` apuntando al RDS
-    equivocado, un grupo de seguridad que no deja salir a ElastiCache— en un error inmediato y
-    con nombre, en vez de en un 500 que aparece cuando el primer estudiante intenta matricular.
+    Es lo que convierte un despliegue mal configurado —una `DATABASE_URL` apuntando al PostgreSQL
+    Flexible Server equivocado, un grupo de seguridad que no deja salir a Azure Cache for Redis— en
+    un error inmediato y con nombre, en vez de en un 500 que aparece cuando el primer estudiante
+    intenta matricular.
 
     Redis se reporta aparte y **no** hace fallar la comprobación: la aplicación degrada a
     PostgreSQL cuando la caché no está, así que una instancia sin Redis sirve peticiones

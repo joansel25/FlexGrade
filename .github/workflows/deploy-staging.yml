@@ -6,18 +6,18 @@
 # despliegue corre la SUITE E2E COMPLETA contra staging: es la puerta que decide
 # si el release es apto para produccion.
 #
-# ESTADO ACTUAL (Fase 0): los ambientes de AWS todavia NO estan aprovisionados.
-# Los pasos que tocan AWS estan comentados con un TODO; la estructura del
+# ESTADO ACTUAL (Fase 0): los ambientes de Azure todavia NO estan aprovisionados.
+# Los pasos que tocan Azure estan comentados con un TODO; la estructura del
 # workflow si esta escrita y es YAML valido.
 #
 # SECRETOS QUE NECESITA (Settings -> Secrets and variables -> Actions):
-#   - AWS_ACCESS_KEY_ID ....... credencial del usuario IAM del pipeline
-#   - AWS_SECRET_ACCESS_KEY ... contraparte de la anterior
-#   - ECR_REPOSITORY .......... URL del repositorio privado de imagenes
+#   - AZURE_CREDENTIALS ....... JSON de la entidad de servicio de Entra ID con
+#                               rol Contributor sobre el grupo de recursos
+#   - ACR_LOGIN_SERVER ........ p. ej. `matricula.azurecr.io`
 #   - SLACK_WEBHOOK_URL ....... opcional, solo para el paso de notificacion
 #
-# SECRETOS QUE **NO** VAN AQUI (AWS Secrets Manager, inyectados por Elastic
-# Beanstalk como variables de entorno, CI_CD.md seccion 7):
+# SECRETOS QUE **NO** VAN AQUI (viven en Azure Key Vault y los resuelve el App
+# Service con su identidad administrada, CI_CD.md seccion 7):
 #   - DATABASE_URL_STAGING, JWT_SECRET_KEY, REDIS_URL
 # ---------------------------------------------------------------------------
 
@@ -39,9 +39,9 @@ permissions:
   contents: read
 
 env:
-  AWS_REGION: us-east-1
-  EB_APPLICATION: matricula
-  EB_ENVIRONMENT: matricula-staging
+  AZURE_LOCATION: eastus
+  AZURE_RESOURCE_GROUP: matricula
+  AZURE_WEBAPP_NAME: matricula-staging
   IMAGE_TAG: staging-${{ github.sha }}
   STAGING_URL: https://staging.matricula.example.com
 
@@ -56,7 +56,7 @@ jobs:
     # en `pull-requests: none`: la corrida fallaba al arrancar, sin llegar a crear ningun job.
     #
     # Se concede aqui, en el job que hace la llamada, y NO a nivel de workflow: asi los pasos
-    # de despliegue —que son los que tocan AWS— siguen sin poder escribir en pull requests.
+    # de despliegue —que son los que tocan Azure— siguen sin poder escribir en pull requests.
     permissions:
       contents: read
       pull-requests: write
@@ -70,31 +70,28 @@ jobs:
 
       - name: Estado del ambiente
         run: |
-          echo "::warning title=Despliegue no ejecutado::Los ambientes de AWS aun no estan aprovisionados (Fase 0). Los pasos de ECR, Alembic y Elastic Beanstalk estan comentados en .github/workflows/deploy-staging.yml. El CI si se ejecuto y esta verde."
+          echo "::warning title=Despliegue no ejecutado::Los ambientes de Azure aun no estan aprovisionados (Fase 0). Los pasos de ACR, Alembic y App Service estan comentados en .github/workflows/deploy-staging.yml. El CI si se ejecuto y esta verde."
           echo "Imagen que se construiria: ${IMAGE_TAG}"
-          echo "Ambiente destino: ${EB_ENVIRONMENT} (${AWS_REGION})"
+          echo "Ambiente destino: ${AZURE_WEBAPP_NAME} (${AZURE_LOCATION})"
 
       # ---------------------------------------------------------------------
       # TODO(devops): descomentar cuando exista el ambiente `matricula-staging`
-      # y esten cargados los secretos de AWS.
+      # y esten cargados los secretos de Azure.
       # ---------------------------------------------------------------------
       #
-      # - name: Configurar credenciales de AWS
-      #   uses: aws-actions/configure-aws-credentials@v4
+      # - name: Autenticarse en Azure
+      #   uses: azure/login@v2
       #   with:
-      #     aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      #     aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      #     aws-region: ${{ env.AWS_REGION }}
+      #     creds: ${{ secrets.AZURE_CREDENTIALS }}
       #
-      # - name: Autenticarse en Amazon ECR
-      #   id: ecr
-      #   uses: aws-actions/amazon-ecr-login@v2
+      # - name: Autenticarse en Azure Container Registry
+      #   run: az acr login --name "${{ secrets.ACR_LOGIN_SERVER }}"
       #
       # - name: Construir la imagen
-      #   run: docker build --tag "${{ secrets.ECR_REPOSITORY }}:${IMAGE_TAG}" ./backend
+      #   run: docker build --tag "${{ secrets.ACR_LOGIN_SERVER }}/matricula-backend:${IMAGE_TAG}" ./backend
       #
-      # - name: Publicar la imagen en ECR
-      #   run: docker push "${{ secrets.ECR_REPOSITORY }}:${IMAGE_TAG}"
+      # - name: Publicar la imagen en ACR
+      #   run: docker push "${{ secrets.ACR_LOGIN_SERVER }}/matricula-backend:${IMAGE_TAG}"
       #
       # # Migraciones antes del deploy de la aplicacion (CI_CD.md seccion 6).
       # - name: Ejecutar migraciones de Alembic contra STAGING
@@ -106,29 +103,20 @@ jobs:
       #     alembic upgrade head
       #
       #
-      # # Artefacto que lee Elastic Beanstalk: le dice QUE imagen bajarse de ECR y en que
-      # # puerto escucha. Sin este archivo, EB no sabria que desplegar (la imagen ya esta
-      # # construida y publicada; EB no la construye). La plantilla vive en deploy/aws/.
-      # - name: Preparar el Dockerrun.aws.json
-      #   env:
-      #     ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
-      #   run: |
-      #     sed -e "s|REEMPLAZAR_ECR_REPOSITORY|${ECR_REPOSITORY}|" \
-      #         -e "s|REEMPLAZAR_IMAGE_TAG|${IMAGE_TAG}|" \
-      #         deploy/aws/Dockerrun.aws.json > Dockerrun.aws.json
-      #     cat Dockerrun.aws.json
-      #     # `eb deploy` empaqueta lo que Git conoce; el archivo recien generado no lo esta.
-      #     # Se agrega al indice y se despliega con --staged, sin crear ningun commit.
-      #     git add --force Dockerrun.aws.json
-      # - name: Desplegar en Elastic Beanstalk
-      #   run: |
-      #     pip install --quiet awsebcli==3.20.10
-      #     eb init "${EB_APPLICATION}" --region "${AWS_REGION}" --platform docker
-      #     eb deploy --staged "${EB_ENVIRONMENT}" --label "${IMAGE_TAG}" --timeout 20
+      # # App Service no construye la imagen: se le dice CUAL descargar de ACR, asi que no
+      # # hay ningun artefacto de despliegue que empaquetar aqui. Las opciones de aplicacion
+      # # —incluida WEBSITES_PORT=8000, sin la cual App Service busca a uvicorn en el 80 y
+      # # marca el sitio como caido— se cargan una sola vez desde deploy/azure/.
+      # - name: Desplegar en Azure App Service
+      #   uses: azure/webapps-deploy@v3
+      #   with:
+      #     app-name: ${{ env.AZURE_WEBAPP_NAME }}
+      #     images: "${{ secrets.ACR_LOGIN_SERVER }}/matricula-backend:${{ env.IMAGE_TAG }}"
       #
       # # `/health` confirma que el proceso responde; `/health/ready` confirma que ademas
-      # # alcanza a RDS y a ElastiCache, que es lo que falla cuando el ambiente quedo mal
-      # # configurado (endpoint equivocado, grupo de seguridad que no deja salir).
+      # # alcanza a PostgreSQL y a Azure Cache for Redis, que es lo que falla cuando el
+      # # ambiente quedo mal configurado (endpoint equivocado, NSG cerrado, la referencia
+      # # al Key Vault sin resolver porque falta la identidad administrada).
       # - name: Smoke tests contra STAGING
       #   run: |
       #     curl --fail --silent --show-error --max-time 10 "${STAGING_URL}/health"

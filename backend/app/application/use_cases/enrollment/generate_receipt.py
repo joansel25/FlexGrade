@@ -26,8 +26,8 @@ class GenerateReceiptUseCase:
 
     El documento se genera al vuelo, en cada petición, y no se guarda en ningún sitio. Durante
     la ventana de matrícula el contenido cambia con cada inscripción, así que un archivo
-    almacenado quedaría obsoleto de inmediato; y guardarlo en S3 obligaría a invalidarlo en
-    cada operación para un documento que se descarga una o dos veces por semestre.
+    almacenado quedaría obsoleto de inmediato; y guardarlo en Azure Storage obligaría a invalidarlo
+    en cada operación para un documento que se descarga una o dos veces por semestre.
     """
 
     def __init__(

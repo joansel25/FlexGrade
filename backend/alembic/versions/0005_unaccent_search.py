@@ -9,7 +9,7 @@ mayoria de los nombres de materia llevan tilde y casi nadie las escribe al busca
 del catalogo devolveria cero resultados justo en las materias mas buscadas.
 
 `unaccent` viene en el paquete `postgresql-contrib`, que la imagen oficial `postgres:16` ya
-incluye, y esta disponible en Amazon RDS.
+incluye, y esta disponible en Azure Database for PostgreSQL.
 
 NOTA SOBRE INDICES: `unaccent()` se declara STABLE y no IMMUTABLE, asi que no puede usarse
 directamente en un indice de expresion. A la escala del catalogo —15 materias hoy, algunos

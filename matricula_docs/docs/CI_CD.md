@@ -117,9 +117,9 @@ Se dispara automáticamente en cada push a `develop`.
 
 1. Correr todo el `ci.yml` primero.
 2. Construir la imagen Docker con tag `dev-<commit_sha>`.
-3. Subir la imagen al **Amazon ECR** (repositorio privado).
+3. Subir la imagen al **Azure Container Registry** (repositorio privado).
 4. Ejecutar migraciones de Alembic contra la base de datos de DEV.
-5. Desplegar en **Elastic Beanstalk** ambiente `matricula-dev`.
+5. Desplegar en **Azure App Service** ambiente `matricula-dev`.
 6. Ejecutar smoke tests (health check + endpoints básicos).
 7. Notificar el resultado a Slack o email.
 
@@ -138,7 +138,7 @@ Se dispara **manualmente** desde la interfaz de GitHub Actions (`workflow_dispat
 1. Que el commit ya esté desplegado en staging y haya pasado los E2E.
 2. **Aprobación manual** de un revisor autorizado (GitHub Environments).
 3. Ejecutar migraciones en producción con `--sql` primero (dry-run) para revisión.
-4. Desplegar con **estrategia rolling** (Elastic Beanstalk actualiza instancias por lotes).
+4. Desplegar en la **ranura de staging** del App Service e **intercambiarla** con producción: el intercambio precalienta la ranura, así que ninguna petición cae en un proceso arrancando.
 5. Health checks post-despliegue.
 6. Registrar el release en un tag `v<version>` de Git.
 
@@ -146,7 +146,7 @@ Se dispara **manualmente** desde la interfaz de GitHub Actions (`workflow_dispat
 
 Workflow manual para emergencias. Recibe como input la versión previa (tag Git o SHA) y:
 
-1. Redespliega esa versión en Elastic Beanstalk.
+1. Redespliega esa versión en Azure App Service.
 2. Advierte si hay migraciones de BD que requieran rollback manual (Alembic no las revierte automáticamente en la mayoría de los casos).
 3. Notifica el rollback ejecutado.
 
@@ -174,7 +174,7 @@ Workflow manual para emergencias. Recibe como input la versión previa (tag Git 
                │
                ▼
     ┌──────────────────────┐
-    │   deploy-dev.yml     │  → Ambiente DEV en AWS
+    │   deploy-dev.yml     │  → Ambiente DEV en Azure
     └──────────┬───────────┘
                │  (validado por el equipo)
                ▼
@@ -211,18 +211,18 @@ Las migraciones son la parte más delicada del CI/CD porque tocan datos reales. 
 
 **Nunca se comitean secretos.** El pipeline los obtiene de:
 
-- **GitHub Secrets** para credenciales necesarias durante el pipeline (AWS keys, Slack webhooks, tokens de Docker registry). Se configuran en `Settings → Secrets and variables → Actions`.
-- **AWS Secrets Manager** para credenciales que consume la aplicación en runtime (DB password, JWT secret). Elastic Beanstalk las expone como variables de entorno.
+- **GitHub Secrets** para credenciales necesarias durante el pipeline (Azure keys, Slack webhooks, tokens de Docker registry). Se configuran en `Settings → Secrets and variables → Actions`.
+- **Azure Key Vault** para credenciales que consume la aplicación en runtime (DB password, JWT secret). Azure App Service las expone como variables de entorno.
 
 Secretos que existen:
 
 | Nombre | Dónde vive | Propósito |
 |---|---|---|
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | GitHub Secrets | Autenticar el pipeline contra AWS |
-| `ECR_REPOSITORY` | GitHub Secrets | URL del registro de imágenes |
-| `DATABASE_URL_DEV/STAGING/PROD` | AWS Secrets Manager | Conexión a RDS por ambiente |
-| `JWT_SECRET_KEY` | AWS Secrets Manager | Firma de tokens |
-| `REDIS_URL` | AWS Secrets Manager | Conexión a ElastiCache |
+| `AZURE_CREDENTIALS` | GitHub Secrets | Autenticar el pipeline contra Azure |
+| `ACR_LOGIN_SERVER` | GitHub Secrets | URL del registro de imágenes |
+| `DATABASE_URL_DEV/STAGING/PROD` | Azure Key Vault | Conexión a PostgreSQL Flexible Server por ambiente |
+| `JWT_SECRET_KEY` | Azure Key Vault | Firma de tokens |
+| `REDIS_URL` | Azure Key Vault | Conexión a Azure Cache for Redis |
 
 ## 8. Escaneos de seguridad automáticos
 
@@ -252,9 +252,11 @@ GitHub Actions es gratuito hasta 2.000 minutos/mes en repositorios privados con 
 
 Los costos que sí aparecen:
 
-- **ECR**: almacenamiento de imágenes Docker (unos pocos centavos al mes por imagen retenida).
-- **Elastic Beanstalk**: no cobra por el servicio, pero sí por las EC2 y el ALB subyacentes.
-- **RDS**: la instancia de DEV puede ser `db.t4g.micro` (nivel gratuito el primer año).
+- **ACR**: almacenamiento de imágenes Docker (unos pocos centavos al mes por imagen retenida).
+- **Azure App Service**: el plan B1 (1 vCPU, 1,75 GB) se paga por hora mientras exista, más el
+  Application Gateway por delante.
+- **PostgreSQL Flexible Server**: la instancia de DEV puede ser B1ms, cubierta por los créditos
+  de Azure for Students durante el proyecto.
 
 ## 11. Local vs CI: comandos equivalentes
 
@@ -283,24 +285,27 @@ El `Makefile` en la raíz del repo unifica estos comandos para evitar recordar l
 - El proceso de desarrollo iterativo que alimenta el pipeline está en `docs/DEVELOPMENT_WORKFLOW.md`.
 - El subagente responsable de mantener este pipeline es `@devops-engineer`, definido en `docs/CLAUDE_CODE_AGENTS.md`.
 
-## 13. Lo que el backend espera encontrar en AWS
+## 13. Lo que el backend espera encontrar en Azure
 
-El repositorio no aprovisiona infraestructura, pero sí trae lo que Elastic Beanstalk necesita
+El repositorio no aprovisiona infraestructura, pero sí trae lo que Azure App Service necesita
 para arrancar la imagen y la lista de comprobaciones para verificar que quedó bien:
-**`deploy/aws/`**.
+**`deploy/azure/`**.
 
-- `deploy/aws/Dockerrun.aws.json` — el archivo que lee Elastic Beanstalk para saber qué imagen
-  descargar de ECR y en qué puerto escucha (contenedor 8000, host 80). Sus dos marcadores en
-  mayúsculas los sustituye el pipeline con `ECR_REPOSITORY` e `IMAGE_TAG`.
-- `deploy/aws/README.md` — variables de entorno por ambiente, qué ruta debe usar el health check
-  del balanceador y por qué, la cuenta de conexiones contra RDS, los grupos de seguridad y las
-  consultas de CloudWatch Logs Insights.
+- `deploy/azure/app-settings.example.json` — la plantilla de las opciones de aplicación del
+  App Service. Los valores sensibles no se escriben ahí: son referencias
+  `@Microsoft.KeyVault(SecretUri=...)` que App Service resuelve al arrancar con la identidad
+  administrada. Incluye `WEBSITES_PORT=8000`, sin la cual App Service busca a uvicorn en el 80
+  y marca el sitio como caído.
+- `deploy/azure/README.md` — variables de entorno por ambiente, qué ruta debe usar el health check
+  del Application Gateway y por qué, las ranuras de despliegue, la cuenta de conexiones contra
+  PostgreSQL Flexible Server, los grupos de seguridad de red y las consultas KQL de Log
+  Analytics.
 
 Dos reglas de esa carpeta que conviene no olvidar aquí:
 
-- El health check del ALB apunta a **`/health`**, nunca a `/health/ready`. El segundo comprueba
-  PostgreSQL y Redis, y usarlo en el balanceador convertiría una caída momentánea de RDS en la
-  retirada de instancias sanas.
+- El health check del Application Gateway apunta a **`/health`**, nunca a `/health/ready`. El
+  segundo comprueba PostgreSQL y Redis, y usarlo ahí convertiría una caída momentánea de la base
+  de datos en la retirada de instancias sanas.
 - El contenedor **no** ejecuta migraciones al arrancar. Alembic corre como paso del pipeline,
   una vez por despliegue: si lo hiciera el contenedor, cinco instancias arrancando a la vez
   lanzarían cinco migraciones simultáneas sobre la misma base.

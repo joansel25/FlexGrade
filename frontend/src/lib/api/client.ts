@@ -23,7 +23,7 @@ const API_LOCAL_POR_DEFECTO = "http://localhost:8000";
 /**
  * URL base de la API, fijada en tiempo de build.
  *
- * El frontend compilado son archivos estáticos en CloudFront: no hay proceso donde leer una
+ * El frontend compilado son archivos estáticos en Azure Storage: no hay proceso donde leer una
  * variable de entorno al arrancar, así que Vite la incrusta al construir. Cada ambiente se
  * construye con su propio valor.
  *

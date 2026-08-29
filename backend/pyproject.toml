@@ -33,7 +33,7 @@ dependencies = [
     # Comprobante de matricula en PDF (Fase 5). Se elige reportlab y no una conversion
     # desde HTML (weasyprint, wkhtmltopdf) porque esas exigen librerias del sistema
     # —cairo, pango, un navegador— que engordarian la imagen y habria que mantener en
-    # Elastic Beanstalk. reportlab es Python puro: se instala con pip y ya esta.
+    # Azure App Service. reportlab es Python puro: se instala con pip y ya esta.
     "reportlab==4.2.5",
 ]
 

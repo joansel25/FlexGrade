@@ -1,9 +1,9 @@
 """Configuración del logging de la aplicación.
 
-**Por qué JSON y por qué a stdout.** En Elastic Beanstalk nadie entra a la máquina a leer un
-archivo: el contenedor escribe a stdout, el agente lo recoge y lo entrega a CloudWatch Logs. Si
-las líneas son texto libre, CloudWatch guarda cadenas y buscar «todos los 500 del endpoint de
-inscripción» obliga a inventar expresiones regulares sobre el mensaje. Si son JSON, CloudWatch
+**Por qué JSON y por qué a stdout.** En Azure App Service nadie entra a la máquina a leer un
+archivo: el contenedor escribe a stdout, el agente lo recoge y lo entrega a Log Analytics. Si
+las líneas son texto libre, Azure Monitor guarda cadenas y buscar «todos los 500 del endpoint de
+inscripción» obliga a inventar expresiones regulares sobre el mensaje. Si son JSON, Azure Monitor
 Logs Insights consulta por campo:
 
     fields @timestamp, path, status_code, duration_ms
@@ -35,7 +35,7 @@ _ATRIBUTOS_ESTANDAR = frozenset(logging.LogRecord("", 0, "", 0, "", None, None).
 class FormateadorJSON(logging.Formatter):
     """Formatea cada registro como una línea JSON.
 
-    Una línea por evento, sin saltos de línea dentro: CloudWatch trocea por línea, así que un
+    Una línea por evento, sin saltos de línea dentro: Azure Monitor trocea por línea, así que un
     JSON indentado se rompería en fragmentos que ya no son JSON válido.
     """
 

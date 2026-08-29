@@ -110,9 +110,10 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
 
 # `--proxy-headers` hace que uvicorn lea `X-Forwarded-For` y `X-Forwarded-Proto`, que pone el
 # balanceador. Sin ellas, la aplicacion cree que TODAS las peticiones vienen de la IP interna
-# del ALB: los registros pierden la IP real del estudiante y cualquier limite por IP quedaria
-# aplicado al balanceador, es decir, a todo el mundo a la vez.
+# del Application Gateway: los registros pierden la IP real del estudiante y cualquier limite
+# por IP quedaria aplicado al balanceador, es decir, a todo el mundo a la vez.
 #
 # `--forwarded-allow-ips=*` es seguro AQUI y solo aqui: el contenedor corre en una subred
-# privada y unicamente el ALB puede alcanzarlo, asi que nadie mas puede falsear esas cabeceras.
+# privada y unicamente el Application Gateway puede alcanzarlo, asi que nadie mas puede
+# falsear esas cabeceras.
 CMD ["uvicorn", "app.interfaces.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]

@@ -6,6 +6,6 @@ usando `JWT_EXPIRATION_SECONDS` para el token de acceso y `JWT_REFRESH_EXPIRATIO
 el de refresco.
 
 El secreto se lee de la configuración, jamás se escribe en el código. Si en producción la
-autenticación migra a Cognito, se añade otro adaptador que implemente el mismo puerto y ningún
-caso de uso cambia.
+autenticación migra a Microsoft Entra External ID, se añade otro adaptador que implemente el mismo
+puerto y ningún caso de uso cambia.
 """

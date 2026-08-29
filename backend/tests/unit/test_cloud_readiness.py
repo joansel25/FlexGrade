@@ -1,4 +1,4 @@
-"""Pruebas de la configuración que hace desplegable el backend en AWS.
+"""Pruebas de la configuración que hace desplegable el backend en Azure.
 
 Todo lo que se comprueba aquí falla, si falla, en el peor momento posible: durante un
 despliegue o en pleno pico de matrícula, cuando ya no hay nadie mirando el código. Son
@@ -29,14 +29,14 @@ _MINIMOS = {
 
 @pytest.mark.unit
 def test_los_origenes_cors_se_leen_de_una_cadena_separada_por_comas() -> None:
-    """Una variable de entorno no puede ser una lista; Elastic Beanstalk solo pasa cadenas."""
+    """Una variable de entorno no puede ser una lista; Azure App Service solo pasa cadenas."""
     settings = Settings(
         **_MINIMOS,
-        cors_allowed_origins="https://d123.cloudfront.net, http://localhost:5173",
+        cors_allowed_origins="https://d123.azurefd.net, http://localhost:5173",
     )
 
     assert settings.cors_allowed_origins == [
-        "https://d123.cloudfront.net",
+        "https://d123.azurefd.net",
         "http://localhost:5173",
     ]
 
@@ -53,7 +53,7 @@ def test_una_lista_de_origenes_vacia_no_autoriza_a_nadie() -> None:
 
 @pytest.mark.unit
 def test_el_tamano_del_pool_es_configurable() -> None:
-    """El límite lo pone `max_connections` de RDS, repartido entre todas las instancias."""
+    """El límite lo pone `max_connections` del servidor, repartido entre todas las instancias."""
     settings = Settings(**_MINIMOS, db_pool_size=5, db_max_overflow=5)
 
     assert (settings.db_pool_size, settings.db_max_overflow) == (5, 5)
@@ -72,7 +72,7 @@ def test_la_documentacion_interactiva_se_puede_apagar() -> None:
 
 @pytest.mark.unit
 def test_cada_registro_es_una_linea_json_con_sus_campos() -> None:
-    """CloudWatch trocea por línea: un JSON multilínea llegaría partido y sería inservible."""
+    """Azure Monitor trocea por línea: un JSON multilínea llegaría partido y sería inservible."""
     registro = logging.LogRecord(
         name="app.request",
         level=logging.INFO,

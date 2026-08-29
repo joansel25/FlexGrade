@@ -4,7 +4,7 @@ Aplicación web escalable para la inscripción de materias en instituciones de e
 
 ## Contexto del proyecto
 
-Este es el desarrollo del software para el proyecto de la asignatura de **Computación en la Nube**. La arquitectura de despliegue en la nube (AWS, modelo PaaS, VPC Multi-AZ) ya está definida en los documentos de la Fase I. Este repositorio contiene la aplicación que se ejecutará sobre esa infraestructura.
+Este es el desarrollo del software para el proyecto de la asignatura de **Computación en la Nube**. La arquitectura de despliegue en la nube (Azure, modelo PaaS, VNet con alta disponibilidad zonal) ya está definida en los documentos de la Fase I. Este repositorio contiene la aplicación que se ejecutará sobre esa infraestructura.
 
 ## Problema que resuelve
 
@@ -36,7 +36,7 @@ Este software aborda tres puntos críticos:
 
 **Infraestructura (para despliegue)**
 - Docker y Docker Compose (desarrollo local)
-- AWS Elastic Beanstalk (backend), S3 + CloudFront (frontend), RDS PostgreSQL Multi-AZ, ElastiCache Redis, Cognito (autenticación)
+- Azure App Service (backend), Azure Storage + Front Door (frontend), Azure Database for PostgreSQL Flexible Server, Azure Cache for Redis, Microsoft Entra External ID (autenticación)
 
 ## Estructura del repositorio
 

@@ -90,7 +90,7 @@ settings = get_settings()
 
 # Antes de construir la aplicación: uvicorn instala sus manejadores al arrancar y hay que
 # reemplazarlos, no sumarse a ellos. En la nube el formato es JSON porque quien lee estas
-# líneas es CloudWatch Logs Insights, no una persona con la terminal abierta.
+# líneas es Log Analytics, no una persona con la terminal abierta.
 configurar_logging(level=settings.log_level, json_format=settings.environment != "dev")
 
 app = FastAPI(
@@ -111,7 +111,7 @@ app = FastAPI(
 # ---------------------------------------------------------------------------
 
 # CORS. En local el frontend y la API comparten `localhost`; en la nube NO: el frontend se
-# sirve desde CloudFront y la API desde el balanceador, que son dominios distintos. Sin esta
+# sirve desde Azure Front Door y la API desde el balanceador, que son dominios distintos. Sin esta
 # lista el navegador bloquea cada llamada del estudiante y la API parece caída aunque responda.
 #
 # Se declaran los orígenes exactos, nunca `*`: con `allow_credentials=True` el comodín ni
@@ -131,7 +131,7 @@ if settings.cors_allowed_origins:
 app.add_middleware(RequestLoggingMiddleware)
 
 # `/health` va en la raíz, fuera de `settings.api_v1_prefix`: lo consumen Docker
-# y el ALB, no los clientes de la API.
+# y el Application Gateway, no los clientes de la API.
 app.include_router(health.router)
 
 # Los routers de negocio sí se versionan.

@@ -6,7 +6,7 @@ Este archivo es la memoria persistente del proyecto para Claude Code. Lee esto s
 
 **Sistema de Matrícula y Gestión Académica**: aplicación web escalable para la inscripción de materias en instituciones de educación superior, diseñada para soportar picos de hasta 5.000 estudiantes concurrentes durante las ventanas de matrícula.
 
-Es el desarrollo de software para el proyecto de la asignatura de **Computación en la Nube**. La arquitectura de despliegue en la nube (AWS, modelo PaaS, VPC Multi-AZ) ya está definida en los documentos de la Fase I.
+Es el desarrollo de software para el proyecto de la asignatura de **Computación en la Nube**. La arquitectura de despliegue en la nube (Azure, modelo PaaS, VNet con alta disponibilidad zonal) ya está definida en los documentos de la Fase I.
 
 ## Stack tecnológico
 
@@ -26,7 +26,7 @@ Es el desarrollo de software para el proyecto de la asignatura de **Computación
 
 **Infraestructura**
 - Docker + Docker Compose (dev local)
-- AWS Elastic Beanstalk + RDS PostgreSQL Multi-AZ + ElastiCache Redis + S3/CloudFront + Cognito (producción)
+- Azure App Service + Azure Database for PostgreSQL Flexible Server + Azure Cache for Redis + Azure Storage + Front Door + Microsoft Entra External ID (producción)
 
 ## Arquitectura
 
@@ -79,7 +79,7 @@ Usa `@nombre-agente` para invocarlos:
 - `@api-developer` — routers FastAPI, schemas, dependencias.
 - `@database-engineer` — modelos SQLAlchemy, migraciones, queries.
 - `@testing-engineer` — tests unit, integration, e2e.
-- `@devops-engineer` — Docker, CI/CD, AWS.
+- `@devops-engineer` — Docker, CI/CD, Azure.
 - `@frontend-developer` — componentes React, hooks, estado.
 - `@code-reviewer` — revisión antes de commit.
 

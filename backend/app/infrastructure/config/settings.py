@@ -35,17 +35,17 @@ class Settings(BaseSettings):
         api_v1_prefix: prefijo común de los endpoints de negocio de la versión 1.
         app_version: versión de la aplicación que se reporta en `/health` y en OpenAPI.
         cors_allowed_origins: orígenes del navegador autorizados a llamar a la API, separados
-            por comas. En la nube el frontend se sirve desde CloudFront, un dominio DISTINTO
+            por comas. En la nube el frontend se sirve desde Azure Front Door, un dominio DISTINTO
             del de la API, así que sin esta lista el navegador bloquea todas las llamadas.
             Vacío por defecto: no se autoriza a nadie mientras no se diga explícitamente quién.
         db_pool_size: conexiones que cada proceso mantiene abiertas contra PostgreSQL.
         db_max_overflow: conexiones adicionales que puede abrir en un pico.
             Los dos valores son configurables porque el límite real no lo pone la aplicación
-            sino RDS: `max_connections` de la instancia se reparte entre TODAS las instancias
-            que levante el autoescalado. Con 10+20 por proceso, una `db.t3.micro` (~87
-            conexiones) se agota con cuatro instancias, y el síntoma es la matrícula caída en
-            el peor momento. Bajarlo por variable de entorno no exige volver a desplegar
-            la imagen.
+            sino PostgreSQL Flexible Server: `max_connections` de la instancia se reparte entre
+            TODAS las instancias que levante el autoescalado. Con 10+20 por proceso, un Flexible
+            Server B1ms (~50 conexiones) se agota con cuatro instancias, y el síntoma es la
+            matrícula caída en el peor momento. Bajarlo por variable de entorno no exige volver a
+            desplegar la imagen.
         docs_enabled: si se publican `/docs`, `/redoc` y `/openapi.json`. Se puede apagar en
             producción sin tocar el código.
     """
@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     # `NoDecode` desactiva el intento de Pydantic de leer la variable como JSON. Sin él,
     # `CORS_ALLOWED_ORIGINS=https://mi-frontend` revienta al arrancar con «error parsing
     # value», porque espera `["https://mi-frontend"]`. El validador de abajo la interpreta
-    # como lo que la gente escribe de verdad en una consola de AWS: texto con comas.
+    # como lo que la gente escribe de verdad en una consola de Azure: texto con comas.
     cors_allowed_origins: Annotated[list[str], NoDecode] = []
     db_pool_size: int = 10
     db_max_overflow: int = 20
@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     def _separar_origenes(cls, valor: object) -> object:
         """Acepta la lista como texto separado por comas.
 
-        Elastic Beanstalk, `docker-compose` y `.env` solo saben de cadenas: una variable de
+        Azure App Service, `docker-compose` y `.env` solo saben de cadenas: una variable de
         entorno no puede ser una lista. Sin esta conversión habría que escribir JSON dentro de
         la variable —`["https://..."]`—, que es fácil de escribir mal y produce un error de
         arranque poco claro.

@@ -13,7 +13,7 @@
 *.pfx
 secrets/
 credentials.json
-.aws/
+.azure/
 
 # ---------------------------------------------------------------------------
 # Python
@@ -96,3 +96,7 @@ Desktop.ini
 *.log
 *.sqlite3
 *.db
+
+# Documentos del proyecto en Word. No van al repositorio: son binarios que git no
+# puede fusionar y cada guardado reescribe el archivo entero.
+*.docx

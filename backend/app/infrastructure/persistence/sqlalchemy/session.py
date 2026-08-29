@@ -23,15 +23,15 @@ def get_engine() -> Engine:
     El pool se dimensiona pensando en la ventana de matrícula: `pool_size`
     cubre la carga sostenida y `max_overflow` absorbe los picos sin que las
     peticiones esperen a que se libere una conexión. `pool_pre_ping` descarta
-    conexiones que RDS haya cerrado por inactividad, que de otro modo fallarían
-    en la primera consulta tras un periodo de calma.
+    conexiones que PostgreSQL Flexible Server haya cerrado por inactividad, que de otro modo
+    fallarían en la primera consulta tras un periodo de calma.
 
     Los dos tamaños llegan por variable de entorno, y no son un detalle de
-    ajuste fino: el límite real lo pone RDS, cuyo `max_connections` se reparte
-    entre TODAS las instancias que levante el autoescalado. Con los valores por
-    defecto (10 + 20), cuatro instancias agotan una `db.t3.micro`; la quinta
+    ajuste fino: el límite real lo pone PostgreSQL Flexible Server, cuyo `max_connections` se
+    reparte entre TODAS las instancias que levante el autoescalado. Con los valores por
+    defecto (10 + 20), cuatro instancias agotan un Flexible Server B1ms; la quinta
     empieza a recibir «too many connections» justo en el pico. Poder bajarlos
-    desde Elastic Beanstalk evita tener que reconstruir y redesplegar la imagen
+    desde Azure App Service evita tener que reconstruir y redesplegar la imagen
     en mitad de una matrícula.
 
     Returns:
@@ -43,9 +43,9 @@ def get_engine() -> Engine:
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,
         pool_pre_ping=True,
-        # Recicla las conexiones cada media hora. RDS y el balanceador cortan las
-        # conexiones inactivas por su cuenta; renovarlas antes evita que la
-        # aplicación descubra el corte a mitad de una transacción.
+        # Recicla las conexiones cada media hora. PostgreSQL Flexible Server y el balanceador cortan
+        # las conexiones inactivas por su cuenta; renovarlas antes evita que la aplicación descubra
+        # el corte a mitad de una transacción.
         pool_recycle=1800,
         future=True,
     )

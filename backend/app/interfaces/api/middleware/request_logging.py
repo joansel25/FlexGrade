@@ -2,11 +2,11 @@
 
 Es la pieza que hace diagnosticable el sistema en la nube. Con el autoescalado, la petición
 lenta que alguien reporta ocurrió en una instancia que quizá ya no existe: lo único que queda
-es lo que se escribió en CloudWatch mientras ocurría.
+es lo que se escribió en Azure Monitor mientras ocurría.
 
 Cada línea lleva el identificador de la petición, y ese identificador viaja también en la
 respuesta (`X-Request-ID`). Cuando un estudiante dice «me falló la inscripción», con ese valor
-se encuentra en Insights la línea exacta, entre millones, sin buscar por hora aproximada.
+se encuentra en Log Analytics la línea exacta, entre millones, sin buscar por hora aproximada.
 """
 
 from __future__ import annotations
@@ -23,10 +23,17 @@ from starlette.types import ASGIApp
 
 logger = logging.getLogger("app.request")
 
-# Cabecera que el ALB añade a cada petición. Se reutiliza como identificador cuando está
-# presente: así la línea de la aplicación y la del balanceador hablan del MISMO viaje, que es
-# lo que permite saber si el tiempo se fue en la red o dentro del proceso.
-_CABECERA_TRAZA = "x-amzn-trace-id"
+# Cabeceras de traza que la petición puede traer ya puesta desde el borde de la red. Se
+# reutiliza la primera que llegue como identificador: así la línea de la aplicación y la del
+# servicio de delante hablan del MISMO viaje, que es lo que permite saber si el tiempo se fue
+# en la red o dentro del proceso.
+#
+# El orden importa y es de FUERA hacia dentro. `X-Azure-Ref` la pone Azure Front Door, que es
+# el primero que toca la petición y el único valor que aparece en SUS registros: si se
+# prefiriera `traceparent`, buscar en Front Door por el identificador que reportó el
+# estudiante no encontraría nada. `traceparent` es el estándar W3C que usa Application
+# Insights y cubre lo que entra sin pasar por el borde.
+_CABECERAS_TRAZA = ("x-azure-ref", "traceparent")
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -38,7 +45,10 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        request_id = request.headers.get(_CABECERA_TRAZA) or str(uuid.uuid4())
+        request_id = next(
+            (valor for cabecera in _CABECERAS_TRAZA if (valor := request.headers.get(cabecera))),
+            None,
+        ) or str(uuid.uuid4())
         # `perf_counter` y no `time()`: mide un intervalo y no le afecta un ajuste de reloj
         # del sistema, que en una medición de milisegundos daría duraciones negativas.
         inicio = time.perf_counter()
@@ -47,7 +57,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             respuesta = await call_next(request)
         except Exception:
             duracion_ms = round((time.perf_counter() - inicio) * 1000, 2)
-            # Se registra ANTES de propagar: si no, el fallo llegaría a CloudWatch como un 500
+            # Se registra ANTES de propagar: si no, el fallo llegaría a Azure Monitor como un 500
             # de uvicorn sin ruta, sin duración y sin identificador con el que rastrearlo.
             logger.exception(
                 f"{request.method} {request.url.path} -> excepcion no controlada "

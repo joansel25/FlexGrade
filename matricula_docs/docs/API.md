@@ -1291,7 +1291,7 @@ por el navegador mostraría materias ya canceladas.
 
 El documento se genera **al vuelo en cada petición** y no se almacena en ningún sitio. Durante
 la ventana de matrícula el contenido cambia con cada operación, así que un archivo guardado
-quedaría obsoleto de inmediato; y ponerlo en S3 obligaría a invalidarlo en cada inscripción,
+quedaría obsoleto de inmediato; y ponerlo en Azure Storage obligaría a invalidarlo en cada inscripción,
 para un documento que se descarga una o dos veces por semestre.
 
 Los créditos que imprime son **los mismos** que devuelve `GET /students/me/enrollments`: el
@@ -1351,6 +1351,6 @@ Algunas funcionalidades quedan explícitamente fuera del alcance del núcleo:
 - **Chat / notificaciones en tiempo real** — se implementa como mejora futura con WebSockets.
 - **Integración con pagos** — el sistema es de gestión académica, no de cartera.
 - **Reportes exportables a Excel** — el frontend puede generar CSV desde los endpoints existentes.
-- **Autoservicio de reset de contraseña** — se maneja por el flujo de Cognito.
+- **Autoservicio de reset de contraseña** — se maneja por el flujo de Microsoft Entra External ID.
 
 Estas ausencias siguen el principio YAGNI (You Aren't Gonna Need It): no se implementa lo que no está en los requisitos.

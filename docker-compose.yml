@@ -5,7 +5,7 @@
 #
 # Los valores por defecto de este archivo son SOLO para desarrollo local.
 # Nunca se ponen credenciales reales aqui: en DEV/STAGING/PROD la configuracion
-# la inyecta Elastic Beanstalk desde AWS Secrets Manager (ver CI_CD.md seccion 7).
+# la inyecta Azure App Service desde Azure Key Vault (ver CI_CD.md seccion 7).
 # Para sobrescribir cualquier valor, copia .env.example a .env (que esta en .gitignore).
 
 name: matricula
@@ -65,7 +65,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       API_V1_PREFIX: ${API_V1_PREFIX:-/api/v1}
       # Origen del frontend en desarrollo (Vite). En la nube este valor es el dominio de
-      # CloudFront, y lo inyecta Elastic Beanstalk: frontend y API viven en dominios
+      # Azure Front Door, y lo inyecta Azure App Service: frontend y API viven en dominios
       # distintos, asi que sin esta lista el navegador bloquea todas las llamadas.
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
       APP_VERSION: ${APP_VERSION:-0.1.0}

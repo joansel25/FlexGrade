@@ -32,9 +32,10 @@ if config.config_file_name is not None:
 #
 # Se lee primero de la variable de entorno y solo despues de la configuracion de la
 # aplicacion. La diferencia importa en el paso de migraciones del pipeline: ahi se ejecuta
-# Alembic contra RDS pero NO se levanta la aplicacion, asi que `REDIS_URL` y `JWT_SECRET`
-# —obligatorios para `Settings`— no tienen por que estar definidos. Exigirlos haria fallar el
-# despliegue en el paso previo a tocar el esquema, por dos valores que la migracion no usa.
+# Alembic contra el Flexible Server pero NO se levanta la aplicacion, asi que `REDIS_URL` y
+# `JWT_SECRET` —obligatorios para `Settings`— no tienen por que estar definidos. Exigirlos
+# haria fallar el despliegue en el paso previo a tocar el esquema, por dos valores que la
+# migracion no usa.
 DATABASE_URL = os.environ.get("DATABASE_URL") or get_settings().database_url
 
 # Catalogo contra el que Alembic compara el esquema real de la base de datos para generar

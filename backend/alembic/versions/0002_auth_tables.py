@@ -184,6 +184,6 @@ def downgrade() -> None:
 
     # La extension `pgcrypto` NO se elimina a proposito. Es un objeto compartido a
     # nivel de base de datos: otros esquemas u objetos pueden depender de ella, y en
-    # RDS su instalacion puede requerir privilegios de los que la cuenta de la
-    # aplicacion no dispone. Dejarla instalada es inocuo y `CREATE EXTENSION IF NOT
+    # Azure Database for PostgreSQL su instalacion puede requerir privilegios de los que la
+    # cuenta de la aplicacion no dispone. Dejarla instalada es inocuo y `CREATE EXTENSION IF NOT
     # EXISTS` hace que el `upgrade` posterior vuelva a funcionar sin cambios.

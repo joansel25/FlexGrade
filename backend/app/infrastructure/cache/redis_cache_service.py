@@ -6,8 +6,8 @@ Redis es una optimización, no una fuente de verdad. Si el servidor está caído
 tarda demasiado, la respuesta correcta es comportarse como si la clave no estuviera en caché y
 dejar que la petición siga contra PostgreSQL: más lenta, pero correcta. Propagar el error
 convertiría una degradación de rendimiento en una caída total del catálogo, y lo haría
-precisamente durante el pico de matrícula, que es cuando ElastiCache tiene más probabilidades
-de ir justo.
+precisamente durante el pico de matrícula, que es cuando Azure Cache for Redis tiene más
+probabilidades de ir justo.
 
 Por eso todos los métodos capturan `RedisError` y siguen adelante dejando rastro en el log. No
 es tragarse errores a ciegas: se captura la excepción de Redis, no `Exception`, así que un

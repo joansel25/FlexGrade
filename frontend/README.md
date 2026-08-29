@@ -81,7 +81,7 @@ una avería: es "alguien se te adelantó", y la interfaz debe refrescar cupos y 
 petición, así que es el que más daño hace si se filtra: al vivir en una variable de módulo, un
 script inyectado no tiene forma de leerlo. El refresh token sí se persiste, porque si no,
 recargar la pestaña cerraría la sesión en mitad de la matrícula. La alternativa impecable
-—cookie `httpOnly`— se descartó porque CloudFront y el balanceador son dominios distintos y
+—cookie `httpOnly`— se descartó porque Azure Front Door y el balanceador son dominios distintos y
 sería una cookie de terceros, bloqueada por defecto en Safari y Firefox. Todo esto está
 explicado en `features/auth/tokenStorage.ts`, que es el único archivo a reescribir si algún día
 se unifican los dominios.
@@ -111,6 +111,6 @@ Su URL debe coincidir con la de `src/test/msw/handlers.ts`.
 
 ## Despliegue
 
-`npm run build` genera `dist/`, que son archivos estáticos: van a S3 y se distribuyen por
-CloudFront. `VITE_API_BASE_URL` se resuelve **en tiempo de build**, no de ejecución, así que
+`npm run build` genera `dist/`, que son archivos estáticos: van a Azure Storage y se distribuyen por
+Azure Front Door. `VITE_API_BASE_URL` se resuelve **en tiempo de build**, no de ejecución, así que
 cada ambiente se construye con la URL de su API.

@@ -12,7 +12,7 @@
  *   la contraseña con el cronómetro corriendo.
  *
  * La alternativa impecable es una cookie `httpOnly`, que el JavaScript de la página no puede
- * leer en absoluto. Se descartó por el despliegue: el frontend se sirve desde CloudFront y la
+ * leer en absoluto. Se descartó por el despliegue: el frontend se sirve desde Front Door y la
  * API desde el balanceador, dominios distintos, así que la cookie sería de terceros —bloqueada
  * por defecto en Safari y Firefox— salvo montando ambos bajo el mismo dominio con un
  * comportamiento de origen compartido. Si algún día se unifican los dominios, este módulo es
