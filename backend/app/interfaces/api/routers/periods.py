@@ -5,10 +5,18 @@ from __future__ import annotations
 from fastapi import APIRouter, status
 
 from app.interfaces.api.dependencies.di import GetCurrentPeriodUseCaseDep
+from app.interfaces.api.dependencies.rate_limit import LimiteCatalogo
 from app.interfaces.api.schemas.catalog_schemas import CurrentPeriodSchema
 from app.interfaces.api.schemas.error_schemas import ErrorResponseSchema
 
-router = APIRouter(prefix="/enrollment-periods", tags=["catalogo"])
+router = APIRouter(
+    prefix="/enrollment-periods",
+    tags=["catalogo"],
+    dependencies=[LimiteCatalogo],
+    responses={
+        429: {"model": ErrorResponseSchema, "description": "Límite de peticiones excedido"},
+    },
+)
 
 
 @router.get(

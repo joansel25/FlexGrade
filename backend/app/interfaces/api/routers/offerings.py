@@ -7,11 +7,19 @@ from uuid import UUID
 from fastapi import APIRouter, status
 
 from app.interfaces.api.dependencies.di import GetOfferingDetailUseCaseDep
+from app.interfaces.api.dependencies.rate_limit import LimiteCatalogo
 from app.interfaces.api.routers.courses import a_schema_de_grupo
 from app.interfaces.api.schemas.catalog_schemas import OfferingDetailSchema
 from app.interfaces.api.schemas.error_schemas import ErrorResponseSchema
 
-router = APIRouter(prefix="/offerings", tags=["catalogo"])
+router = APIRouter(
+    prefix="/offerings",
+    tags=["catalogo"],
+    dependencies=[LimiteCatalogo],
+    responses={
+        429: {"model": ErrorResponseSchema, "description": "Límite de peticiones excedido"},
+    },
+)
 
 
 @router.get(

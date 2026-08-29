@@ -62,6 +62,18 @@ os.environ.setdefault("JWT_SECRET", "jwt-secret-solo-para-pruebas")
 # la variable existiera, o en el runner del CI, que no usa `docker-compose`.
 os.environ.setdefault("CORS_ALLOWED_ORIGINS", "http://localhost:5173")
 
+# EL LIMITADOR VA APAGADO EN LA SUITE, y no por comodidad. La mayoría de los tests de
+# integración hacen decenas de peticiones seguidas con la misma cuenta y desde la misma
+# dirección: con el límite puesto, el de inscripción (30/min) tumbaría el test de concurrencia
+# y el de administración (60/min) los de reportes, con un 429 que no tiene nada que ver con lo
+# que ese test comprueba. Peor aún, fallarían de forma INTERMITENTE, según cuántos tests
+# hubieran corrido antes dentro del mismo minuto.
+#
+# Los tests que sí prueban el limitador lo encienden ellos, con `monkeypatch` sobre la
+# configuración: es la única forma de que la protección se pruebe de verdad sin contaminar al
+# resto de la suite.
+os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
+
 os.environ["DATABASE_URL"] = _url_de_pruebas(os.environ["DATABASE_URL"])
 os.environ["REDIS_URL"] = _redis_de_pruebas(os.environ["REDIS_URL"])
 

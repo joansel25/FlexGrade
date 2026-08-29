@@ -67,6 +67,10 @@ export const API_ERROR_CODES = [
   "IMPOSSIBLE_REQUIREMENT_CYCLE",
   "REQUIREMENT_WOULD_TRAP_ENROLLED",
   "CONCURRENT_MODIFICATION",
+  // Límite de peticiones. No es un fallo del sistema ni un error de quien lo usa: es «espera un
+  // momento», y traducirlo como cualquier otro error produce la reacción que hay que evitar
+  // —volver a pulsar enseguida—, que agota el límite otra vez.
+  "RATE_LIMIT_EXCEEDED",
   // Genéricos.
   "DOMAIN_ERROR",
 ] as const;

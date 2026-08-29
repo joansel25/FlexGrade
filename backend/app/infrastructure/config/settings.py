@@ -48,6 +48,18 @@ class Settings(BaseSettings):
             desplegar la imagen.
         docs_enabled: si se publican `/docs`, `/redoc` y `/openapi.json`. Se puede apagar en
             producción sin tocar el código.
+        rate_limit_enabled: interruptor general del limitador. Existe para poder APAGARLO sin
+            desplegar: si un límite mal calculado deja fuera a media universidad en plena
+            ventana de matrícula, la única reacción aceptable dura segundos, no un despliegue.
+        rate_limit_login_per_minute: intentos de inicio de sesión por IP y minuto.
+        rate_limit_enrollment_per_minute: inscripciones por usuario y minuto.
+        rate_limit_catalog_per_minute: consultas al catálogo por IP y minuto.
+        rate_limit_admin_per_minute: peticiones de administración por usuario y minuto.
+            Los cuatro son configurables por entorno y no constantes en el código por una razón
+            concreta: una universidad sale a internet por unas pocas IP públicas, así que
+            miles de estudiantes comparten origen y el límite por IP se agota entre personas
+            distintas. El número correcto depende de la institución y solo se descubre
+            midiéndolo; ajustarlo no puede exigir reconstruir la imagen.
     """
 
     model_config = SettingsConfigDict(
@@ -74,6 +86,11 @@ class Settings(BaseSettings):
     db_pool_size: int = 10
     db_max_overflow: int = 20
     docs_enabled: bool = True
+    rate_limit_enabled: bool = True
+    rate_limit_login_per_minute: int = 5
+    rate_limit_enrollment_per_minute: int = 30
+    rate_limit_catalog_per_minute: int = 120
+    rate_limit_admin_per_minute: int = 60
 
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod

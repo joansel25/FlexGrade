@@ -23,6 +23,7 @@ from app.application.dtos.report_dto import (
 )
 from app.application.ports.auth_service import AuthService
 from app.application.ports.cache_service import CacheService
+from app.application.ports.rate_limiter import RateLimiter, RateLimitResult
 from app.application.ports.repositories.academic_history_repository import AcademicHistoryReader
 from app.application.ports.repositories.course_repository import CourseRepository
 from app.application.ports.repositories.enrollment_repository import EnrollmentRepository
@@ -740,6 +741,46 @@ class InMemoryCacheService(CacheService):
 
     def contiene(self, key: str) -> bool:
         return key in self._datos
+
+
+class InMemoryRateLimiter(RateLimiter):
+    """Contador en memoria, con la misma semántica de ventana fija que el adaptador real.
+
+    No simula el paso del tiempo: la ventana se reinicia llamando a `nueva_ventana()`. Un
+    doble que mirase el reloj obligaría a los tests a esperar de verdad, y un test que tarda
+    sesenta segundos en comprobar que el minuto pasó no lo ejecuta nadie dos veces.
+    """
+
+    def __init__(self) -> None:
+        self._cuentas: dict[str, int] = {}
+        self.llamadas: list[str] = []
+
+    def hit(self, key: str, *, limit: int, window_seconds: int) -> RateLimitResult:
+        self.llamadas.append(key)
+        actual = self._cuentas.get(key, 0) + 1
+        self._cuentas[key] = actual
+
+        return RateLimitResult(
+            allowed=actual <= limit,
+            remaining=max(limit - actual, 0),
+            retry_after_seconds=window_seconds,
+        )
+
+    def nueva_ventana(self) -> None:
+        """Vacía los contadores, como haría el vencimiento de las claves en Redis."""
+        self._cuentas.clear()
+
+
+class LimitadorCaido(RateLimiter):
+    """Limitador que deja pasar TODO, como el adaptador real cuando Redis no responde.
+
+    Existe para que un test pueda afirmar la decisión que más incomoda del adaptador: ante una
+    caída de Redis la petición pasa, porque quedarse sin protección es menos grave que rechazar
+    la matrícula entera.
+    """
+
+    def hit(self, key: str, *, limit: int, window_seconds: int) -> RateLimitResult:
+        return RateLimitResult(allowed=True, remaining=limit, retry_after_seconds=0)
 
 
 class CacheCaida(CacheService):

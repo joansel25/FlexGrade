@@ -69,6 +69,15 @@ services:
       # distintos, asi que sin esta lista el navegador bloquea todas las llamadas.
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
       APP_VERSION: ${APP_VERSION:-0.1.0}
+      # El limitador va ENCENDIDO tambien en desarrollo, con los numeros de produccion. Es la
+      # unica forma de que un limite mal calculado se descubra aqui y no en plena ventana de
+      # matricula; apagarlo en local haria que la primera vez que alguien viera un 429 fuera en
+      # la nube. RATE_LIMIT_ENABLED=false en el .env lo apaga si estorba.
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RATE_LIMIT_LOGIN_PER_MINUTE: ${RATE_LIMIT_LOGIN_PER_MINUTE:-5}
+      RATE_LIMIT_ENROLLMENT_PER_MINUTE: ${RATE_LIMIT_ENROLLMENT_PER_MINUTE:-30}
+      RATE_LIMIT_CATALOG_PER_MINUTE: ${RATE_LIMIT_CATALOG_PER_MINUTE:-120}
+      RATE_LIMIT_ADMIN_PER_MINUTE: ${RATE_LIMIT_ADMIN_PER_MINUTE:-60}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:

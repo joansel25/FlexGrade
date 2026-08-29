@@ -5,11 +5,13 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al cerrar la 9.4 con su PANTALLA. Con ella la Fase 9 queda COMPLETA.** En la
-> misma sesión se migró el repositorio entero de AWS a Azure (decisión 55).
-> Última verificación real: frontend con `npm run lint`, `type-check`, `build` y `test`
-> (**169 tests en 20 archivos**) en verde; backend con `black --check`, `isort --check-only`,
-> `mypy` (limpio sobre 178 archivos) y `pytest` (**658 tests**) en verde tras la migración. Los
+> **Actualizada al implementar el RATE LIMITING, que era la última deuda de software que el
+> despliegue echaba en falta.** Antes, en la misma sesión: la 9.4 con su pantalla (Fase 9
+> COMPLETA), la migración entera de AWS a Azure (decisión 55) y el despliegue del frontend en
+> los workflows (decisión 56).
+> Última verificación real: backend con `black --check`, `isort --check-only`, `mypy` (limpio
+> sobre **183 archivos**) y `pytest` (**673 tests**) en verde; frontend con `npm run lint`,
+> `type-check`, `build` y `test` (**174 tests**) en verde. Los
 > cuatro workflows de despliegue vuelven a ser YAML válido. El expediente se comprobó además
 > **contra la API real** con `estudiante01@tdea.edu.co` del seed: las notas llegan como cadena
 > (`"3.60"`), y el ponderado del semestre (`3.60`) NO coincide con la media simple (`3.52`),
@@ -17,7 +19,9 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 > **Dos avisos de método de esta sesión.** Los 12 errores de integración que aparecieron en una
 > corrida intermedia no eran del cambio: venían de haber matado un `pytest` a media ejecución,
 > que deja sucia `matricula_test`. Repetida sin nada más corriendo, verde — es la regla de la
-> sección 1, nunca dos suites a la vez. Y `docencia.test.tsx` empezó a fallar al añadir un
+> sección 1, nunca dos suites a la vez —y volvió a pasar al final de la sesión, con los mismos
+> síntomas: la lección es que la regla se rompe sola en cuanto se lanza una suite en segundo
+> plano y se olvida—. Y `docencia.test.tsx` empezó a fallar al añadir un
 > archivo de test más: no era el cambio, era una carrera latente suya —el `<nav>` existe antes
 > de que llegue el rol, y el enlace se consultaba de forma síncrona—. Se arregló esperándolo, y
 > las comprobaciones de AUSENCIA de un enlace de rol se anclan ahora a la espera de otro que sí
@@ -355,6 +359,57 @@ donde importa.
     entre directo a `/expediente` o recargue pide un archivo que no existe y sin esa regla
     recibe un 404 en vez de la aplicación.
 
+57. **El rate limiting es un contador en Redis, y las cuatro decisiones que lo definen no se
+    vuelven a discutir.**
+
+    - **En Redis y no en memoria.** Con varias instancias detrás del Application Gateway, cada
+      proceso llevaría su cuenta y el límite real sería el declarado por un número de instancias
+      que además cambia solo con el autoescalado. Un límite que depende de a qué instancia te
+      toque llegar no es un límite.
+    - **Si Redis no responde, la petición PASA.** Es la misma elección que la caché y cuesta más
+      aceptarla, porque aquí se pierde una protección. La alternativa es peor: fallar cerrado
+      convierte la caída de un servicio auxiliar en el rechazo de TODAS las peticiones, o sea en
+      la caída completa de la matrícula. Queda un `warning` en el log para que en Log Analytics
+      se distinga «hubo un rato sin protección» de «nadie llegó al límite».
+    - **Ventana fija con un script Lua**, no dos viajes. `INCR` y luego `EXPIRE` desde Python
+      deja dos agujeros: dos peticiones simultáneas se creen las dos la última permitida, y si
+      el proceso muere entre las dos llamadas la clave se queda SIN vencimiento y ese cliente
+      queda bloqueado para siempre, con un 429 eterno que nadie sabría explicar. Se acepta a
+      cambio el defecto conocido de la ventana fija —hasta el doble de peticiones en el cambio
+      de minuto—: el objetivo es frenar abuso sostenido, no repartir tráfico al milisegundo.
+    - **`RateLimitExceededError` NO es una excepción de dominio**, y vive en
+      `interfaces/api/errors.py`. «No más de cinco intentos por minuto» no es una regla
+      académica: es una protección del borde, y el día que la ponga el WAF el dominio no debería
+      enterarse de que existió. Meterla en `domain/exceptions/` habría sido más cómodo —el
+      manejador de `DomainError` ya estaba escrito— y es exactamente así como los dominios se
+      llenan de infraestructura. Por eso `_respuesta_error` pasó a recibir mensaje y detalles
+      sueltos en vez de una `DomainError`.
+
+    **Quién paga cada límite.** Login y catálogo por IP; inscripción y administración por
+    usuario. `API.md` decía «catálogo por usuario» y era una contradicción con su propio
+    contrato: `GET /courses` es público y se consulta sin token, así que no hay usuario por el
+    que contar. Y contar la inscripción por IP habría sido peor que no limitarla: una
+    universidad sale a internet por unas pocas direcciones públicas, así que miles de
+    estudiantes compartirían presupuesto y se lo agotarían entre personas distintas, justo
+    durante la ventana de matrícula. Por esa misma razón **los cuatro números son variables de
+    entorno**: el valor correcto depende de la institución y solo se descubre midiéndolo.
+    `RATE_LIMIT_ENABLED=false` apaga todo sin desplegar, que es la única reacción que dura
+    segundos si un límite mal calculado deja fuera a media universidad.
+
+    **`/health` no está limitado, y hay un test que lo fija.** El Application Gateway lo sondea
+    cada pocos segundos; con un límite encima la sonda acabaría recibiendo 429, el balanceador
+    daría la instancia por caída y la retiraría: el limitador tumbaría la aplicación que
+    protege.
+
+    **La suite corre con el limitador APAGADO** (`tests/conftest.py`), y no por comodidad: los
+    tests de integración hacen decenas de peticiones seguidas con la misma cuenta, así que el
+    límite de inscripción tumbaría el test de concurrencia y el de administración los de
+    reportes —de forma INTERMITENTE, según cuántos tests hubieran corrido antes dentro del mismo
+    minuto—. Los tests del limitador lo encienden ellos: los unitarios pasando
+    `rate_limit_enabled=True` al construir `Settings`, y los de integración con
+    `dependency_overrides`. Los de integración además BORRAN las claves antes y después, porque
+    la ventana dura un minuto real y sin eso el siguiente test hereda el contador agotado.
+
 ## 4. Qué está construido
 
 | Fase | Estado | Endpoints |
@@ -636,10 +691,6 @@ Ausencias que sí son deuda, pendientes de decidir cuándo se pagan:
   arregla él. Por eso el caso de uso rechaza añadir un correquisito que afecte a inscripciones
   activas cuando la ventana NO está abierta, y lo permite cuando sí lo está.
 
-- **Rate limiting.** `API.md` fija límites por endpoint (login 5/min por IP, inscripción 30/min,
-  catálogo 120/min, admin 60/min) y no hay nada implementado. Con varias instancias detrás del
-  Application Gateway, un contador en memoria no sirve: o el WAF de Application Gateway con reglas por IP, o un contador en Redis para
-  los límites por usuario.
 - **Autenticación propia frente a Microsoft Entra External ID.** El documento del proyecto nombra Microsoft Entra External ID; el código
   emite y valida sus propios JWT con bcrypt. `AuthService` es un puerto, así que cambiarlo sería
   escribir un adaptador nuevo y tocar `di.py`, sin rozar el dominio. Decisión pendiente.

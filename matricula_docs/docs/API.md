@@ -1317,12 +1317,57 @@ certificado y una gestión de claves que este proyecto no contempla.
 
 Los endpoints están protegidos con rate limiting distinto por tipo:
 
-| Endpoint | Límite |
-|---|---|
-| POST /auth/login | 5 requests / minuto por IP |
-| POST /enrollments | 30 requests / minuto por usuario |
-| GET /courses, /offerings | 120 requests / minuto por usuario |
-| Endpoints de admin | 60 requests / minuto por usuario |
+| Endpoint | Límite | Se cuenta por |
+|---|---|---|
+| `POST /auth/login` | 5 / minuto | IP |
+| `POST`/`DELETE /enrollments` | 30 / minuto | usuario |
+| `GET /courses`, `/offerings`, `/enrollment-periods` | 120 / minuto | IP |
+| Endpoints de `/admin` | 60 / minuto | usuario |
+
+**El catálogo se cuenta por IP y no por usuario**, al contrario de lo que decía la versión
+anterior de esta tabla. `GET /courses` es público y se consulta sin token: no hay usuario por el
+que contar, así que «por usuario» era una contradicción con el propio contrato del endpoint.
+
+**El inicio de sesión se cuenta por IP porque todavía no hay usuario** —ese es justo el punto: lo
+que se frena es probar contraseñas—, y el contador sube también con los intentos fallidos. Si
+solo contara los correctos no protegería de nada.
+
+**La inscripción y la administración se cuentan por usuario.** Una universidad sale a internet
+por unas pocas direcciones públicas, así que contar por IP dejaría a miles de estudiantes
+compartiendo un mismo presupuesto y agotándoselo entre personas distintas, justo durante la
+ventana de matrícula. Por esa misma razón **los cuatro números son configurables por variable de
+entorno** (`RATE_LIMIT_*`): el valor correcto depende de la institución y solo se descubre
+midiéndolo. `RATE_LIMIT_ENABLED=false` apaga el limitador entero sin desplegar.
+
+`/health` y `/health/ready` **no están limitados**, y no es un olvido: el Application Gateway
+sondea `/health` cada pocos segundos. Con un límite encima, la sonda acabaría recibiendo 429, el
+balanceador daría la instancia por caída y la retiraría del servicio; el limitador tumbaría la
+aplicación que protege.
+
+**Respuesta al superar el límite:**
+
+```http
+HTTP/1.1 429 Too Many Requests
+Retry-After: 43
+```
+```json
+{
+  "error": {
+    "code": "RATE_LIMIT_EXCEEDED",
+    "message": "Demasiados intentos de inicio de sesión. Espera un momento y vuelve a intentarlo.",
+    "details": { "scope": "login", "limit": 5, "window_seconds": 60 }
+  }
+}
+```
+
+`Retry-After` no es decorativa: sin ella, un cliente rechazado solo puede reintentar a ciegas, y
+durante la ventana de matrícula eso significa reintentar en bucle y empeorar exactamente la
+situación que el límite existe para contener. `details.scope` dice cuál de los cuatro límites se
+agotó, para que quien administra sepa si puede seguir consultando el catálogo mientras tanto.
+
+El contador es una ventana fija de un minuto en Redis, compartida por todas las instancias. **Si
+Redis no responde, la petición pasa**: fallar cerrado convertiría una caída del servicio de caché
+en el rechazo de todas las peticiones, es decir, en la caída completa de la matrícula.
 
 ### Idempotencia
 

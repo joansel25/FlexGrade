@@ -13,6 +13,7 @@ from fastapi import APIRouter, status
 
 from app.interfaces.api.dependencies.auth import CurrentStudentDep
 from app.interfaces.api.dependencies.di import CancelEnrollmentUseCaseDep, EnrollStudentUseCaseDep
+from app.interfaces.api.dependencies.rate_limit import LimiteInscripcion
 from app.interfaces.api.schemas.enrollment_schemas import (
     CancellationSchema,
     CancelledEnrollmentSchema,
@@ -21,7 +22,14 @@ from app.interfaces.api.schemas.enrollment_schemas import (
 )
 from app.interfaces.api.schemas.error_schemas import ErrorResponseSchema
 
-router = APIRouter(prefix="/enrollments", tags=["inscripciones"])
+router = APIRouter(
+    prefix="/enrollments",
+    tags=["inscripciones"],
+    dependencies=[LimiteInscripcion],
+    responses={
+        429: {"model": ErrorResponseSchema, "description": "Límite de peticiones excedido"},
+    },
+)
 
 
 @router.post(

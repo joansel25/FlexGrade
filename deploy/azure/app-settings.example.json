@@ -45,6 +45,11 @@
     "slotSetting": false
   },
   {
+    "name": "RATE_LIMIT_ENABLED",
+    "value": "true",
+    "slotSetting": false
+  },
+  {
     "name": "WEBSITES_PORT",
     "value": "8000",
     "slotSetting": false

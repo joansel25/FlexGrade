@@ -91,6 +91,8 @@ az keyvault set-policy --name "$KEYVAULT_NAME" --object-id "$PRINCIPAL_ID" --sec
 | `DOCS_ENABLED` | recomendable | `false` en producción |
 | `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | según plan | ver el apartado 4 |
 | `WEBSITES_PORT` | **sí, en contenedores** | `8000`. Sin ella App Service prueba el 80 y el 8080, no encuentra a uvicorn y marca el sitio como caído |
+| `RATE_LIMIT_ENABLED` | recomendable | `true`. **Ponerlo en `false` es la única reacción de segundos** si un límite mal calculado deja fuera a media universidad en plena ventana de matrícula: cambiar una opción de aplicación reinicia el contenedor, desplegar tarda minutos |
+| `RATE_LIMIT_LOGIN_PER_MINUTE` y sus tres hermanas | opcional | Los valores de `API.md`. Los límites POR IP los comparten miles de personas: una universidad sale a internet por unas pocas direcciones públicas, así que el número correcto solo se descubre midiéndolo |
 | `LOG_LEVEL` | opcional | `INFO` |
 | `APP_VERSION` | opcional | la etiqueta del despliegue, para verla en `/health` |
 
@@ -110,6 +112,11 @@ conexiones en claro por defecto.
 
 Se configura con `az webapp config set --generic-configurations '{"healthCheckPath": "/health"}'`
 y, en Application Gateway, en la sonda del backend pool.
+
+Ninguna de las dos está limitada por el rate limiting, y no es un olvido: el Application Gateway
+sondea `/health` cada pocos segundos. Con un límite encima, la sonda acabaría recibiendo 429, el
+balanceador daría la instancia por caída y la retiraría del servicio — el limitador tumbaría la
+aplicación que protege.
 
 **No pongas `/health/ready` ahí.** Si lo haces, una caída momentánea de PostgreSQL hará que
 Application Gateway retire instancias que están sanas, el autoescalado las reemplace por otras

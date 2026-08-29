@@ -42,6 +42,7 @@ from app.interfaces.api.dependencies.di import (
     SetPlanCourseUseCaseDep,
     SetRequirementUseCaseDep,
 )
+from app.interfaces.api.dependencies.rate_limit import LimiteAdmin
 from app.interfaces.api.routers.courses import a_schema_de_grupo
 from app.interfaces.api.schemas.admin_schemas import (
     AvailableSpacesSchema,
@@ -79,10 +80,13 @@ from app.interfaces.api.schemas.report_schemas import (
 router = APIRouter(
     prefix="/admin",
     tags=["administracion"],
-    dependencies=[Depends(require_admin)],
+    # El limite se declara aqui junto al rol, por la misma razon: endpoint por endpoint,
+    # el dia que se añada uno nuevo nadie se acordara de ponerlo.
+    dependencies=[Depends(require_admin), LimiteAdmin],
     responses={
         401: {"model": ErrorResponseSchema, "description": "Token ausente o inválido"},
         403: {"model": ErrorResponseSchema, "description": "Se requiere rol de administrador"},
+        429: {"model": ErrorResponseSchema, "description": "Límite de peticiones excedido"},
     },
 )
 

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.application.ports.auth_service import AuthService
 from app.application.ports.cache_service import CacheService
 from app.application.ports.document_service import ReceiptRenderer
+from app.application.ports.rate_limiter import RateLimiter
 from app.application.ports.repositories.academic_history_repository import AcademicHistoryReader
 from app.application.ports.repositories.course_repository import CourseRepository
 from app.application.ports.repositories.enrollment_repository import EnrollmentRepository
@@ -114,6 +115,7 @@ from app.infrastructure.persistence.sqlalchemy.repositories.user_repository impo
 )
 from app.infrastructure.persistence.sqlalchemy.session import get_session
 from app.infrastructure.persistence.sqlalchemy.unit_of_work import SQLAlchemyUnitOfWork
+from app.infrastructure.rate_limit.redis_rate_limiter import RedisRateLimiter
 
 SessionDep = Annotated[Session, Depends(get_session)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -248,6 +250,20 @@ def get_cache_service() -> CacheService:
 
 
 CacheServiceDep = Annotated[CacheService, Depends(get_cache_service)]
+
+
+@lru_cache
+def get_rate_limiter() -> RateLimiter:
+    """Resuelve el puerto del limitador al adaptador de Redis.
+
+    Única instancia por proceso, como la caché, aunque por otro motivo: el adaptador registra
+    su script Lua en Redis al construirse. Uno nuevo por petición volvería a registrarlo cada
+    vez, que es trabajo pagado en el camino de TODAS las peticiones limitadas.
+    """
+    return RedisRateLimiter(get_redis_client())
+
+
+RateLimiterDep = Annotated[RateLimiter, Depends(get_rate_limiter)]
 
 
 # ---------------------------------------------------------------------------

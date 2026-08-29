@@ -10,6 +10,8 @@ y la aplicación no.
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -73,6 +75,7 @@ from app.domain.exceptions.enrollment import (
 from app.domain.exceptions.invalid_value import InvalidScheduleBlockError
 from app.infrastructure.config.settings import get_settings
 from app.infrastructure.logging.setup import configurar_logging
+from app.interfaces.api.errors import RateLimitExceededError
 from app.interfaces.api.middleware.request_logging import RequestLoggingMiddleware
 from app.interfaces.api.routers import (
     admin,
@@ -244,16 +247,31 @@ _MAPEO_ERRORES: dict[type[DomainError], tuple[int, str]] = {
 }
 
 
-def _respuesta_error(status_code: int, code: str, exc: DomainError) -> JSONResponse:
+def _respuesta_error(
+    status_code: int,
+    code: str,
+    message: str,
+    details: dict[str, Any],
+    cabeceras_extra: dict[str, str] | None = None,
+) -> JSONResponse:
+    """Construye el sobre de error que `API.md` documenta como formato único.
+
+    Recibe mensaje y detalles sueltos, y no una `DomainError`, porque no todo error con este
+    formato nace en el dominio: el 429 del limitador es una protección operativa del borde y
+    no una regla académica (ver `interfaces/api/errors.py`). Atarlo al tipo del dominio
+    obligaría a meter en el núcleo un concepto que no le pertenece solo para reutilizar esta
+    función.
+    """
     # `WWW-Authenticate` acompaña a todo 401: es lo que dice el estándar HTTP y lo que permite
     # a un cliente saber CÓMO autenticarse. La ponía el guard cuando lanzaba `HTTPException`
     # directamente; al centralizar el formato de error aquí, la cabecera se centraliza con él.
-    cabeceras = {"WWW-Authenticate": "Bearer"} if status_code == 401 else None
+    cabeceras = {"WWW-Authenticate": "Bearer"} if status_code == 401 else {}
+    cabeceras.update(cabeceras_extra or {})
 
     return JSONResponse(
         status_code=status_code,
-        content={"error": {"code": code, "message": exc.message, "details": exc.details}},
-        headers=cabeceras,
+        content={"error": {"code": code, "message": message, "details": details}},
+        headers=cabeceras or None,
     )
 
 
@@ -267,6 +285,25 @@ async def domain_error_handler(request: Request, exc: DomainError) -> JSONRespon
     """
     for tipo, (status_code, code) in _MAPEO_ERRORES.items():
         if isinstance(exc, tipo):
-            return _respuesta_error(status_code, code, exc)
+            return _respuesta_error(status_code, code, exc.message, exc.details)
 
-    return _respuesta_error(400, "DOMAIN_ERROR", exc)
+    return _respuesta_error(400, "DOMAIN_ERROR", exc.message, exc.details)
+
+
+@app.exception_handler(RateLimitExceededError)
+async def rate_limit_handler(request: Request, exc: RateLimitExceededError) -> JSONResponse:
+    """Traduce el exceso de peticiones a un 429 con el mismo sobre que el resto.
+
+    Lleva manejador propio y no entra en `_MAPEO_ERRORES` por dos razones: no es una excepción
+    de dominio, y necesita una cabecera que ninguna otra respuesta usa. **`Retry-After` no es
+    decorativa**: sin ella, un cliente rechazado solo puede reintentar a ciegas, y durante la
+    ventana de matrícula eso significa reintentar en bucle y empeorar exactamente la situación
+    que el límite existe para contener.
+    """
+    return _respuesta_error(
+        429,
+        "RATE_LIMIT_EXCEEDED",
+        exc.message,
+        exc.details,
+        {"Retry-After": str(exc.retry_after_seconds)},
+    )

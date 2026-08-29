@@ -103,6 +103,19 @@ export function mensajeDeInscripcion(error: unknown): MensajeDeInscripcion {
     };
   }
 
+  if (error.is("RATE_LIMIT_EXCEEDED")) {
+    return {
+      titulo: "Vas demasiado rápido",
+      // El detalle dice CUÁNTO esperar, con el número que manda el servidor. Sin él, la
+      // reacción natural es volver a pulsar enseguida, que es exactamente lo que agota el
+      // límite otra vez y convierte una espera de segundos en una de minutos.
+      detalle: describirEspera(error.details),
+      // No se refrescan los cupos: esa consulta también cuenta contra el límite, y pedirla
+      // ahora empeoraría justo lo que hay que dejar reposar.
+      refrescarCupos: false,
+    };
+  }
+
   if (error.is("ENROLLMENT_PERIOD_INACTIVE")) {
     return {
       titulo: "La matrícula no está abierta",
@@ -243,4 +256,20 @@ function describirPrerequisitos(details: Record<string, unknown>): string {
   }
 
   return "Consulta la ficha de la materia para ver qué debes aprobar antes.";
+}
+
+/**
+ * Traduce la espera del limitador a algo accionable.
+ *
+ * El servidor manda `window_seconds`, que es la ventana completa; la espera real está en la
+ * cabecera `Retry-After` y puede ser menor. Se redondea hacia arriba a propósito: decir «espera
+ * menos de lo que hay que esperar» hace que la siguiente pulsación vuelva a fallar.
+ */
+function describirEspera(details: Record<string, unknown>): string {
+  const segundos = typeof details.window_seconds === "number" ? details.window_seconds : 60;
+
+  return (
+    `Hiciste demasiadas operaciones seguidas. Espera ${segundos} segundos y vuelve a ` +
+    "intentarlo; tu inscripción anterior no se perdió."
+  );
 }

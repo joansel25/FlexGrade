@@ -64,6 +64,18 @@ export function mensajeDeAdmin(error: unknown): MensajeDeAdmin {
 type Traductor = (error: ApiError) => MensajeDeAdmin;
 
 const TRADUCCIONES: Record<string, Traductor> = {
+  // ------------------------------------------------------- limite de peticiones
+  //
+  // Aquí el 429 no es un abuso: es alguien de Registro Académico cargando materias en tanda,
+  // que es trabajo legítimo. El mensaje tiene que decirlo así y dar el número, o quien
+  // administra creerá que rompió algo y abrirá un ticket por una espera de segundos.
+  RATE_LIMIT_EXCEEDED: (error) => ({
+    titulo: "Vas demasiado rápido",
+    detalle:
+      `Hiciste demasiadas operaciones seguidas. Espera ${segundosDeEspera(error)} segundos y ` +
+      "continúa; lo que ya guardaste no se perdió.",
+  }),
+
   // --------------------------------------------------------------- períodos
   DUPLICATE_PERIOD_CODE: () => ({
     titulo: "Ya existe una ventana con ese código",
@@ -336,4 +348,9 @@ function describirAforo(details: Record<string, unknown>): string {
   }
 
   return "Busca un aula con más aforo o reduce el cupo del grupo.";
+}
+
+/** La ventana que declara el error, con un valor por defecto si llegara sin ella. */
+function segundosDeEspera(error: ApiError): number {
+  return typeof error.details.window_seconds === "number" ? error.details.window_seconds : 60;
 }

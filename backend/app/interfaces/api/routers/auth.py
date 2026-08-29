@@ -13,6 +13,7 @@ from fastapi import APIRouter, Response, status
 from app.domain.exceptions.authentication import InvalidTokenError
 from app.interfaces.api.dependencies.auth import CurrentUserDep
 from app.interfaces.api.dependencies.di import AuthenticateUserUseCaseDep, RefreshTokenUseCaseDep
+from app.interfaces.api.dependencies.rate_limit import LimiteLogin
 from app.interfaces.api.schemas.auth_schemas import (
     AuthenticatedUserSchema,
     LoginRequestSchema,
@@ -26,12 +27,19 @@ from app.interfaces.api.schemas.error_schemas import ErrorResponseSchema
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+# El limite va en ESTE endpoint y no en el router. `/auth/refresh` comparte prefijo, y una
+# sesion que se renueva sola acabaria gastandose el presupuesto del inicio de sesion: quien
+# lleva horas con la pestaña abierta no podria volver a entrar tras cerrar sesion.
 @router.post(
     "/login",
     response_model=LoginResponseSchema,
     status_code=status.HTTP_200_OK,
     summary="Iniciar sesión",
-    responses={401: {"model": ErrorResponseSchema, "description": "Credenciales inválidas"}},
+    dependencies=[LimiteLogin],
+    responses={
+        401: {"model": ErrorResponseSchema, "description": "Credenciales inválidas"},
+        429: {"model": ErrorResponseSchema, "description": "Demasiados intentos"},
+    },
 )
 def login(
     payload: LoginRequestSchema,
