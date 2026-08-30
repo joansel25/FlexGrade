@@ -30,6 +30,9 @@ export const API_ERROR_CODES = [
   "ENROLLMENT_PERIOD_INACTIVE",
   "COURSE_CAPACITY_EXCEEDED",
   "ALREADY_ENROLLED",
+  // Distinto de la anterior a propósito: aquella no exige hacer nada —ya estás donde querías—
+  // y esta obliga a cancelar el grupo que ya tienes antes de poder tomar el otro.
+  "ALREADY_ENROLLED_IN_COURSE",
   "PREREQUISITES_NOT_MET",
   "COREQUISITES_NOT_MET",
   "COREQUISITE_DEPENDENCY",

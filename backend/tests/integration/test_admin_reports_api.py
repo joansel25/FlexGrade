@@ -114,6 +114,22 @@ def inscripciones(db_session: Session, catalogo: CatalogoDePrueba) -> None:
         .one()
     )
 
+    # La segunda inscripción de `isis_1` es de OTRA materia, no del otro grupo de la misma.
+    # Antes lo era, y ese dato codificaba el fallo que la migración `0014` cerró: una persona no
+    # puede cursar la misma materia en dos grupos, porque `academic_history` es único por
+    # materia y el cierre del semestre reventaría. Además es el caso realista: quien lleva dos
+    # inscripciones lleva dos asignaturas distintas.
+    grupo_fisica = CourseOfferingModel(
+        id=uuid4(),
+        enrollment_period_id=catalogo.period_id,
+        course_id=catalogo.fisica_id,
+        group_number="01",
+        total_capacity=40,
+        enrolled_count=0,
+    )
+    db_session.add(grupo_fisica)
+    db_session.flush()
+
     db_session.add_all(
         [
             # ISIS: dos estudiantes, tres inscripciones activas.
@@ -121,13 +137,15 @@ def inscripciones(db_session: Session, catalogo: CatalogoDePrueba) -> None:
                 id=uuid4(),
                 student_id=isis_1,
                 course_offering_id=catalogo.offering_grupo_01_id,
+                course_id=catalogo.calculo_i_id,
                 enrollment_period_id=catalogo.period_id,
                 status="ENROLLED",
             ),
             EnrollmentModel(
                 id=uuid4(),
                 student_id=isis_1,
-                course_offering_id=catalogo.offering_grupo_02_id,
+                course_offering_id=grupo_fisica.id,
+                course_id=catalogo.fisica_id,
                 enrollment_period_id=catalogo.period_id,
                 status="ENROLLED",
             ),
@@ -135,6 +153,7 @@ def inscripciones(db_session: Session, catalogo: CatalogoDePrueba) -> None:
                 id=uuid4(),
                 student_id=isis_2,
                 course_offering_id=catalogo.offering_grupo_01_id,
+                course_id=catalogo.calculo_i_id,
                 enrollment_period_id=catalogo.period_id,
                 status="ENROLLED",
             ),
@@ -143,6 +162,7 @@ def inscripciones(db_session: Session, catalogo: CatalogoDePrueba) -> None:
                 id=uuid4(),
                 student_id=dere_1,
                 course_offering_id=catalogo.offering_grupo_01_id,
+                course_id=catalogo.calculo_i_id,
                 enrollment_period_id=catalogo.period_id,
                 status="ENROLLED",
             ),
@@ -151,6 +171,7 @@ def inscripciones(db_session: Session, catalogo: CatalogoDePrueba) -> None:
                 id=uuid4(),
                 student_id=isis_2,
                 course_offering_id=catalogo.offering_grupo_02_id,
+                course_id=catalogo.calculo_i_id,
                 enrollment_period_id=catalogo.period_id,
                 status="CANCELLED",
                 cancelled_at=datetime.now(UTC),
@@ -160,6 +181,7 @@ def inscripciones(db_session: Session, catalogo: CatalogoDePrueba) -> None:
                 id=uuid4(),
                 student_id=isis_2,
                 course_offering_id=grupo_viejo.id,
+                course_id=grupo_viejo.course_id,
                 enrollment_period_id=grupo_viejo.enrollment_period_id,
                 status="ENROLLED",
             ),

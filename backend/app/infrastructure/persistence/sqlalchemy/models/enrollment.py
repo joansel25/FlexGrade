@@ -19,6 +19,7 @@ from decimal import Decimal
 from sqlalchemy import (
     CheckConstraint,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Numeric,
     String,
@@ -41,6 +42,10 @@ class EnrollmentModel(Base):
             modo que borrar un estudiante con inscripciones falla en vez de perder su
             historial académico en silencio.
         course_offering_id: grupo en el que se inscribió. Sin `ON DELETE` por la misma razón.
+        course_id: materia del grupo. Es una COPIA de `course_offerings.course_id`, y está
+            aquí porque un índice único solo mira columnas de su tabla: sin ella no hay forma
+            de impedir en la base que alguien curse la misma materia en dos grupos. La clave
+            foránea compuesta contra `course_offerings (id, course_id)` impide que mienta.
         enrollment_period_id: período en el que ocurrió. Es redundante —se podría deducir del
             grupo— pero se guarda a propósito: los reportes por período son la consulta más
             frecuente de la administración, y deducirlo obligaría a un `JOIN` en cada una.
@@ -75,6 +80,7 @@ class EnrollmentModel(Base):
         ForeignKey("enrollment_periods.id"),
         nullable=False,
     )
+    course_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     status: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
@@ -111,6 +117,29 @@ class EnrollmentModel(Base):
             "course_offering_id",
             "enrollment_period_id",
             name="uq_enrollments_student_offering_period",
+        ),
+        # Una materia, un grupo por período (migración `0014`). Es la segunda defensa contra
+        # inscribirse en dos grupos de la misma materia: la de arriba mira el GRUPO y no vería
+        # nada raro. Lo que estaba en juego no era el horario duplicado, sino que
+        # `academic_history` es único por materia y el cierre del semestre reventaba.
+        #
+        # PARCIAL sobre las activas: cancelar un grupo y tomar otro de la misma materia es
+        # legítimo, y sin el `WHERE` la fila cancelada lo bloquearía para siempre.
+        Index(
+            "uq_enrollments_active_student_course_period",
+            "student_id",
+            "course_id",
+            "enrollment_period_id",
+            unique=True,
+            postgresql_where=text("status = 'ENROLLED'"),
+        ),
+        # La clave foránea COMPUESTA es lo que impide que `course_id` diga una materia distinta
+        # de la del grupo al que apunta. Es la misma protección que lleva la copia de
+        # `enrollment_period_id` en `schedule_blocks`.
+        ForeignKeyConstraint(
+            ["course_offering_id", "course_id"],
+            ["course_offerings.id", "course_offerings.course_id"],
+            name="fk_enrollments_offering_course",
         ),
         # Índices con nombre explícito, según el DDL de `docs/DATA_MODEL.md`.
         Index("ix_enrollments_offering", "course_offering_id"),

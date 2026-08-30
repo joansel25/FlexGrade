@@ -21,6 +21,7 @@ from app.application.use_cases.enrollment.enroll_student import EnrollStudentUse
 from app.domain.exceptions.catalog import OfferingNotFoundError
 from app.domain.exceptions.enrollment import (
     AlreadyEnrolledError,
+    AlreadyEnrolledInCourseError,
     CapacityExceededError,
     CorequisitesNotMetError,
     CourseNotInProgramError,
@@ -288,6 +289,111 @@ def test_enroll_when_already_enrolled_does_not_take_another_seat() -> None:
         escenario.inscribir()
 
     assert escenario.grupo.enrolled_count == 10
+
+
+@pytest.mark.unit
+def test_enroll_in_another_group_of_the_same_course_is_rejected() -> None:
+    """La misma materia en dos grupos a la vez rompe el cierre del semestre.
+
+    `academic_history` es único por `(student_id, course_id, academic_period)`: dos grupos de la
+    misma materia producen dos filas idénticas al consolidar, y el cierre —la única operación
+    irreversible del sistema— falla entero. Se permitía crear un estado sin salida.
+    """
+    escenario = Escenario()
+    otro_grupo = crear_oferta(
+        course_id=escenario.materia.id,
+        enrollment_period_id=escenario.periodo.id,
+        group_number="02",
+    )
+    escenario.ofertas = InMemoryOfferingRepository([escenario.grupo, otro_grupo])
+    escenario.inscripciones = InMemoryEnrollmentRepository(
+        [
+            crear_inscripcion(
+                student_id=escenario.estudiante_id,
+                course_offering_id=otro_grupo.id,
+                course_id=escenario.materia.id,
+                enrollment_period_id=escenario.periodo.id,
+            )
+        ]
+    )
+    escenario._montar()
+
+    with pytest.raises(AlreadyEnrolledInCourseError) as error:
+        escenario.inscribir()
+
+    # Nombra el grupo que ya ocupa: «ya la cursas» a secas deja a la persona buscando dónde.
+    assert error.value.details["enrolled_group_number"] == "02"
+
+
+@pytest.mark.unit
+def test_the_repeated_course_is_rejected_before_the_schedule_clash() -> None:
+    """El orden de las comprobaciones es lo que destapó el fallo, y por eso se fija.
+
+    Dos grupos de la misma materia suelen cruzarse en el horario, así que el detector de choques
+    los rechazaba por el motivo equivocado; cuando NO se cruzaban, no los rechazaba nadie. Aquí
+    los horarios SÍ chocan: si ganara el detector, el error sería `ScheduleConflictError` y la
+    regla de la materia seguiría sin existir.
+    """
+    escenario = Escenario()
+    franja = crear_franja(day_of_week=1, start_time="08:00", end_time="10:00")
+    escenario.grupo = crear_oferta(
+        course_id=escenario.materia.id,
+        enrollment_period_id=escenario.periodo.id,
+        group_number="01",
+        schedule=[franja],
+    )
+    otro_grupo = crear_oferta(
+        course_id=escenario.materia.id,
+        enrollment_period_id=escenario.periodo.id,
+        group_number="02",
+        schedule=[franja],
+    )
+    escenario.ofertas = InMemoryOfferingRepository([escenario.grupo, otro_grupo])
+    escenario.inscripciones = InMemoryEnrollmentRepository(
+        [
+            crear_inscripcion(
+                student_id=escenario.estudiante_id,
+                course_offering_id=otro_grupo.id,
+                course_id=escenario.materia.id,
+                enrollment_period_id=escenario.periodo.id,
+            )
+        ]
+    )
+    escenario._montar()
+
+    with pytest.raises(AlreadyEnrolledInCourseError):
+        escenario.inscribir()
+
+
+@pytest.mark.unit
+def test_enrolling_in_another_group_after_cancelling_is_allowed() -> None:
+    """Cambiarse de grupo es legítimo, y por eso el índice de la base es PARCIAL.
+
+    Sin el `WHERE status = 'ENROLLED'`, la fila cancelada bloquearía para siempre volver a
+    inscribir esa materia, y cambiarse de grupo —la operación más normal del mundo— sería
+    imposible después de haberlo intentado una vez.
+    """
+    escenario = Escenario()
+    otro_grupo = crear_oferta(
+        course_id=escenario.materia.id,
+        enrollment_period_id=escenario.periodo.id,
+        group_number="02",
+    )
+    escenario.ofertas = InMemoryOfferingRepository([escenario.grupo, otro_grupo])
+    escenario.inscripciones = InMemoryEnrollmentRepository(
+        [
+            crear_inscripcion(
+                student_id=escenario.estudiante_id,
+                course_offering_id=otro_grupo.id,
+                course_id=escenario.materia.id,
+                enrollment_period_id=escenario.periodo.id,
+                status=EnrollmentStatus.CANCELLED,
+            )
+        ]
+    )
+    escenario._montar()
+
+    assert escenario.inscribir() is not None
 
 
 # ---------------------------------------------------------------------------

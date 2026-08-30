@@ -169,6 +169,33 @@ describe("conflictos al inscribir", () => {
     expect(aviso).toHaveTextContent("TAL101");
   });
 
+  it("nombra el grupo que ya tiene cuando repite la materia", async () => {
+    // `ALREADY_ENROLLED_IN_COURSE` no es `ALREADY_ENROLLED`: aquella no exige hacer nada —ya
+    // está donde quería— y esta obliga a cancelar el grupo que ya tiene. Sin el número del
+    // grupo, «ya la cursas» deja a la persona buscándolo y creyendo que el sistema se equivocó.
+    server.use(
+      http.post(`${API_URL}/api/v1/enrollments`, () =>
+        respuestaDeError(409, "ALREADY_ENROLLED_IN_COURSE", "Ya cursas esta materia", {
+          course_id: "c1",
+          enrolled_offering_id: "g2",
+          enrolled_group_number: "02",
+        }),
+      ),
+    );
+
+    const usuario = userEvent.setup();
+    montarConSesion("/catalogo/c1");
+    await screen.findByText("Grupo 01");
+
+    await usuario.click(screen.getByRole("button", { name: "Inscribir grupo 01" }));
+
+    const aviso = await screen.findByRole("alert");
+    expect(aviso).toHaveTextContent("Ya estás cursando esta materia");
+    expect(aviso).toHaveTextContent("grupo 02");
+    // La salida, que es lo único que puede hacer.
+    expect(aviso).toHaveTextContent(/cancela primero el otro/i);
+  });
+
   it("explica que la materia no es del programa del estudiante", async () => {
     server.use(
       http.post(`${API_URL}/api/v1/enrollments`, () =>

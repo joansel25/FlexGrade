@@ -157,7 +157,10 @@ def test_reserve_and_release_return_the_group_to_its_original_count() -> None:
 @pytest.mark.unit
 def test_create_produces_an_active_enrollment() -> None:
     inscripcion = Enrollment.create(
-        student_id=uuid4(), course_offering_id=uuid4(), enrollment_period_id=uuid4()
+        student_id=uuid4(),
+        course_offering_id=uuid4(),
+        course_id=uuid4(),
+        enrollment_period_id=uuid4(),
     )
 
     assert inscripcion.status is EnrollmentStatus.ENROLLED
@@ -170,7 +173,10 @@ def test_create_assigns_an_identifier_before_persisting() -> None:
     # El caso de uso necesita el identificador para la respuesta. Esperar a que PostgreSQL lo
     # asignara obligaría a un `flush` intermedio dentro de la transacción crítica.
     inscripcion = Enrollment.create(
-        student_id=uuid4(), course_offering_id=uuid4(), enrollment_period_id=uuid4()
+        student_id=uuid4(),
+        course_offering_id=uuid4(),
+        course_id=uuid4(),
+        enrollment_period_id=uuid4(),
     )
 
     assert inscripcion.id is not None
@@ -181,27 +187,34 @@ def test_create_leaves_the_timestamp_to_the_database() -> None:
     # `enrolled_at` lo pone el `DEFAULT NOW()` de PostgreSQL: es la única fuente horaria
     # fiable cuando varias instancias pueden tener relojes ligeramente distintos.
     inscripcion = Enrollment.create(
-        student_id=uuid4(), course_offering_id=uuid4(), enrollment_period_id=uuid4()
+        student_id=uuid4(),
+        course_offering_id=uuid4(),
+        course_id=uuid4(),
+        enrollment_period_id=uuid4(),
     )
 
     assert inscripcion.enrolled_at is None
 
 
 @pytest.mark.unit
-def test_create_links_the_three_identifiers() -> None:
-    student_id, offering_id, period_id = uuid4(), uuid4(), uuid4()
+def test_create_links_the_four_identifiers() -> None:
+    # La materia viaja junto al grupo desde la migración `0014`: es lo que permite a la base
+    # garantizar «una materia, un grupo por período», que un índice sobre el grupo no ve.
+    student_id, offering_id, course_id, period_id = uuid4(), uuid4(), uuid4(), uuid4()
 
     inscripcion = Enrollment.create(
         student_id=student_id,
         course_offering_id=offering_id,
+        course_id=course_id,
         enrollment_period_id=period_id,
     )
 
     assert (
         inscripcion.student_id,
         inscripcion.course_offering_id,
+        inscripcion.course_id,
         inscripcion.enrollment_period_id,
-    ) == (student_id, offering_id, period_id)
+    ) == (student_id, offering_id, course_id, period_id)
 
 
 @pytest.mark.unit

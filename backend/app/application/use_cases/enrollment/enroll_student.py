@@ -48,6 +48,7 @@ from app.domain.exceptions.authentication import StudentProfileNotFoundError
 from app.domain.exceptions.catalog import CourseNotFoundError, OfferingNotFoundError
 from app.domain.exceptions.enrollment import (
     AlreadyEnrolledError,
+    AlreadyEnrolledInCourseError,
     CapacityExceededError,
     CourseNotInProgramError,
     EnrollmentPeriodInactiveError,
@@ -118,6 +119,7 @@ class EnrollStudentUseCase:
             OfferingNotFoundError: si el grupo no existe.
             CourseNotFoundError: si la materia del grupo no existe.
             AlreadyEnrolledError: si el estudiante ya está inscrito en ese grupo.
+            AlreadyEnrolledInCourseError: si ya cursa esa materia en OTRO grupo del período.
             CourseNotInProgramError: si la materia no está en su plan de estudios.
             PrerequisitesNotMetError: si le faltan materias por aprobar.
             CorequisitesNotMetError: si le faltan correquisitos por inscribir en este período.
@@ -239,10 +241,12 @@ class EnrollStudentUseCase:
             approved_course_ids=aprobadas,
         )
 
-        # Los grupos ya inscritos sirven para las dos comprobaciones que quedan, así que se
-        # traen una sola vez: los correquisitos preguntan por sus materias, y el detector de
-        # choques, por sus franjas horarias.
+        # Los grupos ya inscritos sirven para las tres comprobaciones que quedan, así que se
+        # traen una sola vez: la materia repetida y los correquisitos preguntan por sus
+        # materias, y el detector de choques, por sus franjas horarias.
         inscritos = self._grupos_ya_inscritos(student_id, periodo_id)
+
+        self._validar_materia_no_repetida(grupo=grupo, inscritos=inscritos)
 
         self._validar_correquisitos(
             grupo=grupo,
@@ -253,6 +257,45 @@ class EnrollStudentUseCase:
         )
 
         self._schedule.ensure_no_conflict(candidate=grupo, enrolled=inscritos)
+
+    def _validar_materia_no_repetida(
+        self, *, grupo: CourseOffering, inscritos: list[CourseOffering]
+    ) -> None:
+        """Impide cursar la misma materia en dos grupos a la vez.
+
+        **Va ANTES del choque de horario, y el orden no es estético.** Dos grupos de la misma
+        materia suelen cruzarse en el horario, así que el detector de choques rechazaba muchos
+        de estos casos por el motivo equivocado; cuando NO se cruzaban —el grupo 01 el lunes y
+        el 02 el martes— no los rechazaba nadie y la inscripción pasaba. Comprobar la materia
+        primero hace que el motivo sea siempre el mismo y el correcto.
+
+        **Lo que estaba en juego no era el horario duplicado.** `academic_history` es único por
+        `(student_id, course_id, academic_period)`: dos grupos de la misma materia producen dos
+        filas iguales al consolidar, y el cierre del semestre —la única operación irreversible
+        del sistema— falla entero. Se permitía crear un estado del que no había salida.
+
+        Args:
+            grupo: el grupo que se quiere inscribir.
+            inscritos: los grupos activos del estudiante en el período.
+
+        Raises:
+            AlreadyEnrolledInCourseError: si ya cursa esa materia en otro grupo.
+        """
+        for inscrito in inscritos:
+            # El grupo que se está inscribiendo se excluye, y no es un detalle: reinscribirse
+            # tras cancelar REACTIVA la fila existente, y eso ocurre ANTES de validar. Sin esta
+            # exclusión, el estudiante chocaría contra su propia inscripción recién reactivada y
+            # volver a un grupo que abandonó sería imposible. El caso de «ya estás en ESTE
+            # grupo» tiene su propio error, lanzado antes.
+            if inscrito.id == grupo.id:
+                continue
+
+            if inscrito.course_id == grupo.course_id:
+                raise AlreadyEnrolledInCourseError(
+                    course_id=grupo.course_id,
+                    enrolled_offering_id=inscrito.id,
+                    group_number=inscrito.group_number,
+                )
 
     def _validar_correquisitos(
         self,
@@ -321,6 +364,7 @@ class EnrollStudentUseCase:
             return Enrollment.create(
                 student_id=student_id,
                 course_offering_id=grupo.id,
+                course_id=grupo.course_id,
                 enrollment_period_id=periodo_id,
             )
 

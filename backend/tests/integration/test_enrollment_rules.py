@@ -8,15 +8,17 @@ decisiones traen los datos correctos de PostgreSQL. Un validador impecable alime
 
 from __future__ import annotations
 
-from datetime import date, time
+from datetime import UTC, date, datetime, time
 from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.application.use_cases.enrollment.enroll_student import EnrollStudentUseCase
 from app.domain.exceptions.enrollment import (
+    AlreadyEnrolledInCourseError,
     CorequisitesNotMetError,
     CourseNotInProgramError,
     PrerequisitesNotMetError,
@@ -25,6 +27,7 @@ from app.domain.exceptions.enrollment import (
 from app.infrastructure.persistence.sqlalchemy.models.academic_history import AcademicHistoryModel
 from app.infrastructure.persistence.sqlalchemy.models.course import CourseModel
 from app.infrastructure.persistence.sqlalchemy.models.course_offering import CourseOfferingModel
+from app.infrastructure.persistence.sqlalchemy.models.enrollment import EnrollmentModel
 from app.infrastructure.persistence.sqlalchemy.models.program_course_requirement import (
     ProgramCourseRequirementModel,
 )
@@ -255,6 +258,89 @@ def test_a_course_with_a_prerequisite_needs_it_but_one_without_does_not(
 
 
 # ---------------------------------------------------------------------------
+# Una materia, un grupo por período
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_enrolling_in_two_groups_of_the_same_course_is_rejected(
+    db_session: Session, catalogo: CatalogoDePrueba
+) -> None:
+    """Los grupos 01 y 02 son de la MISMA materia, y no se pueden cursar los dos.
+
+    `academic_history` es único por `(student_id, course_id, academic_period)`: dos grupos de la
+    misma materia producirían dos filas idénticas al consolidar y el cierre del semestre —la
+    única operación irreversible del sistema— fallaría entero.
+    """
+    estudiante_id = _crear_estudiante(db_session, catalogo.program_id)
+    caso = _caso(db_session)
+    caso.execute(student_id=estudiante_id, course_offering_id=catalogo.offering_grupo_01_id)
+
+    with pytest.raises(AlreadyEnrolledInCourseError) as error:
+        caso.execute(student_id=estudiante_id, course_offering_id=catalogo.offering_grupo_02_id)
+
+    assert error.value.details["enrolled_group_number"] == "01"
+
+
+@pytest.mark.integration
+def test_the_database_rejects_the_duplicate_course_even_without_the_use_case(
+    db_session: Session, catalogo: CatalogoDePrueba
+) -> None:
+    """La segunda defensa, comprobada saltándose la primera.
+
+    Es la misma filosofía que sostiene el control de cupos: el caso de uso da el mensaje y
+    PostgreSQL da la garantía. Sin este índice, dos peticiones simultáneas del mismo estudiante
+    podrían pasar la comprobación a la vez y crear el estado que el cierre no puede consolidar.
+    """
+    estudiante_id = _crear_estudiante(db_session, catalogo.program_id)
+    _caso(db_session).execute(
+        student_id=estudiante_id, course_offering_id=catalogo.offering_grupo_01_id
+    )
+
+    db_session.add(
+        EnrollmentModel(
+            id=uuid4(),
+            student_id=estudiante_id,
+            course_offering_id=catalogo.offering_grupo_02_id,
+            course_id=catalogo.calculo_i_id,
+            enrollment_period_id=catalogo.period_id,
+            status="ENROLLED",
+        )
+    )
+
+    with pytest.raises(IntegrityError):
+        db_session.flush()
+
+
+@pytest.mark.integration
+def test_changing_group_after_cancelling_is_allowed(
+    db_session: Session, catalogo: CatalogoDePrueba
+) -> None:
+    """Por eso el índice es PARCIAL: la fila cancelada no puede bloquear el cambio de grupo.
+
+    Cambiarse de grupo es la operación más normal del mundo, y con un índice total quedaría
+    prohibida para siempre en cuanto alguien se inscribiera una vez y se arrepintiera.
+    """
+    estudiante_id = _crear_estudiante(db_session, catalogo.program_id)
+    caso = _caso(db_session)
+    inscripcion = caso.execute(
+        student_id=estudiante_id, course_offering_id=catalogo.offering_grupo_01_id
+    )
+    # Se cancela directamente: lo que este test comprueba es el índice PARCIAL, no el caso de
+    # uso de cancelación, que tiene los suyos.
+    db_session.query(EnrollmentModel).filter_by(id=inscripcion.id).update(
+        {"status": "CANCELLED", "cancelled_at": datetime.now(UTC)}
+    )
+    db_session.flush()
+
+    resultado = caso.execute(
+        student_id=estudiante_id, course_offering_id=catalogo.offering_grupo_02_id
+    )
+
+    assert resultado is not None
+
+
+# ---------------------------------------------------------------------------
 # Choque de horario, con las franjas reales
 # ---------------------------------------------------------------------------
 
@@ -340,19 +426,23 @@ def test_enrolling_in_two_groups_at_different_times_is_allowed(
 def test_a_group_without_a_schedule_never_clashes(
     db_session: Session, catalogo: CatalogoDePrueba
 ) -> None:
-    # El grupo 02 de la fixture no tiene franjas publicadas.
-    materia = db_session.get(CourseModel, catalogo.calculo_i_id)
+    # El grupo del Taller se abre SIN franjas publicadas, que es lo que este test comprueba.
+    #
+    # Antes se usaba el grupo 02 de la propia Cálculo I, y ese montaje codificaba el fallo que
+    # cerró la migración `0014`: nadie puede cursar la misma materia en dos grupos. El test
+    # pasaba por el motivo equivocado —lo que lo dejaba entrar no era la ausencia de horario,
+    # sino la ausencia de la regla—. Con otra materia se comprueba lo que dice su nombre.
+    materia = db_session.get(CourseModel, catalogo.taller_id)
     assert materia is not None
 
     estudiante_id = _crear_estudiante(db_session, catalogo.program_id)
+    sin_horario = _ofrecer(db_session, catalogo, catalogo.taller_id)
     caso = _caso(db_session)
     caso.execute(student_id=estudiante_id, course_offering_id=catalogo.offering_grupo_01_id)
 
-    resultado = caso.execute(
-        student_id=estudiante_id, course_offering_id=catalogo.offering_grupo_02_id
-    )
+    resultado = caso.execute(student_id=estudiante_id, course_offering_id=sin_horario)
 
-    assert resultado.group_number == "02"
+    assert resultado.group_number == "01"
 
 
 # ---------------------------------------------------------------------------

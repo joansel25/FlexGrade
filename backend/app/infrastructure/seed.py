@@ -709,6 +709,7 @@ def _sembrar_inscripciones(
                     id=uuid4(),
                     student_id=estudiante.id,
                     course_offering_id=grupo.id,
+                    course_id=grupo.course_id,
                     enrollment_period_id=periodo.id,
                     status="ENROLLED",
                     final_grade=nota if califica else None,

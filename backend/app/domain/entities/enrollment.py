@@ -22,6 +22,9 @@ class Enrollment:
         id: identificador único de la inscripción.
         student_id: estudiante inscrito.
         course_offering_id: grupo en el que se inscribió.
+        course_id: materia de ese grupo. Se guarda junto al grupo, y no se deduce de él, porque
+            la regla «una materia, un grupo por período» se comprueba sobre la MATERIA y la
+            base necesita el dato en la propia fila para poder garantizarla (migración `0014`).
         enrollment_period_id: ventana de matrícula en la que ocurrió.
         status: estado actual.
         enrolled_at: instante de la inscripción.
@@ -36,6 +39,7 @@ class Enrollment:
     id: UUID
     student_id: UUID
     course_offering_id: UUID
+    course_id: UUID
     enrollment_period_id: UUID
     status: EnrollmentStatus = EnrollmentStatus.ENROLLED
     enrolled_at: datetime | None = field(default=None)
@@ -71,6 +75,7 @@ class Enrollment:
         *,
         student_id: UUID,
         course_offering_id: UUID,
+        course_id: UUID,
         enrollment_period_id: UUID,
     ) -> Enrollment:
         """Crea una inscripción nueva, ya activa.
@@ -87,6 +92,7 @@ class Enrollment:
         Args:
             student_id: estudiante que se inscribe.
             course_offering_id: grupo elegido.
+            course_id: materia de ese grupo.
             enrollment_period_id: ventana de matrícula vigente.
 
         Returns:
@@ -96,6 +102,7 @@ class Enrollment:
             id=uuid4(),
             student_id=student_id,
             course_offering_id=course_offering_id,
+            course_id=course_id,
             enrollment_period_id=enrollment_period_id,
             status=EnrollmentStatus.ENROLLED,
         )

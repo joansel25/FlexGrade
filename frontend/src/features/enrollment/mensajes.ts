@@ -67,6 +67,16 @@ export function mensajeDeInscripcion(error: unknown): MensajeDeInscripcion {
     };
   }
 
+  if (error.is("ALREADY_ENROLLED_IN_COURSE")) {
+    return {
+      titulo: "Ya estás cursando esta materia",
+      // Se nombra el grupo que ya tiene y se dice el camino de salida. «Ya la cursas» a secas
+      // deja a la persona buscando dónde, y creyendo que el sistema se equivocó.
+      detalle: describirGrupoOcupado(error.details),
+      refrescarCupos: false,
+    };
+  }
+
   if (error.is("SCHEDULE_CONFLICT")) {
     return {
       titulo: "El horario choca con otra materia",
@@ -271,5 +281,21 @@ function describirEspera(details: Record<string, unknown>): string {
   return (
     `Hiciste demasiadas operaciones seguidas. Espera ${segundos} segundos y vuelve a ` +
     "intentarlo; tu inscripción anterior no se perdió."
+  );
+}
+
+/** Dice en qué grupo está ya y cómo cambiarse, que es lo único que puede hacer. */
+function describirGrupoOcupado(details: Record<string, unknown>): string {
+  const grupo = typeof details.enrolled_group_number === "string"
+    ? details.enrolled_group_number
+    : null;
+
+  if (grupo === null) {
+    return "Solo puedes cursarla en un grupo. Cancela el que tienes si quieres cambiarte.";
+  }
+
+  return (
+    `Ya la tienes inscrita en el grupo ${grupo}, y solo se puede cursar en uno. Si prefieres ` +
+    "este, cancela primero el otro desde «Mis materias»."
   );
 }

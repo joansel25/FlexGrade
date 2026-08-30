@@ -5,13 +5,18 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al implementar el RATE LIMITING, que era la última deuda de software que el
-> despliegue echaba en falta.** Antes, en la misma sesión: la 9.4 con su pantalla (Fase 9
-> COMPLETA), la migración entera de AWS a Azure (decisión 55) y el despliegue del frontend en
-> los workflows (decisión 56).
+> **Actualizada al cerrar «una materia, un grupo por período» (decisión 58), el fallo que la
+> simulación de matrícula destapó: se podía cursar la misma materia en dos grupos, y eso hacía
+> fallar entero el cierre del semestre.** Antes, en la misma sesión: el rate limiting
+> (decisión 57), la 9.4 con su pantalla (Fase 9 COMPLETA), la migración entera de AWS a Azure
+> (decisión 55) y el despliegue del frontend en los workflows (decisión 56).
 > Última verificación real: backend con `black --check`, `isort --check-only`, `mypy` (limpio
-> sobre **183 archivos**) y `pytest` (**673 tests**) en verde; frontend con `npm run lint`,
-> `type-check`, `build` y `test` (**174 tests**) en verde. Los
+> sobre **183 archivos**) y `pytest` (**679 tests**) en verde, con la migración `0014` aplicada
+> sobre la base de desarrollo; frontend con `npm run lint`, `type-check`, `build` y `test`
+> (**175 tests**) en verde.
+> **Un aviso de método:** los 4 fallos de `test_enrollment_entity.py` en la corrida intermedia
+> eran reales y del cambio —añadir `course_id` a `Enrollment.create` dejó atrás las cuatro
+> llamadas de ese archivo—. `mypy` no los vio porque los tests no entran en `mypy app`. Los
 > cuatro workflows de despliegue vuelven a ser YAML válido. El expediente se comprobó además
 > **contra la API real** con `estudiante01@tdea.edu.co` del seed: las notas llegan como cadena
 > (`"3.60"`), y el ponderado del semestre (`3.60`) NO coincide con la media simple (`3.52`),
@@ -409,6 +414,52 @@ donde importa.
     `rate_limit_enabled=True` al construir `Settings`, y los de integración con
     `dependency_overrides`. Los de integración además BORRAN las claves antes y después, porque
     la ventana dura un minuto real y sin eso el siguiente test hereda el contador agotado.
+58. **Una materia, un grupo por período — y se garantiza con DOS defensas, como el sobrecupo.**
+    **Lo encontró la primera QA MANUAL, no un test**, y ese es el dato que más pesa: llevaba ahí
+    desde siempre con 673 pruebas en verde. El sistema dejaba inscribirse en dos grupos de la
+    MISMA materia. Lo permitía de punta a
+    punta: el caso de uso comprobaba el duplicado por GRUPO (`find_by_student_and_offering`) y
+    la restricción de la base era `UNIQUE (student_id, course_offering_id,
+    enrollment_period_id)`, también por grupo. Nadie miraba la materia.
+
+    **Lo que estaba en juego no era el horario duplicado.** `academic_history` es único por
+    `(student_id, course_id, academic_period)`: dos grupos de la misma materia producen dos
+    filas idénticas al consolidar, y el cierre del semestre —la única operación irreversible del
+    sistema— falla entero. Se podía crear un estado del que no había salida.
+
+    **Por qué pasó desapercibido tanto tiempo:** dos grupos de la misma materia suelen cruzarse
+    en el horario, y el detector de choques los rechazaba por el motivo equivocado. Cuando no se
+    cruzaban —el 01 el lunes y el 02 el martes— no los rechazaba nadie. Por eso
+    `_validar_materia_no_repetida` va ANTES del detector de choques y hay un test que fija ese
+    orden: si volviera atrás, el fallo reaparecería disfrazado de mensaje correcto.
+
+    **DOS TESTS EXISTENTES CODIFICABAN EL FALLO**, y es lo que explica que sobreviviera tanto:
+    uno de reportes tenía a la misma estudiante en los dos grupos de Cálculo I como dato de
+    partida, y `test_a_group_without_a_schedule_never_clashes` montaba exactamente el estado
+    prohibido —así que pasaba por el motivo equivocado: lo que lo dejaba entrar no era la
+    ausencia de horario, sino la ausencia de la regla—. Los dos se corrigieron conservando su
+    intención. Un test que da por buena una situación imposible no protege: la documenta.
+
+    - **`enrollments.course_id` es una copia deliberada**, como `schedule_blocks
+      .enrollment_period_id`. Un índice único solo mira columnas de su tabla y la materia vivía
+      solo en `course_offerings`. La clave foránea COMPUESTA contra `course_offerings (id,
+      course_id)` impide que la copia mienta.
+    - **El índice es PARCIAL sobre las activas** (`WHERE status = 'ENROLLED'`). Cancelar un
+      grupo y tomar otro de la misma materia es legítimo y frecuente; sin el `WHERE`, la fila
+      cancelada bloquearía esa materia para siempre.
+    - **La validación excluye el grupo que se está inscribiendo**, y no es un detalle:
+      reinscribirse tras cancelar REACTIVA la fila existente, y eso ocurre antes de validar. Sin
+      la exclusión, el estudiante chocaría contra su propia inscripción recién reactivada y
+      volver a un grupo abandonado sería imposible.
+    - **`ALREADY_ENROLLED_IN_COURSE` es un código propio, no `ALREADY_ENROLLED`.** Las dos dicen
+      «ya estás inscrito» y se corrigen distinto: aquella no exige hacer nada —ya está donde
+      quería— y esta obliga a cancelar el otro grupo. Los `details` llevan el número del grupo
+      que ya ocupa, porque «ya la cursas» a secas deja a la persona buscándolo.
+    - **La migración `0014` CANCELA las filas que ya violaban la regla, no las borra**: cancelar
+      es como este sistema deshace una inscripción y deja rastro. Conserva la más antigua —la
+      que la persona eligió primero— y devuelve el cupo al grupo, que si no quedaría descontado
+      para nadie. El `downgrade` no las restaura: no hay forma de distinguirlas de las que
+      canceló una persona.
 
 ## 4. Qué está construido
 

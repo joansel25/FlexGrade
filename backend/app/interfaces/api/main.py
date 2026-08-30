@@ -58,6 +58,7 @@ from app.domain.exceptions.catalog import (
 )
 from app.domain.exceptions.enrollment import (
     AlreadyEnrolledError,
+    AlreadyEnrolledInCourseError,
     CannotGradeCancelledEnrollmentError,
     CapacityExceededError,
     CorequisiteDependencyError,
@@ -192,6 +193,10 @@ _MAPEO_ERRORES: dict[type[DomainError], tuple[int, str]] = {
     EnrollmentPeriodInactiveError: (409, "ENROLLMENT_PERIOD_INACTIVE"),
     CapacityExceededError: (409, "COURSE_CAPACITY_EXCEEDED"),
     AlreadyEnrolledError: (409, "ALREADY_ENROLLED"),
+    # Código propio y no el de arriba: las dos dicen «ya estás inscrito» y se corrigen distinto.
+    # Aquella no exige hacer nada —ya está donde quería—; esta obliga a cancelar el grupo que
+    # ya tiene. Compartir código dejaría a la persona sin saber cuál de las dos es la suya.
+    AlreadyEnrolledInCourseError: (409, "ALREADY_ENROLLED_IN_COURSE"),
     PrerequisitesNotMetError: (409, "PREREQUISITES_NOT_MET"),
     CorequisitesNotMetError: (409, "COREQUISITES_NOT_MET"),
     # La cara inversa: cancelar dejaría inscrita una materia sin el correquisito que

@@ -59,6 +59,29 @@ class AlreadyEnrolledError(DomainError):
         )
 
 
+class AlreadyEnrolledInCourseError(DomainError):
+    """El estudiante ya cursa esta materia en otro grupo del período vigente.
+
+    **Separada de `AlreadyEnrolledError` a propósito**, aunque las dos digan «ya estás
+    inscrito». Se corrigen de forma distinta: la otra no exige hacer nada —ya está donde
+    quería— y esta obliga a cancelar el grupo que ya tiene antes de poder tomar este. Un solo
+    código para las dos dejaría a la persona sin saber cuál de las dos situaciones es la suya.
+
+    Lleva el grupo que ya ocupa en `details` para que la interfaz pueda nombrarlo: «ya estás en
+    el grupo 01» es accionable, «ya cursas esta materia» obliga a ir a buscarlo.
+    """
+
+    def __init__(self, course_id: UUID, enrolled_offering_id: UUID, group_number: str) -> None:
+        super().__init__(
+            "Ya estás cursando esta materia en otro grupo",
+            details={
+                "course_id": str(course_id),
+                "enrolled_offering_id": str(enrolled_offering_id),
+                "enrolled_group_number": group_number,
+            },
+        )
+
+
 class PrerequisitesNotMetError(DomainError):
     """Faltan materias prerrequisito por aprobar.
 

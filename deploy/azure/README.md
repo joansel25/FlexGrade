@@ -275,3 +275,68 @@ Dos cosas que hay que configurar en el Storage y que no se descubren solas:
 
 El **rollback del frontend no existe**: el despliegue sobrescribe los archivos y no queda
 versión anterior. Recuperar una es volver a lanzar el workflow con el tag previo.
+
+## 9. Microsoft Entra External ID — las tres vías, y dónde se corta cada una
+
+El documento de la Fase I nombra Entra External ID; el código emite y valida sus propios JWT.
+La decisión sigue abierta, y esta sección existe para que quien la tome sepa lo que cuesta cada
+camino en vez de descubrirlo a mitad.
+
+**Lo primero, porque cambia la conversación:** el puerto `AuthService` está diseñado para un
+sistema que EMITE tokens —tiene `create_token`, `hash` y `verify`—. Con Entra, Entra emite los
+tokens y guarda las contraseñas, y el backend solo los valida. Tres de los cuatro métodos dejan
+de tener sentido. No es sustituir una pieza: es cambiar quién manda en la autenticación.
+
+| Vía | En Azure | En el código | ¿Encaja con el frontend separado? |
+|---|---|---|---|
+| Dejarlo como está | — | — | Sí |
+| App Service Authentication («Easy Auth») | ~1 h en el portal | ~1 día | Con fricción, ver abajo |
+| Entra completo en el código | ~2 h | 3–5 días | Sí |
+
+### 9.1 Easy Auth: lo que hace la plataforma y lo que no
+
+Se activa en el portal (**Authentication → Add identity provider → Microsoft**). App Service
+intercepta la petición ANTES de que llegue al contenedor: valida el token, rechaza a quien no
+esté autenticado y pasa la identidad ya verificada en la cabecera
+`X-MS-CLIENT-PRINCIPAL`. Se ahorra lo más técnico —firmas, descarga de claves públicas,
+expiración—, que lo hace la plataforma.
+
+Tres cosas que NO resuelve:
+
+- **Autentica, no autoriza.** Entra dice «este es Juan»; que Juan sea `ADMIN` está en la tabla
+  `users` de este sistema. El código sigue teniendo que leer la cabecera, buscar al usuario y
+  decidir. Hace falta además una columna `external_id` en `users`: hoy la identidad es el UUID
+  propio, y pasaría a ser el `oid` que emite Entra.
+- **Hay que excluir `/health`.** Si Easy Auth protege todo, el Application Gateway sondea
+  `/health`, recibe un redirect a la pantalla de inicio de sesión y da la instancia por caída.
+  Se configura con `excludedPaths`, sin tocar código, pero olvidarlo tumba el servicio entero y
+  el síntoma no señala a la autenticación por ningún lado.
+- **Easy Auth funciona con COOKIES, y aquí el frontend vive en otro dominio.** Los archivos
+  estáticos se sirven desde Azure Storage a través de Front Door, y la API desde App Service:
+  una cookie entre dominios distintos es una cookie de terceros, y los navegadores las bloquean
+  por defecto. Es exactamente la razón por la que este proyecto descartó la cookie `httpOnly`
+  y guarda el access token en memoria (`frontend/src/features/auth/tokenStorage.ts`).
+
+  Easy Auth brilla cuando la MISMA App Service sirve la web y la API. En una SPA separada,
+  encaja mal.
+
+### 9.2 La salida que no es obvia
+
+Servir el frontend **desde el propio App Service** en vez de desde Storage haría que Easy Auth
+funcionara casi sin código: mismo dominio, la cookie funciona, y de paso desaparece el problema
+de CORS. El precio es alejarse del diagrama de la Fase I —que pone el frontend en Storage +
+Front Door— y perder que los archivos estáticos se sirvan desde el borde.
+
+### 9.3 Si se va a la vía completa, el radio de daño
+
+- **Backend:** adaptador que valida contra el JWKS de Entra; `POST /auth/login` y
+  `/auth/refresh` DESAPARECEN —el navegador va a Entra, no a esta API—; `users.external_id`; el
+  seed deja de crear contraseñas y las cuentas de prueba se crean en el tenant.
+- **Frontend:** MSAL y flujo de redirección; `tokenStorage.ts` se reescribe entero; `RequireAuth`
+  y el cliente HTTP cambian de fuente de token.
+- **Tests:** 13 de los 52 archivos del backend autentican, y 25 del frontend tocan tokens.
+  Todos obtienen hoy el token llamando a `/auth/login`, que dejaría de existir.
+
+**El orden importa:** si se hace, se hace DESPUÉS de tener Azure funcionando. Depurar
+autenticación federada contra una infraestructura que todavía no existe es depurar dos cosas a
+la vez.
