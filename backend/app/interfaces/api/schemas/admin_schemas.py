@@ -46,7 +46,15 @@ class CreateEnrollmentPeriodSchema(BaseModel):
 
 
 class EnrollmentPeriodSchema(BaseModel):
-    """Una ventana de matrícula tal como la ve la administración."""
+    """Una ventana de matrícula tal como la ve la administración.
+
+    **`consolidated_at` no es decorativo.** Es lo que distingue un semestre ya cerrado de uno
+    que todavía se puede cerrar, y la interfaz decide con él si ofrece la consolidación. Faltaba
+    en este schema, y la consecuencia no era estética: al llegar el campo AUSENTE en vez de
+    `null`, la comprobación `consolidated_at === null` del frontend daba falso para todos los
+    períodos y el botón de cerrar el semestre NUNCA aparecía. Consolidar desde la interfaz era
+    imposible, y encima cada ventana anunciaba «Semestre cerrado el Invalid Date».
+    """
 
     id: UUID
     code: str
@@ -55,6 +63,10 @@ class EnrollmentPeriodSchema(BaseModel):
     starts_at: datetime
     ends_at: datetime
     is_active: bool
+    consolidated_at: datetime | None = Field(
+        default=None,
+        description="Instante en que el semestre se consolidó, o null si sigue abierto",
+    )
 
 
 class CreateCourseSchema(BaseModel):

@@ -461,6 +461,35 @@ donde importa.
       para nadie. El `downgrade` no las restaura: no hay forma de distinguirlas de las que
       canceló una persona.
 
+59. **Un campo AUSENTE no es lo mismo que `null`, y TypeScript no lo ve.** Segundo hallazgo de
+    la QA manual. `GET /admin/enrollment-periods` no devolvía `consolidated_at`, pero el tipo
+    del frontend lo declaraba: en ejecución llegaba `undefined`, y `consolidated_at === null`
+    daba FALSO para todos los períodos.
+
+    Las consecuencias fueron dos, y la segunda no es cosmética:
+
+    - Cada ventana anunciaba «Semestre cerrado el Invalid Date», incluida una recién creada.
+      `new Date(undefined).toLocaleString()` devuelve esa cadena y se pinta tal cual: no lanza,
+      no avisa, y quien la ve no distingue un dato corrupto de un fallo de la aplicación.
+    - **El botón de cerrar el semestre no aparecía NUNCA**, porque su condición era
+      `!is_active && consolidated_at === null`. Consolidar desde la interfaz era imposible.
+
+    **El doble de MSW sí declaraba el campo**, y por eso ningún test lo vio: decía una verdad
+    que el servidor no decía. Un doble más correcto que el original no protege, engaña. Ahora
+    hay un test que sirve el período SIN el campo, a propósito.
+
+    Se arregla en los dos lados y los dos hacen falta: el backend lo devuelve —era el origen—, y
+    el frontend comprueba con `== null`, declara el `undefined` en el tipo para que el
+    compilador exija tratarlo, y formatea las fechas con una función que dice «no se pudo leer»
+    en vez de pintar «Invalid Date».
+
+60. **El seed era idempotente solo dentro de una misma ejecución.** Lo destapó el índice de la
+    decisión 58, no una prueba: `_sembrar_inscripciones` llevaba en memoria quién estaba ya en
+    cada materia, así que la SEGUNDA pasada empezaba sin saber nada de la primera y bastaba con
+    que el reparto cambiara un poco para elegir a alguien que ya estaba en otro grupo de esa
+    materia. Ahora arranca leyendo las inscripciones activas del período. La idempotencia se
+    apoya en el estado persistido, nunca en el de la ejecución en curso.
+
 ## 4. Qué está construido
 
 | Fase | Estado | Endpoints |

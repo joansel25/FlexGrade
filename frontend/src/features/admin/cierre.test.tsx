@@ -42,6 +42,76 @@ async function tarjetaDe(codigo: string) {
 }
 
 describe("cierre del semestre", () => {
+  it("sobrevive a un período que llega SIN el campo consolidated_at", async () => {
+    // Es el hallazgo #2 de la QA manual, fijado aquí para que no vuelva. El backend no devolvía
+    // `consolidated_at` en el listado: llegaba AUSENTE, no `null`, y TypeScript no podía verlo
+    // porque el tipo afirmaba lo contrario. Las consecuencias fueron dos y ninguna cosmética:
+    // `consolidated_at === null` daba falso para TODAS las ventanas, así que el botón de cerrar
+    // no aparecía nunca —consolidar desde la interfaz era imposible— y encima cada una anunciaba
+    // «Semestre cerrado el Invalid Date».
+    //
+    // El doble de MSW sí declaraba el campo, y por eso ningún test lo vio: decía una verdad que
+    // el servidor no decía. Este test hace lo contrario a propósito.
+    server.use(
+      http.get(`${API_URL}/api/v1/admin/enrollment-periods`, () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: "sin-campo",
+              code: "2026-1-V1",
+              academic_period: "2026-1",
+              name: "Ventana sin el campo",
+              starts_at: "2026-01-10T08:00:00Z",
+              ends_at: "2026-01-20T23:59:00Z",
+              is_active: false,
+            },
+          ],
+          total: 1,
+          page: 1,
+          size: 50,
+        }),
+      ),
+    );
+    montarPeriodos();
+
+    expect(
+      await screen.findByRole("button", { name: "Cerrar el semestre 2026-1-V1" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Invalid Date/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Semestre cerrado el/)).not.toBeInTheDocument();
+  });
+
+  it("dice que la fecha no se pudo leer en vez de pintar «Invalid Date»", async () => {
+    // `new Date(x).toLocaleString()` devuelve la cadena «Invalid Date» ante cualquier entrada
+    // que no sepa leer, y se pinta tal cual: no lanza, no avisa, y quien la ve no distingue un
+    // dato corrupto de un fallo de la aplicación.
+    server.use(
+      http.get(`${API_URL}/api/v1/admin/enrollment-periods`, () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: "fecha-rota",
+              code: "2026-1-V1",
+              academic_period: "2026-1",
+              name: "Ventana con fecha ilegible",
+              starts_at: "2026-01-10T08:00:00Z",
+              ends_at: "2026-01-20T23:59:00Z",
+              is_active: false,
+              consolidated_at: "no-es-una-fecha",
+            },
+          ],
+          total: 1,
+          page: 1,
+          size: 50,
+        }),
+      ),
+    );
+    montarPeriodos();
+
+    expect(await screen.findByText(/no se pudo leer/)).toBeInTheDocument();
+    expect(screen.queryByText(/Invalid Date/)).not.toBeInTheDocument();
+  });
+
   it("no ofrece cerrar la ventana que está activa", async () => {
     // El servidor lo rechaza con PERIOD_STILL_OPEN. Ofrecerlo llevaría a un rechazo que la
     // pantalla ya podía evitar.

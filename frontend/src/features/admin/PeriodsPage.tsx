@@ -247,16 +247,22 @@ function FilaDePeriodo({ periodo }: { periodo: EnrollmentPeriod }) {
           )}
         </div>
 
-        {periodo.consolidated_at !== null && (
+        {/* `!= null` y no `!== null`: cubre también el campo AUSENTE. Cuando el backend no lo
+            devolvía, la comprobación estricta daba verdadero para TODAS las ventanas y cada una
+            anunciaba «Semestre cerrado el Invalid Date», incluida la recién creada. */}
+        {periodo.consolidated_at != null && (
           <p className="text-ink-500 text-xs">
-            Semestre cerrado el {new Date(periodo.consolidated_at).toLocaleString("es-CO")}. Sus
-            notas están en el historial académico.
+            Semestre cerrado el {formatearFecha(periodo.consolidated_at)}. Sus notas están en el
+            historial académico.
           </p>
         )}
 
         {/* Cerrar solo tiene sentido en una ventana que ya no está activa y no se ha cerrado.
             Ofrecerlo antes llevaría a un rechazo que la pantalla ya puede evitar. */}
-        {!periodo.is_active && periodo.consolidated_at === null && (
+        {/* La otra mitad del mismo fallo, y la que de verdad dolía: con el campo ausente esto
+            daba SIEMPRE falso y el botón de cerrar el semestre no aparecía nunca. Consolidar
+            desde la interfaz era imposible. */}
+        {!periodo.is_active && periodo.consolidated_at == null && (
           <div className="border-ink-100 border-t pt-3">
             {cierre.isSuccess ? (
               <Alert tono="exito" titulo="Semestre cerrado">
@@ -326,4 +332,17 @@ function ListaCargando() {
       ))}
     </ul>
   );
+}
+
+/**
+ * Presenta una fecha del servidor, o dice que no se sabe.
+ *
+ * `new Date(x).toLocaleString()` devuelve la cadena «Invalid Date» ante cualquier entrada que no
+ * sepa leer, y esa cadena se pinta tal cual: no lanza, no avisa, y quien la ve no puede
+ * distinguir un dato corrupto de un fallo de la aplicación.
+ */
+function formatearFecha(valor: string): string {
+  const fecha = new Date(valor);
+
+  return Number.isNaN(fecha.getTime()) ? "una fecha que no se pudo leer" : fecha.toLocaleString("es-CO");
 }

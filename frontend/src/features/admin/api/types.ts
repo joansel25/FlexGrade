@@ -69,8 +69,15 @@ export interface EnrollmentPeriod {
    *
    * Es una FECHA y no un booleano porque lo primero que se pregunta cuando alguien reclama una
    * nota es si el cierre fue antes o después de que la corrigieran.
+   *
+   * **`undefined` está en el tipo a propósito.** Durante un tiempo el backend no devolvía este
+   * campo en el listado: llegaba AUSENTE, no `null`, y TypeScript no podía verlo porque el tipo
+   * afirmaba lo contrario. El resultado fue silencioso y grave —`consolidated_at === null` daba
+   * falso para todos los períodos, el botón de cerrar el semestre nunca aparecía y cada ventana
+   * anunciaba «Semestre cerrado el Invalid Date»—. Declararlo obliga a comprobarlo con `== null`
+   * y a que el compilador exija tratar el caso.
    */
-  consolidated_at: string | null;
+  consolidated_at: string | null | undefined;
 }
 
 /** Resumen de un cierre de período. */

@@ -279,6 +279,28 @@ def test_the_listing_returns_the_paginated_envelope(
 
 
 @pytest.mark.integration
+def test_the_listing_carries_consolidated_at(client: TestClient, admin: dict[str, str]) -> None:
+    """El listado tiene que decir si el semestre ya se cerró, y faltaba.
+
+    Es el hallazgo #2 de la QA manual. El campo no viajaba en este listado, así que llegaba
+    AUSENTE en vez de `null` y la interfaz —que comprobaba `consolidated_at === null`— daba
+    falso para TODAS las ventanas: el botón de cerrar el semestre no aparecía nunca y cada una
+    anunciaba «Semestre cerrado el Invalid Date».
+
+    El test se escribe sobre la CLAVE y no sobre su valor: lo que fallaba era que la clave no
+    estuviera, y un `assert cuerpo[...] is None` habría pasado igual con el campo ausente si se
+    hubiera usado `.get()`.
+    """
+    _crear(client, admin, "2026-1-V1")
+
+    periodo = client.get(RUTA, headers=admin).json()["items"][0]
+
+    assert "consolidated_at" in periodo
+    # Recién creada: abierta, y por tanto sin fecha de cierre.
+    assert periodo["consolidated_at"] is None
+
+
+@pytest.mark.integration
 def test_the_listing_comes_newest_first(client: TestClient, admin: dict[str, str]) -> None:
     # Quien consulta busca casi siempre la ventana en curso o la siguiente, no la de hace años.
     client.post(RUTA, json=_cuerpo("VIEJA", dias_hasta_apertura=1), headers=admin)

@@ -133,6 +133,7 @@ def _a_schema(periodo: EnrollmentPeriod) -> EnrollmentPeriodSchema:
         starts_at=periodo.starts_at,
         ends_at=periodo.ends_at,
         is_active=periodo.is_active,
+        consolidated_at=periodo.consolidated_at,
     )
 
 

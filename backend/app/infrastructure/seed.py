@@ -660,10 +660,27 @@ def _sembrar_inscripciones(
     planes = {(fila.program_id, fila.course_id) for fila in session.query(ProgramCourseModel).all()}
     creadas = 0
     # Quién está ya inscrito en cada MATERIA. Sin esto, alguien acabaría en los dos grupos de
-    # Cálculo I: cada grupo elegiría a los primeros candidatos por su cuenta. Es un dato que el
-    # propio sistema rechaza al inscribir —no se puede estar en dos grupos de la misma materia—
-    # y que al consolidar rompía el `UNIQUE` del historial.
+    # Cálculo I: cada grupo elegiría a los primeros candidatos por su cuenta. Es lo que el
+    # sistema rechaza al inscribir desde la migración `0014` —una materia, un grupo por
+    # período—, y lo que antes rompía el `UNIQUE` del historial al consolidar.
+    #
+    # **Se arranca con lo que YA HAY EN LA BASE, no con un diccionario vacío.** El seed es
+    # idempotente y se ejecuta más de una vez; llevar la cuenta solo en memoria hacía que la
+    # segunda pasada no supiera nada de la primera, y bastaba con que el reparto cambiara un
+    # poco —porque `enrolled_count` ya no era el mismo— para elegir a alguien que la pasada
+    # anterior había puesto en otro grupo de esa materia. La idempotencia tiene que apoyarse en
+    # el estado persistido, no en el de la ejecución en curso.
     ya_en_la_materia: dict[uuid_type, set[uuid_type]] = {}
+
+    for fila in (
+        session.query(EnrollmentModel.course_id, EnrollmentModel.student_id)
+        .filter(
+            EnrollmentModel.enrollment_period_id == periodo.id,
+            EnrollmentModel.status == "ENROLLED",
+        )
+        .all()
+    ):
+        ya_en_la_materia.setdefault(fila.course_id, set()).add(fila.student_id)
 
     for indice, grupo in enumerate(grupos):
         inscritos_en_la_materia = ya_en_la_materia.setdefault(grupo.course_id, set())
