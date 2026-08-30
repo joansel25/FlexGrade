@@ -483,12 +483,47 @@ donde importa.
     compilador exija tratarlo, y formatea las fechas con una función que dice «no se pudo leer»
     en vez de pintar «Invalid Date».
 
-60. **El seed era idempotente solo dentro de una misma ejecución.** Lo destapó el índice de la
-    decisión 58, no una prueba: `_sembrar_inscripciones` llevaba en memoria quién estaba ya en
-    cada materia, así que la SEGUNDA pasada empezaba sin saber nada de la primera y bastaba con
-    que el reparto cambiara un poco para elegir a alguien que ya estaba en otro grupo de esa
-    materia. Ahora arranca leyendo las inscripciones activas del período. La idempotencia se
-    apoya en el estado persistido, nunca en el de la ejecución en curso.
+60. **Ser idempotente son DOS promesas, y el seed solo cumplía media.** Lo destapó el índice de
+    la decisión 58.
+
+    La primera: **no duplicar**. `_sembrar_inscripciones` llevaba en memoria quién estaba ya en
+    cada materia, así que la SEGUNDA pasada empezaba sin saber nada de la primera y podía
+    elegir a alguien que ya estaba en otro grupo de esa materia. Ahora arranca leyendo las
+    inscripciones activas del período: la idempotencia se apoya en el estado persistido, nunca
+    en el de la ejecución en curso.
+
+    La segunda: **no pisar lo que ya existe**. Arreglar la primera rompió esta, y el test lo
+    cazó. Al excluir de los candidatos a quien ya cursaba la materia, quedaban menos, y el seed
+    reescribía `enrolled_count` con ese número menor —borrando el cupo que alguien hubiera
+    puesto a mano para probar algo—. Ahora **un grupo que ya tiene inscripciones no se toca**:
+    ni se le añaden más ni se le reescribe el contador. Perder el estado de una prueba en curso
+    por ejecutar un comando de rutina es lo que hace que la gente deje de confiar en la
+    herramienta.
+
+    La comprobación por `(student, offering, period)` sigue haciendo falta aunque el grupo no
+    tenga inscripciones ACTIVAS: puede tener canceladas, y el `UNIQUE` por grupo las cuenta.
+
+61. **La barra de navegación y los accesos de inicio salen de UNA lista** (`app/destinos.ts`).
+    Tercer hallazgo de la QA manual, y el que más veces se había repetido: cuando eran dos
+    listas divergieron dos veces. Al añadir «Expediente» solo se tocó la barra; y —más grave—
+    los accesos de inicio NUNCA filtraron por rol, así que un administrador veía las cinco
+    pantallas del estudiante y al pulsar cualquiera recibía `STUDENT_PROFILE_NOT_FOUND`, un
+    error que parece del sistema y es del menú. La barra filtraba desde la Fase 9; la pantalla
+    de inicio se quedó atrás.
+
+    La lista guarda el destino, el orden, los roles y los DOS textos: `etiqueta` para la barra,
+    que va en una fila, y `titulo` más `descripcion` para las tarjetas, que pueden explicar. Los
+    textos son distintos a propósito; lo que no puede divergir es a dónde se va y quién lo ve.
+
+    Dos arreglos que venían con el mismo hallazgo:
+
+    - **El subtítulo de la pantalla de inicio depende del rol.** «Inscribe tus materias, revisa
+      tu horario y descarga tu comprobante» era el único, y a quien administra le describe un
+      trabajo que no es el suyo.
+    - **`useProfile` solo pregunta si el rol es STUDENT.** `GET /students/me` responde 404 a
+      cualquier otro, así que cada carga de un administrador gastaba una petición para recibir
+      un error previsible. No rompía nada —por eso pasó desapercibido—: era ruido silencioso
+      del que solo se entera quien mira la consola del navegador.
 
 ## 4. Qué está construido
 

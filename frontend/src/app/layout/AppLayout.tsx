@@ -16,8 +16,7 @@
 import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 
-import type { UserRole } from "@/features/auth/api/types";
-
+import { destinosDe } from "@/app/destinos";
 import { UserMenu } from "@/features/auth/components/UserMenu";
 import { useAuth } from "@/features/auth/useAuth";
 import { cn } from "@/lib/cn";
@@ -26,47 +25,12 @@ interface AppLayoutProps {
   children: ReactNode;
 }
 
-/**
- * Enlaces de la navegación principal.
- *
- * `roles` vacío significa «visible siempre, con o sin sesión». Filtrar por
- * rol y no solo por «hay sesión» dejó de ser un adorno en la Fase 9: un docente tiene sesión y
- * no tiene plan, ni catálogo que inscribir, ni materias propias. Ofrecerle esos enlaces le
- * llevaría a pantallas que responden `STUDENT_PROFILE_NOT_FOUND`, y el error parecería del
- * sistema y no del menú.
- *
- * El orden sigue el recorrido de una matrícula: primero lo que puedo cursar en la carrera, luego
- * lo que se ofrece este período, después lo inscrito y por último cuándo asistir. Lo de cada rol
- * va al final, porque es de pocos.
- */
-// Anotado y no `as const`: con `as const`, `roles` sería una tupla distinta en cada entrada y
-// el `includes` de abajo se estrecharía a `never`. Lo que importa aquí es que los roles sean
-// válidos, no que la lista sea inmutable.
-const NAVEGACION: readonly { a: string; etiqueta: string; roles: readonly UserRole[] }[] = [
-  { a: "/", etiqueta: "Inicio", roles: [] },
-  { a: "/plan", etiqueta: "Mi plan", roles: ["STUDENT"] },
-  { a: "/catalogo", etiqueta: "Catálogo", roles: ["STUDENT"] },
-  { a: "/mis-materias", etiqueta: "Mis materias", roles: ["STUDENT"] },
-  { a: "/horario", etiqueta: "Horario", roles: ["STUDENT"] },
-  // El expediente cierra el recorrido: es lo ya cursado, mientras que todo lo anterior mira al
-  // semestre en curso.
-  { a: "/expediente", etiqueta: "Expediente", roles: ["STUDENT"] },
-  { a: "/docencia", etiqueta: "Mis grupos", roles: ["PROFESSOR"] },
-  { a: "/admin", etiqueta: "Administración", roles: ["ADMIN"] },
-];
-
 export function AppLayout({ children }: AppLayoutProps) {
   const { estado, usuario } = useAuth();
-  const haySesion = estado === "autenticado";
-  const enlaces = NAVEGACION.filter((enlace) => {
-    if (enlace.roles.length === 0) {
-      return true;
-    }
-
-    // Con sesión pero sin cuenta resuelta todavía —la ventana entre el refresco y su
-    // respuesta— no se pinta nada de rol: aparecer y desaparecer se lee como un parpadeo.
-    return haySesion && usuario !== null && enlace.roles.includes(usuario.role);
-  });
+  // Los destinos salen de `app/destinos.ts`, la MISMA lista que usan los accesos de la pantalla
+  // de inicio. Cuando eran dos listas divergieron dos veces, y una de esas veces dejó a los
+  // administradores viendo las cinco pantallas del estudiante.
+  const enlaces = destinosDe(estado === "autenticado" ? (usuario?.role ?? null) : null);
 
   return (
     <div className="flex min-h-screen flex-col">

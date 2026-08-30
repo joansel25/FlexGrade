@@ -671,9 +671,19 @@ def _sembrar_inscripciones(
     # anterior había puesto en otro grupo de esa materia. La idempotencia tiene que apoyarse en
     # el estado persistido, no en el de la ejecución en curso.
     ya_en_la_materia: dict[uuid_type, set[uuid_type]] = {}
+    # Cuántas inscripciones activas tiene ya cada GRUPO. Es lo que distingue un grupo por
+    # sembrar de uno ya sembrado, y sin esa distinción el seed reescribía `enrolled_count` en
+    # cada pasada: si alguien había cambiado un cupo a mano para probar algo, el comando de
+    # rutina se lo revertía. Perder el estado de una prueba en curso por ejecutar algo
+    # rutinario es exactamente lo que hace que la gente deje de confiar en la herramienta.
+    ya_en_el_grupo: dict[uuid_type, int] = {}
 
     for fila in (
-        session.query(EnrollmentModel.course_id, EnrollmentModel.student_id)
+        session.query(
+            EnrollmentModel.course_id,
+            EnrollmentModel.student_id,
+            EnrollmentModel.course_offering_id,
+        )
         .filter(
             EnrollmentModel.enrollment_period_id == periodo.id,
             EnrollmentModel.status == "ENROLLED",
@@ -681,8 +691,18 @@ def _sembrar_inscripciones(
         .all()
     ):
         ya_en_la_materia.setdefault(fila.course_id, set()).add(fila.student_id)
+        ya_en_el_grupo[fila.course_offering_id] = ya_en_el_grupo.get(fila.course_offering_id, 0) + 1
 
     for indice, grupo in enumerate(grupos):
+        # Un grupo que ya tiene inscripciones NO se vuelve a tocar: ni se le añaden más ni se le
+        # reescribe el contador. Lo que ya existe se respeta, que es la otra mitad de ser
+        # idempotente.
+        sembrado = ya_en_el_grupo.get(grupo.id, 0)
+
+        if sembrado > 0:
+            creadas += sembrado
+            continue
+
         inscritos_en_la_materia = ya_en_la_materia.setdefault(grupo.course_id, set())
         candidatos = [
             estudiante
@@ -717,6 +737,8 @@ def _sembrar_inscripciones(
                 .one_or_none()
             )
 
+            # Sigue haciendo falta aunque el grupo no tenga inscripciones ACTIVAS: puede tener
+            # filas canceladas, y `uq_enrollments_student_offering_period` las cuenta.
             if existente is not None:
                 creadas += 1
                 continue

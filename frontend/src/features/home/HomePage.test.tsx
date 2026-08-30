@@ -8,14 +8,29 @@
  */
 
 import { screen, within } from "@testing-library/react";
+import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 
 import { AppRoutes } from "@/app/router";
 import { guardarRefreshToken } from "@/features/auth/tokenStorage";
+import { API_URL, USUARIO, parDeTokens } from "@/test/msw/handlers";
+import { server } from "@/test/msw/server";
 import { renderConProveedores } from "@/test/render";
 
 function montarConSesion() {
   guardarRefreshToken("refresh-de-prueba");
+  return renderConProveedores(<AppRoutes />, { ruta: "/" });
+}
+
+/** Monta la pantalla de inicio con una sesión del rol indicado. */
+function montarComo(rol: "STUDENT" | "PROFESSOR" | "ADMIN") {
+  server.use(
+    http.post(`${API_URL}/api/v1/auth/refresh`, () =>
+      HttpResponse.json({ ...parDeTokens("renovado"), user: { ...USUARIO, role: rol } }),
+    ),
+  );
+  guardarRefreshToken("refresh-de-prueba");
+
   return renderConProveedores(<AppRoutes />, { ruta: "/" });
 }
 
@@ -57,5 +72,58 @@ describe("pantalla de inicio", () => {
       "/horario",
       "/expediente",
     ]);
+  });
+
+  it("no le ofrece al admin las pantallas del estudiante", async () => {
+    // Es el hallazgo #3 de la QA manual. La barra de navegación filtraba por rol desde la Fase
+    // 9; esta pantalla se quedó atrás, así que un administrador veía los cinco accesos del
+    // estudiante y al pulsar cualquiera recibía `STUDENT_PROFILE_NOT_FOUND` — un error que
+    // parece del sistema y es del menú.
+    montarComo("ADMIN");
+    const accesos = await screen.findByRole("region", { name: "Qué quieres hacer" });
+
+    const destinos = within(accesos)
+      .getAllByRole("link")
+      .map((enlace) => enlace.getAttribute("href"));
+
+    expect(destinos).toEqual(["/admin"]);
+  });
+
+  it("le ofrece al docente sus grupos y nada del estudiante", async () => {
+    montarComo("PROFESSOR");
+    const accesos = await screen.findByRole("region", { name: "Qué quieres hacer" });
+
+    const destinos = within(accesos)
+      .getAllByRole("link")
+      .map((enlace) => enlace.getAttribute("href"));
+
+    expect(destinos).toEqual(["/docencia"]);
+  });
+
+  it("le habla a cada rol de su trabajo, no del de otro", async () => {
+    // «Inscribe tus materias, revisa tu horario y descarga tu comprobante» era el único
+    // subtítulo, y a quien administra le describe un trabajo que no es el suyo.
+    montarComo("ADMIN");
+
+    expect(await screen.findByText(/Gestiona las ventanas de matrícula/)).toBeInTheDocument();
+    expect(screen.queryByText(/Inscribe tus materias/)).not.toBeInTheDocument();
+  });
+
+  it("no le pide el perfil académico a quien no es estudiante", async () => {
+    // `GET /students/me` responde 404 a un administrador: no tiene perfil que devolver. Sin la
+    // guarda, cada carga gastaba una petición para recibir un error previsible.
+    let consultas = 0;
+    server.use(
+      http.get(`${API_URL}/api/v1/students/me`, () => {
+        consultas += 1;
+        return HttpResponse.json({ error: { code: "STUDENT_PROFILE_NOT_FOUND" } }, { status: 404 });
+      }),
+    );
+    montarComo("ADMIN");
+    await screen.findByRole("region", { name: "Qué quieres hacer" });
+
+    expect(consultas).toBe(0);
+    // Y sin perfil no se pinta la tarjeta de datos académicos, que es de estudiante.
+    expect(screen.queryByText("Tus datos académicos")).not.toBeInTheDocument();
   });
 });
