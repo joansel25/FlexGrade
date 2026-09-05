@@ -54,6 +54,35 @@ param nivelPostgres string = 'GeneralPurpose'
 @description('SKU de PostgreSQL. Tiene que corresponder con el nivel: `Standard_B1ms` para Burstable, `Standard_D2ds_v4` para GeneralPurpose.')
 param skuPostgres string = 'Standard_D2ds_v4'
 
+@description('Grupo de recursos PERSISTENTE, donde viven el ACR y el Key Vault. Nunca se destruye.')
+param grupoBase string = 'matricula-base'
+
+@description('Nombre del Key Vault persistente. Sale de la salida `keyVaultNombre` de base.bicep.')
+param nombreKeyVault string
+
+@description('Nombre del ACR persistente. Sale de la salida `acrNombre` de base.bicep.')
+param nombreAcr string
+
+@description('Servidor de inicio de sesión del ACR. Sale de la salida `acrLoginServer` de base.bicep.')
+param acrLoginServer string
+
+@description('SKU del App Service. `B1` no admite autoescalado; `S1` es el que exige la sección 5 del documento.')
+@allowed(['B1', 'S1'])
+param skuAppService string = 'S1'
+
+@description('Instancias con las que arranca la aplicación.')
+@minValue(1)
+param instanciasIniciales int = 1
+
+@description('Etiqueta de la imagen a ejecutar. El pipeline la sustituye por `dev-<sha>`.')
+param etiquetaImagen string = 'latest'
+
+@description('Orígenes autorizados por CORS. Se rellena cuando exista el frontend en Front Door.')
+param origenesCors string = ''
+
+@description('Ambiente que se reporta en /health.')
+param ambiente string = 'demo'
+
 // La alta disponibilidad se deduce del nivel en vez de recibirse aparte. Con `Burstable` y
 // `altaDisponibilidad: true` el despliegue falla a los quince minutos, después de haber creado
 // media infraestructura: es la clase de contradicción que conviene hacer imposible de expresar.
@@ -86,7 +115,61 @@ module datos 'modules/datos.bicep' = {
     skuPostgres: skuPostgres
     nivelPostgres: nivelPostgres
     altaDisponibilidad: altaDisponibilidad
+    grupoBase: grupoBase
+    nombreKeyVault: nombreKeyVault
   }
+}
+
+// ---------------------------------------------------------------------------
+// La aplicación, y el orden que hay que respetar
+// ---------------------------------------------------------------------------
+//
+// La identidad administrada no existe hasta que la aplicación se crea, y los permisos no se
+// pueden conceder antes que la identidad. Pero la configuración con las referencias al Key
+// Vault no se puede aplicar antes que los permisos, o quedan sin resolver y la aplicación
+// arranca con la cadena literal `@Microsoft.KeyVault(...)` como valor de `DATABASE_URL`.
+//
+// La cadena queda LINEAL: aplicación -> permisos -> ajustes. La primera versión intentaba
+// meter los ajustes dentro de `app.bicep` y el compilador la rechazó por un ciclo que era real.
+
+module app 'modules/app.bicep' = {
+  name: 'app'
+  params: {
+    ubicacion: ubicacion
+    prefijo: prefijo
+    sufijo: sufijo
+    skuPlan: skuAppService
+    instancias: instanciasIniciales
+    subredAppId: red.outputs.subredAppId
+    acrLoginServer: acrLoginServer
+    etiquetaImagen: etiquetaImagen
+  }
+}
+
+module permisos 'modules/permisos.bicep' = {
+  name: 'permisos'
+  scope: resourceGroup(grupoBase)
+  params: {
+    nombreKeyVault: nombreKeyVault
+    nombreAcr: nombreAcr
+    principalId: app.outputs.principalId
+  }
+}
+
+module ajustes 'modules/ajustes.bicep' = {
+  name: 'ajustes'
+  params: {
+    nombreApp: app.outputs.nombreApp
+    referenciaBaseDeDatos: datos.outputs.uriSecretoBaseDeDatos
+    referenciaRedis: datos.outputs.uriSecretoRedis
+    referenciaJwt: datos.outputs.uriSecretoJwt
+    ambiente: ambiente
+    origenesCors: origenesCors
+    etiquetaImagen: etiquetaImagen
+  }
+  // Explícito y no deducido: Bicep no puede saber que aplicar esta configuración ANTES de que
+  // el permiso exista deja las referencias al Key Vault sin resolver.
+  dependsOn: [permisos]
 }
 
 // ---------------------------------------------------------------------------
@@ -101,11 +184,15 @@ output subredAppId string = red.outputs.subredAppId
 output subredGatewayId string = red.outputs.subredGatewayId
 output ipDeSalida string = red.outputs.ipSalidaDireccion
 
+output nombreApp string = app.outputs.nombreApp
+output urlApp string = 'https://${app.outputs.hostApp}'
+output urlSalud string = 'https://${app.outputs.hostApp}/health/ready'
+output planNombre string = app.outputs.planNombre
+
 output postgresHost string = datos.outputs.postgresHost
 output baseDeDatos string = datos.outputs.baseDeDatosNombre
 output redisHost string = datos.outputs.redisHost
 output redisPuerto int = datos.outputs.redisPuertoTls
 
-// Recordatorio de cómo se arman las dos cadenas que la aplicación necesita, sin armarlas aquí.
-output plantillaDatabaseUrl string = 'postgresql+psycopg://${usuarioAdminPostgres}:<clave>@${datos.outputs.postgresHost}:5432/${datos.outputs.baseDeDatosNombre}?sslmode=require'
-output plantillaRedisUrl string = 'rediss://:<clave>@${datos.outputs.redisHost}:${datos.outputs.redisPuertoTls}/0'
+// Las cadenas de conexión NO se devuelven: las escribe `datos.bicep` directamente en el Key
+// Vault persistente. Una salida de despliegue queda en el historial del grupo de recursos.

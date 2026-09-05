@@ -48,6 +48,12 @@ param nivelPostgres string = 'GeneralPurpose'
 @description('Alta disponibilidad con réplica en otra zona. Solo se puede activar si el nivel es GeneralPurpose o superior.')
 param altaDisponibilidad bool = true
 
+@description('Grupo de recursos persistente, donde vive el Key Vault.')
+param grupoBase string
+
+@description('Nombre del Key Vault persistente.')
+param nombreKeyVault string
+
 var nombreServidor = '${prefijo}-pg-${sufijo}'
 var nombreRedis = '${prefijo}-redis-${sufijo}'
 
@@ -211,6 +217,28 @@ resource dnsDelEndpoint 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups
 }
 
 // ---------------------------------------------------------------------------
+// Las cadenas de conexión, directas al Key Vault persistente
+// ---------------------------------------------------------------------------
+//
+// Se componen AQUÍ, que es el único sitio que conoce las dos mitades: el nombre del servidor
+// recién creado y la credencial. Y se escriben en el almacén en vez de devolverse como salida,
+// porque una salida de despliegue queda en el historial del grupo de recursos y la lee
+// cualquiera con permiso de lectura.
+//
+// `listKeys` sobre Redis devuelve la clave de acceso primaria. Es la única forma de conocerla:
+// Azure la genera al crear la instancia y no se puede fijar de antemano.
+
+module secretos 'secretos.bicep' = {
+  name: 'secretos'
+  scope: resourceGroup(grupoBase)
+  params: {
+    nombreKeyVault: nombreKeyVault
+    databaseUrl: 'postgresql+psycopg://${usuarioAdmin}:${claveAdmin}@${postgres.properties.fullyQualifiedDomainName}:5432/${baseDeDatos.name}?sslmode=require'
+    redisUrl: 'rediss://:${redis.listKeys().primaryKey}@${redis.properties.hostName}:${redis.properties.sslPort}/0'
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Salidas
 // ---------------------------------------------------------------------------
 //
@@ -225,3 +253,10 @@ output baseDeDatosNombre string = baseDeDatos.name
 output redisNombre string = redis.name
 output redisHost string = redis.properties.hostName
 output redisPuertoTls int = redis.properties.sslPort
+
+// Los identificadores de los secretos, SIN versión: el App Service resuelve siempre el último
+// valor, así que tras recrear la infraestructura toma la cadena nueva sin tocar su
+// configuración.
+output uriSecretoBaseDeDatos string = secretos.outputs.uriBaseDeDatos
+output uriSecretoRedis string = secretos.outputs.uriRedis
+output uriSecretoJwt string = secretos.outputs.uriJwt

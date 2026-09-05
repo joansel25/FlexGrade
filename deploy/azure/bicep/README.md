@@ -29,9 +29,11 @@ montaje funcione una vez y a la siguiente no.
 **El ACR va fuera porque guarda las imágenes.** Si se borrara, cada sesión empezaría
 reconstruyendo y subiendo la imagen antes de que el App Service pudiera arrancar.
 
-## Qué crea `main.bicep` hoy
+## Qué se despliega
 
-Iteración A: la red y la capa de datos.
+**`base.bicep`** sobre el grupo persistente: ACR y Key Vault. Una vez y para siempre.
+
+**`main.bicep`** sobre el grupo efímero, 22 recursos:
 
 | Recurso | Detalle |
 |---|---|
@@ -40,8 +42,49 @@ Iteración A: la red y la capa de datos.
 | PostgreSQL Flexible Server | Inyectado en subred delegada, sin acceso público, con réplica en otra zona |
 | Azure Cache for Redis | Basic C0, TLS obligatorio, con punto de conexión privado |
 | Dos zonas DNS privadas | Sin ellas los nombres resuelven a direcciones públicas cerradas |
+| App Service Plan + Web App | Contenedor Linux, identidad administrada, integrado en la VNet |
+| Dos secretos en el Key Vault | `database-url` y `redis-url`, escritos en el grupo persistente |
+| Permisos | Lectura del almacén y descarga del ACR para la identidad |
 
-Pendiente: App Service (iteración B), autoescalado y Application Gateway (iteración C).
+Pendiente: autoescalado y Application Gateway (iteración C).
+
+## El orden de la aplicación, que es lo más frágil de todo
+
+    plan  ->  aplicación  ->  permisos  ->  ajustes
+
+La primera versión metía los ajustes dentro de `app.bicep` con un `dependsOn` hacia los
+permisos, y **el compilador la rechazó por un ciclo que era real**: los permisos necesitan el
+`principalId` de la identidad administrada, que no existe hasta que la aplicación se crea.
+
+Por eso los ajustes viven en `ajustes.bicep`. Y el orden importa porque las referencias
+`@Microsoft.KeyVault(SecretUri=...)` las resuelve App Service AL APLICAR la configuración: si en
+ese momento la identidad no tiene permiso, no falla — guarda la **cadena literal**
+`@Microsoft.KeyVault(...)` como valor de `DATABASE_URL`. El síntoma es un error de PostgreSQL
+sobre una URL malformada, sin mención alguna al almacén ni a los permisos.
+
+## El único secreto que Bicep NO escribe
+
+`database-url` y `redis-url` apuntan a servidores que se crean de cero cada vez, así que los
+escribe el despliegue. **`jwt-secret` no.** Es la clave con la que se firman las sesiones:
+regenerarla en cada despliegue invalidaría todos los tokens emitidos.
+
+Se crea **una sola vez**, a mano, en el grupo persistente:
+
+```bash
+az keyvault secret set --vault-name <almacen> --name jwt-secret   --value "$(openssl rand -base64 48)"
+```
+
+## Un permiso que puede faltar
+
+`permisos.bicep` concede dos cosas, y no son iguales:
+
+- **Leer secretos del Key Vault**: es una política de acceso, y basta con ser dueño del almacén.
+- **Descargar del ACR (`AcrPull`)**: es una asignación de rol, y **exige permiso de Owner o de
+  User Access Administrator sobre la suscripción**.
+
+Si el despliegue falla con `AuthorizationFailed`, esa es la causa. La salida es habilitar el
+usuario administrador del ACR y pasar sus credenciales por configuración, al precio de dejar una
+contraseña de registro donde la lee cualquiera con permiso de lectura.
 
 ## Tres cosas del documento que no se traducen literales
 
@@ -102,10 +145,14 @@ documento y el que se usa para sustentar.
 
 ## Cómo se ejecuta
 
-Los comandos van con la CLI de Azure. **La plantilla ya está validada contra Azure**: `az bicep
-build` compila los tres archivos sin advertencias, `az deployment group validate` pasa con los
-dos perfiles y `what-if` anuncia los 17 recursos esperados. Lo que todavía no se ha hecho es
-aplicarla.
+Los comandos van con la CLI de Azure. **Las plantillas ya están validadas contra Azure**:
+`az bicep build` compila los seis archivos sin advertencias, `az deployment group validate` pasa
+con los dos perfiles, y `what-if` anuncia los 22 recursos esperados. Lo que todavía no se ha
+hecho es aplicarlas.
+
+`what-if` marca como `Unsupported` la política de acceso y la asignación de rol. **No es un
+error**: son recursos cuyo nombre se calcula en tiempo de despliegue y la previsualización no
+sabe resolverlos.
 
 ```bash
 # 1. Iniciar sesión y fijar la suscripción
@@ -117,7 +164,14 @@ az provider register --namespace Microsoft.DBforPostgreSQL --wait
 az provider register --namespace Microsoft.Cache --wait
 az provider register --namespace Microsoft.Network --wait
 
-# 3. El grupo efímero
+# 3a. El grupo PERSISTENTE, una sola vez en la vida del proyecto
+az group create --name matricula-base --location centralus
+az deployment group create --resource-group matricula-base --template-file base.bicep
+
+#     y el secreto que Bicep no escribe, también una sola vez
+az keyvault secret set --vault-name <el que devolvio el paso anterior>   --name jwt-secret --value "$(openssl rand -base64 48)"
+
+# 3b. El grupo efímero
 az group create --name matricula-demo --location centralus
 
 # 4. VER qué haría, sin hacerlo. Nunca se aplica nada sin mirar esto antes.
