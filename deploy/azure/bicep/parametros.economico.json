@@ -16,6 +16,29 @@
     },
     "skuPostgres": {
       "value": "Standard_B1ms"
+    },
+    "skuAppService": {
+      "value": "B1"
+    },
+    "grupoBase": {
+      "value": "matricula-base"
+    },
+    "nombreKeyVault": {
+      "value": "matricula-kv-pefjbi"
+    },
+    "nombreAcr": {
+      "value": "matriculaacrpefjbi"
+    },
+    "acrLoginServer": {
+      "value": "matriculaacrpefjbi.azurecr.io"
+    },
+    "claveAdminPostgres": {
+      "reference": {
+        "keyVault": {
+          "id": "/subscriptions/d4cd0eda-b29e-45d8-accb-3a40cd92d874/resourceGroups/matricula-base/providers/Microsoft.KeyVault/vaults/matricula-kv-pefjbi"
+        },
+        "secretName": "postgres-admin-password"
+      }
     }
   }
 }

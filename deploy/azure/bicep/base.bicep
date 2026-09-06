@@ -29,6 +29,9 @@ param ubicacion string = resourceGroup().location
 @description('Prefijo de los nombres.')
 param prefijo string = 'matricula'
 
+@description('Identificador de objeto de quien administra el almacén. Se obtiene con `az ad signed-in-user show --query id -o tsv`.')
+param objectIdAdministrador string
+
 // Los nombres del ACR y del Key Vault son únicos en todo Azure. El sufijo sale del grupo de
 // recursos: mientras el grupo sea el mismo, los nombres no cambian.
 var sufijo = take(uniqueString(resourceGroup().id), 6)
@@ -65,7 +68,31 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
     // del propio almacén. En un proyecto académico, que el despliegue no dependa de un permiso
     // que quizá no existe vale más que usar el modelo más nuevo.
     enableRbacAuthorization: false
-    accessPolicies: []
+    // UNA POLÍTICA PARA QUIEN ADMINISTRA, Y NO ES OPCIONAL.
+    //
+    // La primera versión creaba el almacén con la lista VACÍA, y el resultado fue un almacén
+    // inservible: con el modelo de políticas de acceso, ser dueño de la suscripción NO concede
+    // acceso a los datos. Ni siquiera quien acaba de crear el recurso puede escribir un secreto
+    // dentro. El error es `Forbidden ... does not have secrets set permission`, y desconcierta
+    // porque el despliegue acaba de funcionar sin problemas.
+    //
+    // La identidad de la aplicación se añade después, desde `permisos.bicep`, con `add` para no
+    // borrar esta.
+    accessPolicies: [
+      {
+        tenantId: subscription().tenantId
+        objectId: objectIdAdministrador
+        permissions: {
+          // Escribir hace falta para crear `jwt-secret` a mano; borrar, para rotarlo.
+          secrets: ['get', 'list', 'set', 'delete']
+        }
+      }
+    ]
+    // Permite que un archivo de parámetros REFERENCIE un secreto de este almacén en vez de
+    // llevar el valor dentro. Es lo que hace que la contraseña de PostgreSQL no pase nunca por
+    // la línea de comandos —donde queda en el historial de la terminal— ni por el archivo de
+    // parámetros, que está versionado.
+    enabledForTemplateDeployment: true
     // 90 días es el mínimo y no se puede bajar. Está aquí para que quede claro por qué el
     // almacén no puede vivir en el grupo efímero.
     enableSoftDelete: true
