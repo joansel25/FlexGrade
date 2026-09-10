@@ -29,9 +29,13 @@ reconstruyéndola y subiéndola antes de poder desplegar nada.
 
 ### `matricula-demo` — SE CREA Y SE DESTRUYE
 
-Unos 25 recursos: red, PostgreSQL, Redis, App Service y el contenedor de migraciones. **Los datos
-de la base de datos se van con él**, y por eso el despliegue vuelve a migrar y a sembrar cada
-vez.
+Con el perfil económico son **24 recursos**: red, PostgreSQL, Redis, App Service y el contenedor
+de migraciones. Con el de demostración son **29**: los cinco de más son el Application Gateway,
+su política de WAF, su dirección pública, la regla de autoescalado y la cuenta de almacenamiento
+del frontend.
+
+**Los datos de la base de datos se van con él**, y por eso el despliegue vuelve a migrar y a
+sembrar cada vez.
 
 ---
 
@@ -109,7 +113,8 @@ az deployment group what-if \
   --parameters @parametros.economico.json
 ```
 
-Deben salir unos **25 recursos**, todos `Create`. Los `Unsupported` —la política de acceso y la
+Deben salir **24 recursos** con el perfil económico y **29** con el de demostración, todos
+`Create`. Los `Unsupported` —la política de acceso y la
 asignación de rol— **no son errores**: son recursos con nombre calculado en tiempo de despliegue
 que la previsualización no sabe resolver.
 
@@ -190,7 +195,136 @@ migraciones, sin datos de ejemplo.
 
 ---
 
-## 5. Destruir
+## 5. El autoescalado: cómo verlo y qué capturar
+
+**Solo existe con el perfil de demostración.** El económico despliega `desplegarAutoescalado:
+false` porque el nivel B1 no lo admite; ver la sección 9, hallazgo 8.
+
+### 5.1 Comprobar que la regla existe y está activa
+
+```bash
+az monitor autoscale show --resource-group matricula-demo --name matricula-autoescalado   --query "{activa:enabled, perfiles:profiles[].name}"
+```
+
+Tienen que salir los tres perfiles: `normal`, `pico-matricula` y `fin-del-pico`.
+
+### 5.2 Generar carga de verdad
+
+```bash
+URL=$(az deployment group show --resource-group matricula-demo --name levantada       --query properties.outputs.urlGateway.value -o tsv)
+
+python deploy/azure/generar-carga.py --url "$URL" --hilos 40 --minutos 15
+```
+
+Golpea el **login**, no el catálogo, y la razón importa: el catálogo responde desde Redis y no
+mueve la CPU ni con mil peticiones por segundo. El login verifica el hash de la contraseña, que
+es caro a propósito, y es además el momento que describe la sección 5 del documento —los cinco
+mil estudiantes entrando a la vez—.
+
+**Quince minutos es el mínimo.** La regla necesita cinco por encima del 70%, la instancia nueva
+tarda un par en arrancar el contenedor y luego hay otros cinco de espera. Con menos, la gráfica
+se corta justo antes de lo interesante.
+
+### 5.3 Dónde mirar, en orden
+
+En el portal, sobre el grupo `matricula-demo`:
+
+| Qué se ve | Dónde | Qué capturar |
+|---|---|---|
+| La regla y sus tres perfiles | `matricula-plan` → **Escalar horizontalmente** | Los umbrales 70/30 y las capacidades 1-2 / 6-10 |
+| **Cada decisión, con su motivo** | ídem → pestaña **Historial de ejecución** | Es LA captura: dice «CPU 74% > 70% durante 5 min → 1 a 2 instancias» |
+| La CPU subiendo | `matricula-plan` → **Métricas** → `CpuPercentage` | La curva cruzando el 70% |
+| Cuántas instancias hay ahora | ídem → métrica `InstanceCount` | La escalera de 1 a 2 a 3 |
+
+Las dos últimas, superpuestas en una sola gráfica, son la imagen que demuestra el requisito: la
+CPU sube, cruza el umbral, y unos minutos después la línea de instancias escalona hacia arriba y
+la CPU baja sola.
+
+Desde la línea de comandos, sin portal:
+
+```bash
+# Qué decidió el autoescalado y por qué
+az monitor activity-log list --resource-group matricula-demo --offset 2h   --query "[?contains(operationName.value,'autoscale')].{cuando:eventTimestamp, que:description}" -o table
+
+# Cuántas instancias hay en este momento
+az appservice plan show --resource-group matricula-demo --name matricula-plan   --query "{instancias:sku.capacity, nivel:sku.name}"
+```
+
+### 5.4 Si no hay tiempo de esperar al horario
+
+La ventana de matrícula está programada de lunes a viernes, de 7:00 a 22:00 hora de Colombia.
+Para sustentar un sábado —o para arrancar ya en seis instancias sin esperar— se despliega con:
+
+```bash
+az deployment group create --resource-group matricula-demo --template-file main.bicep   --parameters @parametros.demo.json --parameters autoescaladoEnModoDemostracion=true   --name levantada
+```
+
+Eso pone las capacidades del pico como perfil por defecto. **Cuesta 0,57 USD/hora solo de App
+Service** (seis instancias S1), así que no se deja puesto.
+
+---
+
+## 6. El borde: WAF y el frontend
+
+También solo en el perfil de demostración: Application Gateway WAF_v2 son ~0,46 USD/hora y no
+tiene un nivel más barato.
+
+### 6.1 Publicar el frontend
+
+Bicep crea la cuenta de almacenamiento pero **no puede activar el sitio estático**: es una
+propiedad del plano de datos, no de ARM. Son dos comandos:
+
+```bash
+CUENTA=$(az deployment group show --resource-group matricula-demo --name levantada          --query properties.outputs.cuentaFrontend.value -o tsv)
+
+az storage blob service-properties update --account-name "$CUENTA"   --static-website --index-document index.html --404-document index.html
+
+cd frontend && npm run build && cd ..
+az storage blob upload-batch --account-name "$CUENTA" -s frontend/dist -d '$web' --overwrite
+```
+
+El documento 404 apunta también a `index.html` **a propósito**: React Router resuelve las rutas
+en el navegador, y sin eso recargar la página estando en `/matricula` daría un 404 del
+almacenamiento.
+
+La URL sale de `properties.outputs.urlFrontend.value`. No se puede componer a mano: lleva un
+número de zona (`z19`, `z22`…) que depende de dónde caiga la cuenta.
+
+Después hay que autorizar ese origen en CORS, o el navegador bloquea todas las llamadas:
+
+```bash
+az webapp config appsettings set --resource-group matricula-demo --name <la-app>   --settings CORS_ALLOWED_ORIGINS="$(az deployment group show --resource-group matricula-demo     --name levantada --query properties.outputs.urlFrontend.value -o tsv | sed 's:/$::')"
+```
+
+### 6.2 Comprobar que el WAF bloquea
+
+```bash
+URL=$(az deployment group show --resource-group matricula-demo --name levantada       --query properties.outputs.urlGateway.value -o tsv)
+
+curl -s -o /dev/null -w "normal:    %{http_code}
+" "$URL/health"
+curl -s -o /dev/null -w "inyeccion: %{http_code}
+" "$URL/health?id=1%27%20OR%20%271%27=%271"
+```
+
+La primera tiene que dar **200** y la segunda **403**: el WAF reconoce el intento de inyección
+SQL y lo corta antes de que llegue a la aplicación. Son las dos líneas que demuestran el
+requisito, y valen como captura.
+
+Los bloqueos quedan registrados:
+
+```bash
+az monitor activity-log list --resource-group matricula-demo --offset 1h   --query "[?contains(resourceId,'applicationGateways')].{cuando:eventTimestamp, que:operationName.value}" -o table
+```
+
+**Ojo con lo que esto NO cierra:** el App Service sigue siendo alcanzable por su URL
+`azurewebsites.net`, así que el WAF se puede esquivar yendo directo. Se dejó así a propósito
+para poder comparar las dos respuestas durante la sustentación; en un ambiente real habría que
+restringir el acceso al sitio a la dirección del gateway.
+
+---
+
+## 7. Destruir
 
 ```bash
 az group delete --name matricula-demo --yes --no-wait
@@ -203,24 +337,36 @@ crear los secretos, y el nombre del Key Vault queda bloqueado 90 días —habrí
 
 ---
 
-## 6. Coste
+## 8. Coste
 
-| Perfil | USD/hora | Sesión de 6 h | Por día |
+| Perfil | USD/hora | Sesión de 3 h | Sesión de 6 h |
 |---|---|---|---|
-| Económico | ~0,12 | ~0,72 | ~2,90 |
-| Demostración (el del documento) | ~1,20 | ~7 | ~29 |
+| Económico (sin WAF ni autoescalado) | ~0,12 | ~0,36 | ~0,72 |
+| Demostración, en reposo (1 instancia) | ~1,03 | ~3,10 | ~6,20 |
+| Demostración, con la carga puesta (6-10 instancias) | ~1,50 a ~1,90 | ~4,50 a ~5,70 | ~9 a ~11 |
 | Grupo base, siempre encendido | — | — | ~5 USD/mes |
 
-**El NAT Gateway es la línea más cara del perfil económico**: 0,045 USD/hora, el 37% del total.
-Está porque lo pide la sección 3 del documento; App Service ya ofrece direcciones de salida
-estables por su cuenta.
+Precios de `centralus` consultados contra la API de precios de Azure. De dónde sale cada línea:
 
-Con el crédito de 100 USD de Azure for Students caben varias sesiones de sustentación y muchas de
-prueba, **siempre que el grupo efímero se destruya al terminar**.
+| Recurso | USD/hora | Nota |
+|---|---|---|
+| Application Gateway WAF_v2 | **0,443** fijo + 0,0144/unidad | La partida mayor. No baja de ahí ni sin tráfico |
+| PostgreSQL D2ds_v4 + réplica | ~0,40 | 2 vCore a ~0,10, y la réplica los duplica |
+| App Service S1 | **0,095 por instancia** | En el pico son seis: 0,57. El B1 son 0,018 |
+| NAT Gateway | 0,045 | El 37% del perfil económico él solo |
+| Redis Balanced B0 | 0,018 | |
+
+**Las dos cifras que deciden el gasto son el WAF y el número de instancias.** Con el crédito de
+100 USD caben unas quince sesiones de sustentación de tres horas, o muchísimas del perfil
+económico — **siempre que el grupo efímero se destruya al terminar**.
+
+El NAT Gateway está porque lo pide la sección 3 del documento; App Service ya ofrece direcciones
+de salida estables por su cuenta.
+
 
 ---
 
-## 7. Cosas que solo se descubren ejecutando
+## 9. Cosas que solo se descubren ejecutando
 
 Quedan anotadas porque ninguna se ve desde el código y todas costaron un intento fallido:
 
@@ -244,3 +390,22 @@ Quedan anotadas porque ninguna se ve desde el código y todas costaron un intent
 7. **El contenedor de migraciones usa identidad ASIGNADA POR EL USUARIO**, no del sistema. Con
    una de sistema, el permiso `AcrPull` no se podría conceder antes de que el contenedor
    existiera — y la descarga de la imagen ocurre al arrancar, así que sería tarde.
+8. **«SKU B1 con autoescalado» es una contradicción.** El nivel Basic NO admite autoescalado: la
+   regla se crea, se ve en el portal y no dispara nunca. Hace falta Standard, que cuesta 0,095
+   USD/hora por instancia frente a 0,018. Por eso `main.bicep` exige `skuAppService == 'S1'`
+   para desplegar la regla — una regla muerta que aparenta funcionar es peor que no tenerla.
+9. **«Pico: min 6, max 12» tampoco se puede.** El nivel Standard llega a DIEZ instancias. El
+   máximo quedó en 10; un `maximum: 12` que Azure recorta en silencio engaña más que ayuda.
+10. **«App Gateway -> App: 8000» no existe.** El 8000 es donde escucha uvicorn DENTRO del
+    contenedor, y App Service no lo publica: termina TLS por su cuenta y solo expone el 443.
+    Quien traduce al 8000 es el propio App Service con `WEBSITES_PORT`.
+11. **Front Door queda descartado por precio.** El único nivel con WAF gestionado es Premium:
+    **330 USD/mes de tarifa base** (Standard son 35, pero no trae WAF). Además no aparece en
+    `INFRASTRUCTURE.md` — venía arrastrado de la lista de tecnologías del `CLAUDE.md`.
+12. **El sitio estático no se puede activar desde Bicep.** Es una propiedad del plano de datos,
+    no de ARM. Bicep crea la cuenta; activarlo y subir el `dist/` son dos comandos de la CLI,
+    en la sección 6.1.
+13. **Un perfil de autoescalado con horario dice cuándo EMPIEZA, nunca cuándo termina.** Se
+    queda aplicado hasta que otro perfil lo reemplaza. Con solo «normal» + «pico», el pico
+    arranca el lunes a las 7 y no se va nunca: seis instancias ardiendo un domingo de
+    madrugada. De ahí el tercer perfil, `fin-del-pico`.

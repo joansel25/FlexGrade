@@ -39,6 +39,18 @@
         },
         "secretName": "postgres-admin-password"
       }
+    },
+    "desplegarAutoescalado": {
+      "value": true
+    },
+    "desplegarBorde": {
+      "value": true
+    },
+    "autoescaladoEnModoDemostracion": {
+      "value": false
+    },
+    "ambiente": {
+      "value": "demo"
     }
   }
 }

@@ -77,7 +77,7 @@ param instanciasIniciales int = 1
 @description('Etiqueta de la imagen a ejecutar. El pipeline la sustituye por `dev-<sha>`.')
 param etiquetaImagen string = 'latest'
 
-@description('Orígenes autorizados por CORS. Se rellena cuando exista el frontend en Front Door.')
+@description('Orígenes autorizados por CORS. Lo rellena el script de arranque con la URL del sitio estático, que no se conoce hasta que la cuenta de almacenamiento existe.')
 param origenesCors string = ''
 
 @description('Ambiente que se reporta en /health.')
@@ -88,6 +88,15 @@ param ejecutarMigraciones bool = true
 
 @description('Si las migraciones además siembran datos de ejemplo. En un ambiente real va en false.')
 param sembrarDatos bool = true
+
+@description('Si se crea la regla de autoescalado. Requiere `skuAppService: S1`: el nivel Basic la acepta y NUNCA dispara, que es peor que no tenerla.')
+param desplegarAutoescalado bool = false
+
+@description('Pone el autoescalado en las capacidades del PICO desde el arranque, sin esperar al horario. Es para sustentar, y son 0,57 USD/hora solo de App Service.')
+param autoescaladoEnModoDemostracion bool = false
+
+@description('Si se despliega Application Gateway con WAF. ES LA LÍNEA MÁS CARA: ~0,46 USD/hora, casi cuatro veces el resto del perfil económico junto.')
+param desplegarBorde bool = false
 
 // La alta disponibilidad se deduce del nivel en vez de recibirse aparte. Con `Burstable` y
 // `altaDisponibilidad: true` el despliegue falla a los quince minutos, después de haber creado
@@ -220,6 +229,42 @@ module ajustes 'modules/ajustes.bicep' = {
 }
 
 // ---------------------------------------------------------------------------
+// El autoescalado y el borde: la parte cara, y por eso opcional
+// ---------------------------------------------------------------------------
+//
+// Los dos van apagados por defecto. El perfil económico —el que se usa para probar que el
+// sistema funciona— no los enciende; el de demostración sí. La diferencia entre uno y otro es
+// de 0,12 a más de 1,20 USD/hora, así que la elección conviene que sea explícita y no un
+// descuido.
+//
+// EL AUTOESCALADO EXIGE S1 Y NO SE COMPRUEBA SOLO. Sobre un plan B1, Azure acepta la regla, la
+// muestra en el portal y no la aplica nunca. La condición mira las dos cosas para que un perfil
+// económico con el autoescalado encendido por error no cree una regla muerta que aparenta
+// funcionar.
+
+module escalado 'modules/escalado.bicep' = if (desplegarAutoescalado && skuAppService == 'S1') {
+  name: 'escalado'
+  params: {
+    ubicacion: ubicacion
+    prefijo: prefijo
+    planId: app.outputs.planId
+    planNombre: app.outputs.planNombre
+    modoDemostracion: autoescaladoEnModoDemostracion
+  }
+}
+
+module borde 'modules/borde.bicep' = if (desplegarBorde) {
+  name: 'borde'
+  params: {
+    ubicacion: ubicacion
+    prefijo: prefijo
+    sufijo: sufijo
+    subredGatewayId: red.outputs.subredGatewayId
+    hostApp: app.outputs.hostApp
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Salidas: lo que hace falta para componer la configuración de la aplicación
 // ---------------------------------------------------------------------------
 //
@@ -240,6 +285,14 @@ output postgresHost string = datos.outputs.postgresHost
 output baseDeDatos string = datos.outputs.baseDeDatosNombre
 output redisHost string = datos.outputs.redisHost
 output redisPuerto int = datos.outputs.redisPuertoTls
+
+// Del borde y el autoescalado, solo si se pidieron. Sin la comprobación, ARM falla al intentar
+// leer la salida de un módulo que no se desplegó.
+output urlGateway string = desplegarBorde ? borde!.outputs.urlGateway : ''
+output ipGateway string = desplegarBorde ? borde!.outputs.ipGateway : ''
+output cuentaFrontend string = desplegarBorde ? borde!.outputs.cuentaAlmacenamientoWeb : ''
+output urlFrontend string = desplegarBorde ? borde!.outputs.urlFrontend : ''
+output reglaAutoescalado string = (desplegarAutoescalado && skuAppService == 'S1') ? escalado!.outputs.nombreRegla : ''
 
 // Las cadenas de conexión NO se devuelven: las escribe `datos.bicep` directamente en el Key
 // Vault persistente. Una salida de despliegue queda en el historial del grupo de recursos.
