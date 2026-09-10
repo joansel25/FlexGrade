@@ -29,8 +29,9 @@ reconstruyéndola y subiéndola antes de poder desplegar nada.
 
 ### `matricula-demo` — SE CREA Y SE DESTRUYE
 
-Los 22 recursos: red, PostgreSQL, Redis, App Service. **Los datos de la base de datos se van con
-él**, así que cada sesión empieza con el esquema vacío.
+Unos 25 recursos: red, PostgreSQL, Redis, App Service y el contenedor de migraciones. **Los datos
+de la base de datos se van con él**, y por eso el despliegue vuelve a migrar y a sembrar cada
+vez.
 
 ---
 
@@ -108,7 +109,7 @@ az deployment group what-if \
   --parameters @parametros.economico.json
 ```
 
-Deben salir **22 recursos**, todos `Create`. Los dos `Unsupported` —la política de acceso y la
+Deben salir unos **25 recursos**, todos `Create`. Los `Unsupported` —la política de acceso y la
 asignación de rol— **no son errores**: son recursos con nombre calculado en tiempo de despliegue
 que la previsualización no sabe resolver.
 
@@ -159,18 +160,33 @@ La primera petición tarda unos 30 segundos: el contenedor arranca en frío.
 
 ---
 
-## 4. Lo que todavía NO está resuelto
+## 4. Las migraciones y los datos
 
-**No hay forma de correr las migraciones contra este PostgreSQL.** El servidor está inyectado en
-la VNet y no tiene punto de conexión público, así que ni una máquina local ni un runner de GitHub
-lo alcanzan.
+**Van dentro del propio despliegue.** No hay que hacer nada aparte.
 
-Para el punto de control no importa: `/health/ready` hace `SELECT 1` y no toca ninguna tabla.
-**Para una demostración real sí**, porque sin `alembic upgrade head` y el seed el sistema arranca
-sin materias, sin estudiantes y sin ventana de matrícula.
+PostgreSQL está inyectado en la VNet y no tiene punto de conexión público: ni una máquina local
+ni un runner de GitHub lo alcanzan. Por eso `main.bicep` crea un **contenedor de un solo uso**
+dentro de la red que ejecuta `alembic upgrade head && python -m app.infrastructure.seed` y muere.
 
-La solución prevista es un contenedor de un solo uso dentro de la VNet que ejecute las
-migraciones y el seed, y muera. Cuesta céntimos. Está pendiente para la iteración D.
+Se comprueba así:
+
+```bash
+az container show --resource-group matricula-demo --name matricula-migraciones   --query "{estado:instanceView.state, salida:containers[0].instanceView.currentState.exitCode}"
+
+az container logs --resource-group matricula-demo --name matricula-migraciones
+```
+
+Tiene que salir `Succeeded` y código **0**.
+
+**Si el despliegue se repite sobre un grupo que ya existe**, el contenedor NO se vuelve a
+ejecutar: ARM lo ve sin cambios y lo deja como está. Para forzarlo hay que borrarlo antes:
+
+```bash
+az container delete --resource-group matricula-demo --name matricula-migraciones --yes
+```
+
+Para un ambiente real, `sembrarDatos: false` en el archivo de parámetros deja solo las
+migraciones, sin datos de ejemplo.
 
 ---
 
@@ -189,11 +205,15 @@ crear los secretos, y el nombre del Key Vault queda bloqueado 90 días —habrí
 
 ## 6. Coste
 
-| Perfil | USD/hora | Sesión de 6 h |
-|---|---|---|
-| Económico | ~0,06 | ~0,36 |
-| Demostración (el del documento) | ~1,20 | ~7 |
-| Grupo base, siempre encendido | — | ~5 USD/mes |
+| Perfil | USD/hora | Sesión de 6 h | Por día |
+|---|---|---|---|
+| Económico | ~0,12 | ~0,72 | ~2,90 |
+| Demostración (el del documento) | ~1,20 | ~7 | ~29 |
+| Grupo base, siempre encendido | — | — | ~5 USD/mes |
+
+**El NAT Gateway es la línea más cara del perfil económico**: 0,045 USD/hora, el 37% del total.
+Está porque lo pide la sección 3 del documento; App Service ya ofrece direcciones de salida
+estables por su cuenta.
 
 Con el crédito de 100 USD de Azure for Students caben varias sesiones de sustentación y muchas de
 prueba, **siempre que el grupo efímero se destruya al terminar**.
@@ -212,3 +232,15 @@ Quedan anotadas porque ninguna se ve desde el código y todas costaron un intent
 4. **Un Key Vault con `accessPolicies: []` nace inservible.** Ser dueño de la suscripción no da
    acceso a los datos: hay que concederse la política explícitamente, y eso ya lo hace
    `base.bicep`.
+5. **`btree_gist` no está permitida por defecto** en Azure Database for PostgreSQL. Falla con
+   `extension "btree_gist" is not allow-listed for users`, y sin ella la migración `0010` no
+   puede crear la restricción que impide la doble reserva de aulas. En el PostgreSQL de
+   `docker-compose` esa lista no existe, así que **los 680 tests pasan sin rozar el problema**:
+   solo aparece contra Azure. Las tres que usa el proyecto —`pgcrypto`, `unaccent` y
+   `btree_gist`— ya van declaradas en `datos.bicep`.
+6. **Container Instances necesita subred PROPIA delegada.** No puede compartir la de PostgreSQL
+   ni la del App Service: una subred delegada admite un solo servicio. De ahí la quinta subred,
+   `snet-tareas` (`10.0.5.0/24`).
+7. **El contenedor de migraciones usa identidad ASIGNADA POR EL USUARIO**, no del sistema. Con
+   una de sistema, el permiso `AcrPull` no se podría conceder antes de que el contenedor
+   existiera — y la descarga de la imagen ocurre al arrancar, así que sería tarde.

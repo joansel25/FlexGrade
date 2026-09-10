@@ -34,6 +34,9 @@ param nombreAcr string
 @description('Identificador del principal de la identidad administrada de la aplicación.')
 param principalId string
 
+@description('Principal de la identidad de las tareas de un solo uso. Solo necesita descargar del ACR: no lee secretos.')
+param principalTareas string = ''
+
 resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
   name: nombreKeyVault
 }
@@ -79,6 +82,20 @@ resource permisoDeDescarga 'Microsoft.Authorization/roleAssignments@2022-04-01' 
     principalType: 'ServicePrincipal'
   }
 }
+
+// La identidad de las tareas solo descarga la imagen. NO se le da acceso al Key Vault: la
+// cadena de conexión le llega como variable de entorno segura, y un permiso que no se usa es un
+// permiso que sobra.
+resource permisoDeDescargaTareas 'Microsoft.Authorization/roleAssignments@2022-04-01' =
+  if (!empty(principalTareas)) {
+    scope: acr
+    name: guid(acr.id, principalTareas, rolAcrPull)
+    properties: {
+      roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', rolAcrPull)
+      principalId: principalTareas
+      principalType: 'ServicePrincipal'
+    }
+  }
 
 output politicaId string = politicaDeAcceso.id
 output rolId string = permisoDeDescarga.id

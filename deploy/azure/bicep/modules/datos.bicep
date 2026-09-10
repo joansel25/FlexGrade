@@ -128,14 +128,22 @@ resource baseDeDatos 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2022-1
   }
 }
 
-// La extensión `pgcrypto` la usan las migraciones para `gen_random_uuid()`, y `unaccent` la
-// búsqueda del catálogo. En Flexible Server hay que declararlas permitidas ANTES de que
-// `CREATE EXTENSION` funcione: sin esto, la migración 0002 falla con un permiso denegado.
+// LAS TRES EXTENSIONES QUE USAN LAS MIGRACIONES, y son exactamente tres.
+//
+// `pgcrypto` para `gen_random_uuid()` (migración 0002), `unaccent` para la búsqueda del catálogo
+// (0005) y `btree_gist` para la restricción de exclusión que impide la doble reserva de aulas
+// (0010). En Flexible Server hay que declararlas permitidas ANTES de que `CREATE EXTENSION`
+// funcione.
+//
+// La primera versión declaraba solo las dos primeras, y el fallo apareció al desplegar de
+// verdad: `extension "btree_gist" is not allow-listed for users`. Ninguna prueba local lo
+// habría encontrado —en el PostgreSQL de docker-compose no existe esta lista— y la migración
+// que falla es la que sostiene una de las dos defensas del sistema.
 resource extensionesPermitidas 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2022-12-01' = {
   parent: postgres
   name: 'azure.extensions'
   properties: {
-    value: 'PGCRYPTO,UNACCENT'
+    value: 'PGCRYPTO,UNACCENT,BTREE_GIST'
     source: 'user-override'
   }
 }

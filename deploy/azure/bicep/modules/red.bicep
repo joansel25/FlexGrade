@@ -40,6 +40,10 @@ var subredes = {
   app: '10.0.2.0/24'
   datos: '10.0.3.0/24'
   endpoints: '10.0.4.0/24'
+  // Para las tareas de un solo uso: migraciones y seed. Necesitan subred PROPIA porque una
+  // subred delegada admite un solo servicio, y las otras cuatro ya lo están o se usan para
+  // puntos de conexión privados.
+  tareas: '10.0.5.0/24'
 }
 
 // ---------------------------------------------------------------------------
@@ -117,13 +121,15 @@ resource nsgDatos 'Microsoft.Network/networkSecurityGroups@2023-09-01' = {
   properties: {
     securityRules: [
       {
-        name: 'permitir-postgres-solo-desde-la-app'
+        // La aplicación Y las tareas de un solo uso. Sin la segunda, las migraciones no
+        // alcanzan el servidor y el fallo es un tiempo de espera agotado que no dice por qué.
+        name: 'permitir-postgres-desde-la-app-y-las-tareas'
         properties: {
           priority: 100
           direction: 'Inbound'
           access: 'Allow'
           protocol: 'Tcp'
-          sourceAddressPrefix: subredes.app
+          sourceAddressPrefixes: [subredes.app, subredes.tareas]
           sourcePortRange: '*'
           destinationAddressPrefix: subredes.datos
           destinationPortRange: '5432'
@@ -164,6 +170,30 @@ resource nsgEndpoints 'Microsoft.Network/networkSecurityGroups@2023-09-01' = {
           sourcePortRange: '*'
           destinationAddressPrefix: subredes.endpoints
           destinationPortRange: '6380'
+        }
+      }
+    ]
+  }
+}
+
+resource nsgTareas 'Microsoft.Network/networkSecurityGroups@2023-09-01' = {
+  name: '${prefijo}-nsg-tareas'
+  location: ubicacion
+  properties: {
+    securityRules: [
+      {
+        // Las tareas de un solo uso hablan con PostgreSQL, y nada más. No sirven tráfico y no
+        // reciben nada de fuera: solo escriben el esquema y los datos de ejemplo, y mueren.
+        name: 'permitir-salida-a-postgres'
+        properties: {
+          priority: 100
+          direction: 'Outbound'
+          access: 'Allow'
+          protocol: 'Tcp'
+          sourceAddressPrefix: subredes.tareas
+          sourcePortRange: '*'
+          destinationAddressPrefix: subredes.datos
+          destinationPortRange: '5432'
         }
       }
     ]
@@ -244,6 +274,19 @@ resource vnet 'Microsoft.Network/virtualNetworks@2023-09-01' = {
         }
       }
       {
+        name: 'snet-tareas'
+        properties: {
+          addressPrefix: subredes.tareas
+          networkSecurityGroup: { id: nsgTareas.id }
+          delegations: [
+            {
+              name: 'delegacion-container-instance'
+              properties: { serviceName: 'Microsoft.ContainerInstance/containerGroups' }
+            }
+          ]
+        }
+      }
+      {
         name: 'snet-endpoints'
         properties: {
           addressPrefix: subredes.endpoints
@@ -266,4 +309,5 @@ output subredGatewayId string = '${vnet.id}/subnets/snet-gateway'
 output subredAppId string = '${vnet.id}/subnets/snet-app'
 output subredDatosId string = '${vnet.id}/subnets/snet-datos'
 output subredEndpointsId string = '${vnet.id}/subnets/snet-endpoints'
+output subredTareasId string = '${vnet.id}/subnets/snet-tareas'
 output ipSalidaDireccion string = ipSalida.properties.ipAddress

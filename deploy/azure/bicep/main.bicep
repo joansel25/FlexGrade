@@ -83,6 +83,12 @@ param origenesCors string = ''
 @description('Ambiente que se reporta en /health.')
 param ambiente string = 'demo'
 
+@description('Si se ejecutan las migraciones y el seed tras desplegar. Es lo único que puede escribir el esquema: PostgreSQL está en red privada y no lo alcanza nada de fuera.')
+param ejecutarMigraciones bool = true
+
+@description('Si las migraciones además siembran datos de ejemplo. En un ambiente real va en false.')
+param sembrarDatos bool = true
+
 // La alta disponibilidad se deduce del nivel en vez de recibirse aparte. Con `Burstable` y
 // `altaDisponibilidad: true` el despliegue falla a los quince minutos, después de haber creado
 // media infraestructura: es la clase de contradicción que conviene hacer imposible de expresar.
@@ -153,7 +159,48 @@ module permisos 'modules/permisos.bicep' = {
     nombreKeyVault: nombreKeyVault
     nombreAcr: nombreAcr
     principalId: app.outputs.principalId
+    // El `!` afirma que no es nulo, y el ternario de delante es lo que lo garantiza: la
+    // identidad solo se consulta cuando se creó.
+    principalTareas: ejecutarMigraciones ? identidadTareas!.properties.principalId : ''
   }
+}
+
+// ---------------------------------------------------------------------------
+// El esquema de la base de datos
+// ---------------------------------------------------------------------------
+//
+// La identidad va PRIMERO y es asignada por el usuario, no del sistema. Con una del sistema, el
+// permiso de descarga no podría concederse antes de que el contenedor existiera, y la descarga
+// ocurre al arrancar: sería demasiado tarde.
+
+resource identidadTareas 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' =
+  if (ejecutarMigraciones) {
+    name: '${prefijo}-id-tareas'
+    location: ubicacion
+  }
+
+resource almacen 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
+  name: nombreKeyVault
+  scope: resourceGroup(grupoBase)
+}
+
+module migraciones 'modules/migraciones.bicep' = if (ejecutarMigraciones) {
+  name: 'migraciones'
+  params: {
+    ubicacion: ubicacion
+    prefijo: prefijo
+    subredTareasId: red.outputs.subredTareasId
+    acrLoginServer: acrLoginServer
+    etiquetaImagen: etiquetaImagen
+    identidadId: identidadTareas!.id
+    // Se lee del Key Vault en el momento del despliegue. No pasa por un archivo de parámetros
+    // ni por la línea de comandos.
+    databaseUrl: almacen.getSecret('database-url')
+    sembrarDatos: sembrarDatos
+  }
+  // El esquema no se puede escribir antes de que exista el servidor, y el permiso de descarga
+  // tiene que estar concedido antes de que el contenedor intente bajar la imagen.
+  dependsOn: [datos, permisos]
 }
 
 module ajustes 'modules/ajustes.bicep' = {
