@@ -40,7 +40,9 @@ INFRASTRUCTURE.md
 
    Las secciones 1-6 son el requisito tal y como lo pide el documento de la Fase I, y se dejan
    escritas como estan. Esta seccion anota lo que la plataforma no permitio cumplir literalmente.
-   Ninguna diferencia es una renuncia: en los cuatro casos el requisito se cumple de otra forma.
+   Casi ninguna es una renuncia: en la mayoria el requisito se cumple por una via distinta a la
+   prevista. La excepcion es 7.8, donde si se decide no implementar lo que el documento describe,
+   y queda explicado por que.
 
    7.1 SKU B1 con autoescalado -> S1
        El nivel Basic NO admite autoescalado. Azure acepta la regla, la muestra en el portal y
@@ -104,6 +106,35 @@ INFRASTRUCTURE.md
        tarifa base verificada contra la API de precios (Standard son 35, pero no incluye WAF).
        Frente a un credito de 100 USD, descartado. La funcion de WAF la cubre Application Gateway
        WAF_v2 a 0,443 USD/hora, que ademas permite el modelo de infraestructura efimera.
+
+   7.8 La autenticacion de usuarios NO usa Microsoft Entra External ID
+       El documento de la Fase I lo nombra como el servicio que autentica a estudiantes y
+       administradores. No esta implementado, y se decidio no implementarlo.
+
+       Lo que hay: tokens JWT firmados con HS256 (PyJWT), contraseñas con bcrypt, y autorizacion
+       por los tres roles del dominio —STUDENT, PROFESSOR, ADMIN—. La clave de firma vive en el
+       Key Vault y App Service la resuelve con su identidad administrada mediante la referencia
+       `@Microsoft.KeyVault(...)` de `ajustes.bicep`: no hay ninguna credencial en el codigo ni
+       en la configuracion del servicio.
+
+       POR QUE NO SE IMPLEMENTA
+
+       Son de 3 a 5 dias de trabajo, y la asignatura evalua arquitectura de nube, no
+       implementacion de identidad. Meterlo antes de la entrega es riesgo sin ganancia en lo que
+       se califica. Ademas añadiria una dependencia de pago que el credito academico no absorbe
+       bien.
+
+       CUIDADO CON CONFUNDIR DOS COSAS QUE SE LLAMAN PARECIDO
+
+       El documento mezcla en un mismo parrafo dos usos de Entra, y solo uno es falso:
+
+         - **Entra External ID** para los usuarios finales -> NO implementado.
+         - **Entra ID y Azure RBAC** para el plano de control -> SI, y funcionando. Es lo que
+           sostiene las identidades administradas, el permiso `AcrPull` con el que el contenedor
+           descarga su imagen, y el acceso de la aplicacion al Key Vault.
+
+       Al corregir el documento hay que separarlos, no borrar Entra: el segundo uso es real y es
+       justo lo que una asignatura de nube quiere ver.
 
 8. Donde vive cada cosa
 

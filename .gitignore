@@ -100,3 +100,15 @@ Desktop.ini
 # Documentos del proyecto en Word. No van al repositorio: son binarios que git no
 # puede fusionar y cada guardado reescribe el archivo entero.
 *.docx
+
+# Material del curso y datos de la cuenta: NO van al repositorio.
+#
+# La carpeta de costos llego aqui por un `git add -A` descuidado y termino en un repositorio
+# PUBLICO con el nombre completo del titular en el nombre de los archivos. No hay credenciales
+# dentro —el ID de suscripcion es un identificador, no un secreto, y ya viajaba en los archivos
+# de parametros— pero son datos personales que nadie pidio publicar.
+Costos_Recursos_Azure/
+*.xlsx
+*.pdf
+*.png
+*.jpg
