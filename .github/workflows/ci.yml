@@ -50,6 +50,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       frontend: ${{ steps.check.outputs.frontend }}
+      iac: ${{ steps.check.outputs.iac }}
     steps:
       - uses: actions/checkout@v5
 
@@ -62,6 +63,14 @@ jobs:
           else
             echo "frontend=false" >> "$GITHUB_OUTPUT"
             echo "::notice title=Frontend ausente::No existe frontend/package.json; el job frontend-ci se omite. Se activara solo cuando la Fase 5 cree el frontend."
+          fi
+
+          if [ -f deploy/azure/bicep/main.bicep ]; then
+            echo "iac=true" >> "$GITHUB_OUTPUT"
+            echo "Infraestructura como codigo detectada: se ejecutara iac-ci."
+          else
+            echo "iac=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=IaC ausente::No existe deploy/azure/bicep/main.bicep; el job iac-ci se omite."
           fi
 
   # -------------------------------------------------------------------------
@@ -365,3 +374,98 @@ jobs:
       #     only-severities: critical,high
       #     exit-code: true
       # -----------------------------------------------------------------------
+
+  # -------------------------------------------------------------------------
+  # Infraestructura como codigo: compilar las plantillas y cuadrar los parametros.
+  #
+  # NO TOCA AZURE NI NECESITA CREDENCIALES. Es a proposito: una validacion que
+  # exige secretos no corre en los pull requests de nadie mas, y la que no corre
+  # no sirve.
+  #
+  # Lo que caza, que no es poco:
+  #
+  #   - Avisos del compilador. En este proyecto dos de ellos eran errores de
+  #     verdad: una propiedad que en una sonda se llama distinto que en los
+  #     ajustes del backend, y una URL de sitio estatico compuesta a mano que
+  #     lleva un numero de zona impredecible. Los dos habrian fallado al
+  #     desplegar, no antes.
+  #
+  #   - Parametros que no encajan. ARM rechaza uno que no existe y uno
+  #     obligatorio que falta, pero lo hace AL DESPLEGAR: una errata costaria
+  #     cuarenta minutos de espera y medio sistema a medio crear.
+  #
+  # LO QUE ESTA VALIDACION NO PUEDE HACER, Y CONVIENE SABERLO
+  #
+  # `az deployment group what-if` —que compara la plantilla contra la suscripcion
+  # real— necesita una sesion de Azure. Eso exige una entidad de servicio que hoy
+  # no existe, asi que ese paso queda mas abajo condicionado al secreto: el dia
+  # que se cree, se activa solo.
+  #
+  # Mientras tanto el `what-if` se corre a mano con:
+  #     ./deploy/azure/levantar.sh demo --ensayo
+  # -------------------------------------------------------------------------
+  iac-ci:
+    name: Infraestructura (plantillas y parametros)
+    runs-on: ubuntu-latest
+    needs: detect
+    if: needs.detect.outputs.iac == 'true'
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Instalar el compilador de Bicep
+        run: az bicep install
+
+      - name: Validar plantillas, parametros y scripts
+        run: ./deploy/azure/validar.sh
+
+      # -----------------------------------------------------------------------
+      # Comparacion contra la suscripcion real.
+      #
+      # Se salta solo mientras no exista el secreto, sin romper la corrida ni
+      # obligar a descomentar nada. Para activarlo hay que crear en
+      # Settings -> Secrets and variables -> Actions:
+      #   - AZURE_CREDENTIALS  (JSON de una entidad de servicio con rol Reader
+      #                         sobre la suscripcion; para `what-if` basta leer)
+      #
+      # Un grupo de recursos VACIO no cuesta nada, asi que esto se puede correr
+      # en cada pull request sin gastar un centimo.
+      # -----------------------------------------------------------------------
+      # El secreto se mira a traves de una variable de entorno y no directamente en
+      # el `if`. El contexto `secrets` no esta garantizado dentro de una condicion,
+      # y ademas asi el valor no se interpola nunca en la linea de comandos.
+      - name: ¿Hay credenciales de Azure?
+        id: creds
+        env:
+          CREDENCIALES: ${{ secrets.AZURE_CREDENTIALS }}
+        run: |
+          if [ -n "$CREDENCIALES" ]; then
+            echo "hay=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "hay=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Iniciar sesion en Azure
+        if: steps.creds.outputs.hay == 'true'
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Previsualizar los cambios (what-if)
+        if: steps.creds.outputs.hay == 'true'
+        working-directory: deploy/azure/bicep
+        run: |
+          az group create --name matricula-ci --location centralus --output none
+          for perfil in economico demo; do
+            echo "::group::what-if $perfil"
+            az deployment group what-if \
+              --resource-group matricula-ci \
+              --template-file main.bicep \
+              --parameters "@parametros.$perfil.json"
+            echo "::endgroup::"
+          done
+          az group delete --name matricula-ci --yes --no-wait
+
+      - name: Aviso si no hay credenciales
+        if: steps.creds.outputs.hay == 'false'
+        run: |
+          echo "::notice title=what-if omitido::No existe el secreto AZURE_CREDENTIALS, asi que no se compara contra la suscripcion real. Las plantillas si se compilaron y los parametros se comprobaron. Para el what-if a mano: ./deploy/azure/levantar.sh demo --ensayo"

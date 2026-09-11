@@ -214,6 +214,9 @@ if [ -n "$CUENTA" ]; then
   # El documento 404 apunta tambien a index.html porque React Router resuelve las rutas en el
   # navegador: sin eso, recargar estando en /matricula da un 404 del almacenamiento.
 
+  # Las comillas simples de '$web' son DELIBERADAS: ese es el nombre literal del contenedor que
+  # Azure usa para los sitios estaticos, con el dolar incluido. Expandirlo lo dejaria vacio.
+  # shellcheck disable=SC2016
   az storage blob upload-batch --account-name "$CUENTA" \
     --source "$(ruta_nativa "$RAIZ/frontend/dist")" --destination '$web' --overwrite --output none
 

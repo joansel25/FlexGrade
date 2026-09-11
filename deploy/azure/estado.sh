@@ -47,9 +47,16 @@ else
 
   # El plan puede tener mas instancias de las que se desplegaron si el autoescalado actuo. Es el
   # numero que de verdad se esta pagando, y el que interesa mirar mientras se genera carga.
-  inst="$(az appservice plan show --resource-group "$GRUPO" --name matricula-plan \
-          --query "{n:sku.capacity, s:sku.name}" -o tsv 2>/dev/null || true)"
-  [ -n "$inst" ] && printf '  Plan       %s instancias (%s)\n' $inst
+  #
+  # Los dos valores se separan con `IFS` en lugar de dejar que el printf los parta solo: sin
+  # comillas, cualquier espacio inesperado en la respuesta descolocaria las columnas.
+  instancias=""
+  nivel=""
+  IFS=$'\t' read -r instancias nivel < <(
+    az appservice plan show --resource-group "$GRUPO" --name matricula-plan \
+      --query "{n:sku.capacity, s:sku.name}" -o tsv 2>/dev/null || true
+  )
+  [ -n "$instancias" ] && printf '  Plan       %s instancias (%s)\n' "$instancias" "$nivel"
 
   printf '\n'
   aviso "  Para apagarlo:  ./deploy/azure/destruir.sh"

@@ -12,6 +12,11 @@
 # por no encontrar un secreto.
 # ---------------------------------------------------------------------------
 
+# Este archivo es una libreria: define variables que CONSUMEN los otros tres, y shellcheck no
+# puede seguir un `source` para verlo. Sin esto avisaria de media docena de variables «sin usar»
+# que se usan constantemente, y ese ruido acabaria haciendo que nadie mire sus avisos.
+# shellcheck disable=SC2034
+
 set -euo pipefail
 
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
