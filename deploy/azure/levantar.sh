@@ -6,6 +6,7 @@
 #   ./deploy/azure/levantar.sh demo            perfil de sustentacion (~1,03 USD/hora)
 #   ./deploy/azure/levantar.sh demo --pico     ademas arranca ya en 6 instancias
 #   ./deploy/azure/levantar.sh demo --ensayo   muestra que se crearia, sin crear nada (0 USD)
+#   ./deploy/azure/levantar.sh demo --si       no pregunta (para lanzarlo sin teclado delante)
 #
 # TARDA UNOS CUARENTA MINUTOS Y NO BAJA DE AHI. PostgreSQL con replica ronda los quince y Redis
 # los veinte; Bicep los crea en paralelo pero no puede acelerarlos. No se lanza cinco minutos
@@ -24,10 +25,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/_comun.sh"
 PERFIL_ARG="economico"
 MODO_PICO="false"
 ENSAYO="false"
+SIN_PREGUNTAR="false"
 for arg in "$@"; do
   case "$arg" in
     --pico) MODO_PICO="true" ;;
     --ensayo) ENSAYO="true" ;;
+    --si) SIN_PREGUNTAR="true" ;;
     -*) morir "opcion desconocida: $arg" ;;
     *) PERFIL_ARG="$arg" ;;
   esac
@@ -50,12 +53,7 @@ if [ "$PERFIL" = "demo" ] && [ "$ENSAYO" != "true" ]; then
   if [ "$MODO_PICO" = "true" ]; then
     aviso "Ademas --pico arranca en 6 instancias: +0,57 USD/hora."
   fi
-  printf '\n¿Seguir? [s/N] '
-  read -r respuesta
-  case "$respuesta" in
-    s|S|si|SI|Si) ;;
-    *) gris "cancelado"; exit 0 ;;
-  esac
+  confirmar "¿Levantar el perfil de demostracion?" "$SIN_PREGUNTAR" || exit 0
 fi
 
 # --- 2. el grupo de recursos ----------------------------------------------

@@ -66,14 +66,7 @@ gris "Los datos de la base de datos se van con el grupo. El siguiente despliegue
 gris "y a sembrar, asi que no hay nada que guardar aparte."
 gris "Sobreviven: $GRUPO_BASE (Key Vault y registro) y la imagen que ya esta subida."
 
-if [ "$SIN_PREGUNTAR" != "true" ]; then
-  printf '\n¿Destruir? [s/N] '
-  read -r respuesta
-  case "$respuesta" in
-    s|S|si|SI|Si) ;;
-    *) gris "cancelado"; exit 0 ;;
-  esac
-fi
+confirmar "¿Destruir '$GRUPO'?" "$SIN_PREGUNTAR" || exit 0
 
 # --- adios -----------------------------------------------------------------
 #
