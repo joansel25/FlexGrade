@@ -29,10 +29,10 @@ reconstruyéndola y subiéndola antes de poder desplegar nada.
 
 ### `matricula-demo` — SE CREA Y SE DESTRUYE
 
-Con el perfil económico son **24 recursos**: red, PostgreSQL, Redis, App Service y el contenedor
-de migraciones. Con el de demostración son **29**: los cinco de más son el Application Gateway,
-su política de WAF, su dirección pública, la regla de autoescalado y la cuenta de almacenamiento
-del frontend.
+Con el perfil económico son **22 recursos**: red, PostgreSQL, Redis, App Service y el contenedor
+de migraciones. Con el de demostración son **29**: los siete de más son el Application Gateway, su política de
+WAF, su dirección pública, la regla de autoescalado, la cuenta de almacenamiento del frontend y
+—porque el económico los apaga— el NAT Gateway con su dirección de salida.
 
 **Los datos de la base de datos se van con él**, y por eso el despliegue vuelve a migrar y a
 sembrar cada vez.
@@ -113,7 +113,7 @@ az deployment group what-if \
   --parameters @parametros.economico.json
 ```
 
-Deben salir **24 recursos** con el perfil económico y **29** con el de demostración, todos
+Deben salir **22 recursos** con el perfil económico y **29** con el de demostración, todos
 `Create`. Los `Unsupported` —la política de acceso y la
 asignación de rol— **no son errores**: son recursos con nombre calculado en tiempo de despliegue
 que la previsualización no sabe resolver.
@@ -341,7 +341,8 @@ crear los secretos, y el nombre del Key Vault queda bloqueado 90 días —habrí
 
 | Perfil | USD/hora | Sesión de 3 h | Sesión de 6 h |
 |---|---|---|---|
-| Económico (sin WAF ni autoescalado) | ~0,12 | ~0,36 | ~0,72 |
+| Económico, sin NAT (el de ahora) | **~0,071** | ~0,21 | ~0,43 |
+| Económico con NAT | ~0,116 | ~0,35 | ~0,70 |
 | Demostración, en reposo (1 instancia) | ~1,03 | ~3,10 | ~6,20 |
 | Demostración, con la carga puesta (6-10 instancias) | ~1,50 a ~1,90 | ~4,50 a ~5,70 | ~9 a ~11 |
 | Grupo base, siempre encendido | — | — | ~5 USD/mes |
@@ -354,14 +355,48 @@ Precios de `centralus` consultados contra la API de precios de Azure. De dónde 
 | PostgreSQL D2ds_v4 + réplica | ~0,40 | 2 vCore a ~0,10, y la réplica los duplica |
 | App Service S1 | **0,095 por instancia** | En el pico son seis: 0,57. El B1 son 0,018 |
 | NAT Gateway | 0,045 | El 37% del perfil económico él solo |
-| Redis Balanced B0 | 0,018 | |
+| Redis Balanced B0 | **0,036** | Son DOS nodos: la tarifa de 0,018 es por nodo |
 
 **Las dos cifras que deciden el gasto son el WAF y el número de instancias.** Con el crédito de
 100 USD caben unas quince sesiones de sustentación de tres horas, o muchísimas del perfil
 económico — **siempre que el grupo efímero se destruya al terminar**.
 
-El NAT Gateway está porque lo pide la sección 3 del documento; App Service ya ofrece direcciones
-de salida estables por su cuenta.
+### Lo que dijo la factura de verdad
+
+Del 1 al 10 de septiembre se gastaron **14,02 USD**. Las tarifas cuadran tan bien que se puede
+deducir el tiempo encendido: App Service, NAT, IP pública y punto de conexión privado dan los
+cuatro **114 horas**. El coste real del grupo efímero fue **0,116 USD/hora** — la estimación era
+correcta.
+
+Tres cosas que solo se vieron ahí:
+
+- **PostgreSQL costó 0,00 USD.** El `B1ms` Burstable entra en la oferta gratuita de Flexible
+  Server: 750 horas al mes durante 12 meses. **El perfil de demostración la pierde**, porque
+  `D2ds_v4` con réplica no está cubierto: pasar de un perfil a otro no solo añade el WAF, también
+  convierte un PostgreSQL gratis en uno de ~0,40 USD/hora.
+- **El NAT Gateway era el 37%** de la factura: 5,14 de 14,02 USD. Más que Redis y más que el App
+  Service. Por eso ahora se puede apagar, y el perfil económico lo apaga.
+- **114 horas en 10 días son 11,4 al día**, que contradice el modelo efímero entero. A ese ritmo
+  son 42 USD al mes y el crédito dura 71 días. El problema nunca fue qué recursos se eligieron,
+  sino cuánto se quedan encendidos.
+
+Conviene una alerta de presupuesto, que es gratis:
+
+```bash
+az consumption budget create --budget-name credito-academico   --amount 30 --time-grain Monthly --category Cost   --start-date 2026-09-01 --end-date 2027-09-01
+```
+
+### Lo que el Advisor recomienda y NO hay que hacer
+
+Azure Advisor propone **comprar una reserva de Redis, «ahorro potencial 172 USD/año»**. Una
+reserva es un compromiso de **un año pagado por adelantado**; el crédito entero son 100 USD y
+esta infraestructura vive por horas. Comprarla gastaría más de lo que hay para ahorrar en un
+consumo que no va a existir.
+
+Las otras diez recomendaciones son de alta disponibilidad —Premium, geo-replicación, mínimo dos
+instancias— y todas contradicen la restricción de costes del documento. Tampoco se aplican, pero
+**vale la pena llevarlas a la sustentación**: que el Advisor pida Premium y uno pueda explicar
+por qué eligió no hacerlo es criterio, no descuido.
 
 
 ---
@@ -373,8 +408,11 @@ Quedan anotadas porque ninguna se ve desde el código y todas costaron un intent
 1. **`eastus` está prohibida** por política de la suscripción.
 2. **ACR Tasks está bloqueado**: la imagen se construye en local, no en Azure.
 3. **Azure Cache for Redis está retirado.** Crear uno falla con «create Azure Managed Redis
-   instance instead». Ya se migró a `Microsoft.Cache/redisEnterprise`, que además salió más
-   barato: 0,018 USD/hora frente a 0,022.
+   instance instead». Ya se migró a `Microsoft.Cache/redisEnterprise`. **Y salió más CARO, no
+   más barato**: la tarifa publicada de 0,018 USD/hora es POR NODO, y el nivel Balanced despliega
+   dos. Son 0,036 reales frente a los 0,022 del Basic C0 — un 64% más. Lo confirman la factura
+   (4,09 USD en 114 horas) y el Advisor, que menciona «2 nodos». No existe un nivel de un solo
+   nodo; a cambio, la réplica y el SLA que el C0 no tenía.
 4. **Un Key Vault con `accessPolicies: []` nace inservible.** Ser dueño de la suscripción no da
    acceso a los datos: hay que concederse la política explícitamente, y eso ya lo hace
    `base.bicep`.
@@ -405,7 +443,15 @@ Quedan anotadas porque ninguna se ve desde el código y todas costaron un intent
 12. **El sitio estático no se puede activar desde Bicep.** Es una propiedad del plano de datos,
     no de ARM. Bicep crea la cuenta; activarlo y subir el `dist/` son dos comandos de la CLI,
     en la sección 6.1.
-13. **Un perfil de autoescalado con horario dice cuándo EMPIEZA, nunca cuándo termina.** Se
+13. **El NAT Gateway es el 37% de la factura del perfil económico**, más que Redis y que el App
+    Service, y el sistema no lo necesita para funcionar: App Service ya publica un conjunto
+    estable de direcciones de salida (`az webapp show --query possibleOutboundIpAddresses`) y
+    PostgreSQL y Redis se alcanzan por red privada. Lo pide la sección 3 del documento, así que
+    se mantiene en el perfil de demostración y se apaga en el económico.
+14. **PostgreSQL `B1ms` Burstable es GRATIS** los primeros 12 meses (750 h/mes). El
+    `D2ds_v4` que exige la réplica NO lo es: el salto al perfil de demostración cuesta ~0,40
+    USD/hora solo por ese cambio.
+15. **Un perfil de autoescalado con horario dice cuándo EMPIEZA, nunca cuándo termina.** Se
     queda aplicado hasta que otro perfil lo reemplaza. Con solo «normal» + «pico», el pico
     arranca el lunes a las 7 y no se va nunca: seis instancias ardiendo un domingo de
     madrugada. De ahí el tercer perfil, `fin-del-pico`.

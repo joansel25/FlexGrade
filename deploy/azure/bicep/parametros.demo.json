@@ -51,6 +51,9 @@
     },
     "ambiente": {
       "value": "demo"
+    },
+    "desplegarNat": {
+      "value": true
     }
   }
 }

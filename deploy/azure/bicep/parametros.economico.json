@@ -45,6 +45,9 @@
     },
     "desplegarBorde": {
       "value": false
+    },
+    "desplegarNat": {
+      "value": false
     }
   }
 }

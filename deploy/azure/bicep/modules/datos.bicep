@@ -160,7 +160,12 @@ resource extensionesPermitidas 'Microsoft.DBforPostgreSQL/flexibleServers/config
   servicio clásico ya no admite instancias nuevas.
 
   El cambio salió BARATO por casualidad afortunada: el SKU más pequeño de Managed Redis
-  —`Balanced_B0`, 0,5 GB— cuesta 0,018 USD/hora frente a los 0,022 del Basic C0 que se retira.
+  —`Balanced_B0`, 0,5 GB— cuesta **0,036 USD/hora**, no 0,018: la tarifa publicada es POR
+  NODO y el nivel Balanced despliega DOS para poder ofrecer alta disponibilidad. Lo confirma
+  la factura (4,09 USD en 114 horas) y el propio Advisor, que habla de «2 nodos».
+
+  Es decir: NO salió más barato que el Basic C0 de 0,022 que se retira, sino un 64% más caro.
+  A cambio tiene réplica y SLA, que el C0 no tenía. No hay un nivel de un solo nodo.
   Consultado en la API de precios de Azure, no estimado.
 
   Y encima mejora dos cosas que en el servicio viejo costaban dinero:

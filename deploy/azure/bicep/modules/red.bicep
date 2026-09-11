@@ -33,6 +33,27 @@ param prefijo string
 @description('Espacio de direcciones de la VNet.')
 param espacioDirecciones string = '10.0.0.0/16'
 
+@description('''
+  Si se despliega el NAT Gateway.
+
+  ES EL RECURSO MÁS CARO DEL PERFIL ECONÓMICO, y con diferencia: 0,045 USD/hora, el 37% de la
+  factura — más que Redis y más que el App Service. La cifra no es una estimación: sale de la
+  facturación real de septiembre, 5,14 USD de un total de 14,02.
+
+  Y ARQUITECTÓNICAMENTE ES PRESCINDIBLE. App Service ya ofrece un conjunto estable de
+  direcciones de salida por su cuenta, consultable con `az webapp show --query
+  possibleOutboundIpAddresses`. El NAT está porque lo pide la sección 3 del documento, no
+  porque el sistema lo necesite para funcionar: PostgreSQL y Redis se alcanzan por red privada,
+  y ninguna regla de firewall del proyecto depende de la dirección de origen.
+
+  Lo que sí aporta es UNA dirección fija en lugar de un conjunto que Azure puede cambiar al
+  escalar el plan. Si alguna vez hubiera que declarar la IP del sistema ante un tercero —una
+  pasarela de pagos, un servicio de la universidad—, esto es lo que lo hace posible.
+
+  Apagado, el perfil económico baja de 0,116 a ~0,071 USD/hora.
+''')
+param desplegarNat bool = true
+
 // Los cuatro rangos del documento. Se declaran como variables y no como parámetros porque
 // cambiarlos obliga a recrear la red entera: no es algo que se ajuste entre despliegues.
 var subredes = {
@@ -204,7 +225,7 @@ resource nsgTareas 'Microsoft.Network/networkSecurityGroups@2023-09-01' = {
 // Salida a internet con dirección fija
 // ---------------------------------------------------------------------------
 
-resource ipSalida 'Microsoft.Network/publicIPAddresses@2023-09-01' = {
+resource ipSalida 'Microsoft.Network/publicIPAddresses@2023-09-01' = if (desplegarNat) {
   name: '${prefijo}-ip-salida'
   location: ubicacion
   // El NAT Gateway solo admite direcciones de SKU Standard. Con Basic el despliegue falla.
@@ -214,12 +235,12 @@ resource ipSalida 'Microsoft.Network/publicIPAddresses@2023-09-01' = {
   }
 }
 
-resource natGateway 'Microsoft.Network/natGateways@2023-09-01' = {
+resource natGateway 'Microsoft.Network/natGateways@2023-09-01' = if (desplegarNat) {
   name: '${prefijo}-nat'
   location: ubicacion
   sku: { name: 'Standard' }
   properties: {
-    publicIpAddresses: [{ id: ipSalida.id }]
+    publicIpAddresses: [{ id: ipSalida!.id }]
     idleTimeoutInMinutes: 4
   }
 }
@@ -246,9 +267,15 @@ resource vnet 'Microsoft.Network/virtualNetworks@2023-09-01' = {
         properties: {
           addressPrefix: subredes.app
           networkSecurityGroup: { id: nsgApp.id }
-          // La salida de la aplicación pasa por el NAT: así PostgreSQL y Redis ven siempre la
-          // MISMA dirección de origen, y las reglas de firewall se pueden escribir.
-          natGateway: { id: natGateway.id }
+          // La salida de la aplicación pasa por el NAT, si lo hay: así PostgreSQL y Redis ven
+          // siempre la MISMA dirección de origen. Sin él, App Service sale por su propio
+          // conjunto de direcciones, que sirve igual mientras nadie tenga que declararlas.
+          //
+          // El `?` de la unión es lo que deja la propiedad FUERA del objeto cuando no hay NAT.
+          // Ponerla en `null` no vale: ARM la interpreta como «quítale el NAT a esta subred»,
+          // que aquí da lo mismo, pero en un redespliegue sobre una subred que sí lo tenía
+          // provocaría una desconexión momentánea de toda la salida.
+          ...(desplegarNat ? { natGateway: { id: natGateway!.id } } : {})
           // La integración de App Service con VNet exige la subred delegada y en exclusiva.
           delegations: [
             {
@@ -310,4 +337,5 @@ output subredAppId string = '${vnet.id}/subnets/snet-app'
 output subredDatosId string = '${vnet.id}/subnets/snet-datos'
 output subredEndpointsId string = '${vnet.id}/subnets/snet-endpoints'
 output subredTareasId string = '${vnet.id}/subnets/snet-tareas'
-output ipSalidaDireccion string = ipSalida.properties.ipAddress
+// Vacía cuando no hay NAT: quien la consuma tiene que poder distinguir los dos casos.
+output ipSalidaDireccion string = desplegarNat ? ipSalida!.properties.ipAddress : ''

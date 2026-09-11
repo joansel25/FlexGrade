@@ -98,6 +98,9 @@ param autoescaladoEnModoDemostracion bool = false
 @description('Si se despliega Application Gateway con WAF. ES LA LÍNEA MÁS CARA: ~0,46 USD/hora, casi cuatro veces el resto del perfil económico junto.')
 param desplegarBorde bool = false
 
+@description('Si se despliega el NAT Gateway. Es el 37% de la factura del perfil económico —0,045 USD/hora— y App Service ya da direcciones de salida estables por su cuenta. Lo pide la sección 3 del documento, así que va encendido para sustentar y apagado para probar.')
+param desplegarNat bool = true
+
 // La alta disponibilidad se deduce del nivel en vez de recibirse aparte. Con `Burstable` y
 // `altaDisponibilidad: true` el despliegue falla a los quince minutos, después de haber creado
 // media infraestructura: es la clase de contradicción que conviene hacer imposible de expresar.
@@ -113,6 +116,7 @@ module red 'modules/red.bicep' = {
   params: {
     ubicacion: ubicacion
     prefijo: prefijo
+    desplegarNat: desplegarNat
   }
 }
 
@@ -274,6 +278,8 @@ module borde 'modules/borde.bicep' = if (desplegarBorde) {
 output vnetNombre string = red.outputs.vnetNombre
 output subredAppId string = red.outputs.subredAppId
 output subredGatewayId string = red.outputs.subredGatewayId
+// Vacía si el NAT está apagado; en ese caso la salida es el conjunto de direcciones del
+// App Service: `az webapp show --query possibleOutboundIpAddresses`.
 output ipDeSalida string = red.outputs.ipSalidaDireccion
 
 output nombreApp string = app.outputs.nombreApp
