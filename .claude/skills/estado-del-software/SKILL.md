@@ -5,42 +5,30 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 
 # Estado del software — Sistema de Matrícula
 
-> **Actualizada al cerrar «una materia, un grupo por período» (decisión 58), el fallo que la
-> simulación de matrícula destapó: se podía cursar la misma materia en dos grupos, y eso hacía
-> fallar entero el cierre del semestre.** Antes, en la misma sesión: el rate limiting
-> (decisión 57), la 9.4 con su pantalla (Fase 9 COMPLETA), la migración entera de AWS a Azure
-> (decisión 55) y el despliegue del frontend en los workflows (decisión 56).
-> Última verificación real: backend con `black --check`, `isort --check-only`, `mypy` (limpio
-> sobre **183 archivos**) y `pytest` (**679 tests**) en verde, con la migración `0014` aplicada
-> sobre la base de desarrollo; frontend con `npm run lint`, `type-check`, `build` y `test`
-> (**175 tests**) en verde.
-> **Un aviso de método:** los 4 fallos de `test_enrollment_entity.py` en la corrida intermedia
-> eran reales y del cambio —añadir `course_id` a `Enrollment.create` dejó atrás las cuatro
-> llamadas de ese archivo—. `mypy` no los vio porque los tests no entran en `mypy app`. Los
-> cuatro workflows de despliegue vuelven a ser YAML válido. El expediente se comprobó además
-> **contra la API real** con `estudiante01@tdea.edu.co` del seed: las notas llegan como cadena
-> (`"3.60"`), y el ponderado del semestre (`3.60`) NO coincide con la media simple (`3.52`),
-> que es justo lo que la pantalla no debe recalcular.
-> **Dos avisos de método de esta sesión.** Los 12 errores de integración que aparecieron en una
-> corrida intermedia no eran del cambio: venían de haber matado un `pytest` a media ejecución,
-> que deja sucia `matricula_test`. Repetida sin nada más corriendo, verde — es la regla de la
-> sección 1, nunca dos suites a la vez —y volvió a pasar al final de la sesión, con los mismos
-> síntomas: la lección es que la regla se rompe sola en cuanto se lanza una suite en segundo
-> plano y se olvida—. Y `docencia.test.tsx` empezó a fallar al añadir un
-> archivo de test más: no era el cambio, era una carrera latente suya —el `<nav>` existe antes
-> de que llegue el rol, y el enlace se consultaba de forma síncrona—. Se arregló esperándolo, y
-> las comprobaciones de AUSENCIA de un enlace de rol se anclan ahora a la espera de otro que sí
-> debe estar; sin ese anclaje pasan aunque la regla se rompa. Antes de esto:
-> frontend sin cambios desde la 6.4 (lint, type-check, 94 tests y build en verde). La migración
-> `0009` se aplicó sobre la base de desarrollo y dejó 21 espacios con CERO franjas huérfanas, y
-> se comprobó contra la API real que un código inexistente responde `SPACE_NOT_FOUND` y que
-> `  lab-01 ` resuelve a `LAB-01`. La migración `0010` liberó 18 franjas que ya estaban
-> doblemente reservadas y se comprobó a mano que PostgreSQL rechaza el `INSERT` solapado y
-> acepta la misma aula a la misma hora en OTRO período.
-> El semáforo de la 6.3 se comprobó además contra la API real con dos cuentas del seed —una sin
-> historial y otra con `MAT101` aprobada, que desbloquea `MAT102`—, verificando la promesa de la
-> iteración: `POST /enrollments` rechaza con `PREREQUISITES_NOT_MET` justo lo que el plan marca
-> `BLOCKED`, y acepta lo que marca `AVAILABLE`.
+> **Actualizada al cerrar la INFRAESTRUCTURA COMO CÓDIGO: cinco iteraciones (A-E) más la
+> observabilidad.** Azure pasó de ser una lista de pasos manuales a once plantillas de Bicep que
+> se levantan con un comando y se destruyen con otro (decisión 62). Antes, en sesiones previas:
+> el rate limiting (57), la 9.4 con su pantalla (Fase 9 COMPLETA), la migración de AWS a Azure
+> (55) y tres hallazgos de la QA manual (58, 59, 61).
+>
+> Última verificación real: `black --check` e `isort --check-only` sobre **237 archivos**,
+> `mypy` limpio sobre **183**, y **680 tests** de backend; frontend con **192 tests** en 23
+> archivos. CI en verde sobre `a821be6`.
+>
+> **Un aviso de método que se repitió por tercera vez.** En la corrida completa falló
+> `test_seed_does_not_overwrite_existing_data`; aislado pasa, y el CI —que arranca con una base
+> limpia— está verde sobre el mismo commit. Es otra vez la contaminación de `matricula_test`
+> descrita en la sección 1. La lección ya no es «no corras dos suites a la vez»: es que **un
+> fallo solo del backend en local se comprueba aislado ANTES de tocar nada**, porque el reflejo
+> de buscar la causa en el cambio recién hecho cuesta media hora cada vez.
+>
+> **Y uno de proceso, más caro.** Un `git add -A` subió a un repositorio PÚBLICO las
+> exportaciones de facturación de Azure, con el nombre completo del titular en el nombre de los
+> archivos. No había credenciales —el ID de suscripción ya viajaba en los archivos de
+> parámetros y es un identificador, no un secreto— pero eran datos personales que nadie pidió
+> publicar. Se reescribió el historial para sacarlos. **La regla que queda: `git add` de rutas
+> concretas, nunca `-A`, en un repositorio donde conviven el código y los documentos del curso.**
+> El `.gitignore` cubre ahora `Costos_Recursos_Azure/`, `*.xlsx`, `*.pdf` y `*.png`.
 
 Este archivo es la memoria del proyecto entre sesiones. `CLAUDE.md` dice cómo se trabaja; esto
 dice **en qué punto está el software y por qué está hecho así**. Si los dos se contradicen,
@@ -59,7 +47,7 @@ la raíz). Nada se ejecuta en el host: los comandos van por `docker-compose exec
 | Migraciones | Alembic, dentro del backend | Los tests corren `alembic upgrade head`, nunca `create_all`: así prueban el esquema real, con triggers, índices parciales y `CHECK` |
 | Configuración | `app/infrastructure/config/settings.py` (Pydantic Settings) | `DATABASE_URL`, `REDIS_URL` y `JWT_SECRET` son obligatorios; sin ellos la app no arranca. En Azure los inyecta Azure App Service desde Key Vault |
 | Frontend | `frontend/`, `http://localhost:5173` | React 18 + TS + Vite. Corre en la máquina, NO en Docker. `npm run dev`. Habla con la API por `VITE_API_BASE_URL`; **hay que copiar `.env.example` a `.env.local`** (sin él, en desarrollo cae a `http://localhost:8000` con un aviso por consola; en un build de producción falla al arrancar). El 5173 es el único origen que la API autoriza por CORS en desarrollo |
-| Despliegue en Azure | `deploy/azure/` | las plantillas de Bicep que aprovisionan toda la infraestructura, el RUNBOOK con el ciclo de vida, y el README con variables por ambiente, health checks, ranuras de despliegue, cuenta de conexiones y reglas de red |
+| Despliegue en Azure | `deploy/azure/` | Once plantillas de Bicep en `bicep/` aprovisionan TODO. **Empieza por `RUNBOOK.md`**. Ciclo de vida: `levantar.ps1 demo`, `destruir.ps1`, `estado.ps1` (`.sh` en Git Bash/Linux). `validar.sh` comprueba las plantillas sin tocar Azure. El README describe el camino manual que las plantillas sustituyeron, útil solo cuando algo no arranca |
 
 Comandos que se usan de verdad (equivalentes en el `Makefile`):
 
@@ -123,9 +111,10 @@ donde importa.
     del balanceador convierte una caída de PostgreSQL Flexible Server en una caída total.
 11. **Los logs son JSON de una línea a stdout** en todo lo que no sea `dev`, porque los lee
     Log Analytics. Cada respuesta lleva `X-Request-ID`, que reutiliza la traza que ya venía
-    puesta desde el borde: `X-Azure-Ref` (Front Door) y, si no, `traceparent`. El orden es de
-    FUERA hacia dentro porque `X-Azure-Ref` es el único valor que aparece en los registros de
-    Front Door.
+    puesta desde el borde: `X-Azure-Ref` y, si no, `traceparent`, que es el que pone el
+    Application Gateway. **La primera quedó sin emisor al descartarse Front Door** (decisión 62);
+    el código la sigue leyendo primero y no molesta: si nadie la envía, se pasa a la siguiente.
+    Quitarla obligaría a volver a ponerla el día que haya una red de entrega delante.
 12. **El tamaño del pool de PostgreSQL es configurable por entorno.** El límite real es
     `max_connections` del Flexible Server repartido entre todas las instancias del autoescalado.
 13. **En el frontend, el estado del servidor lo gestiona TanStack Query**, los cupos no se
@@ -137,8 +126,9 @@ donde importa.
 15. **Los tokens: access en MEMORIA, refresh en `localStorage`.** El access token firma cada
     petición y es el que más daño hace si se filtra; al vivir en una variable de módulo, un
     script inyectado no puede leerlo. El refresh se persiste porque, si no, recargar la pestaña
-    cerraría la sesión en plena matrícula. La cookie `httpOnly` se descartó: Azure Front Door y
-    el Application Gateway son dominios distintos, así que sería una cookie de terceros. Todo en
+    cerraría la sesión en plena matrícula. La cookie `httpOnly` se descartó porque el frontend y la API
+    viven en dominios distintos —el sitio estático de Azure Storage y el Application Gateway—,
+    así que sería una cookie de terceros. Todo en
     `frontend/src/features/auth/tokenStorage.ts`, el único archivo a reescribir si se unifican
     los dominios.
 16. **La sesión se renueva un minuto ANTES de caducar**, y el refresh token se rota en cada
@@ -309,16 +299,17 @@ donde importa.
     `git show 3315eeb:frontend/src/features/health/components/ServiceStatus.tsx` la recupera si
     la 8.1 la quiere de base. El endpoint `/health` del backend no se toca: lo
     consume el Application Gateway.
-54. **CORS declara orígenes exactos, nunca `*`.** El frontend vivirá en Azure Front Door, otro
-    dominio; la API acepta credenciales y con ellas el comodín ni siquiera es válido.
+54. **CORS declara orígenes exactos, nunca `*`.** El frontend vive en el sitio estático de Azure
+    Storage, otro dominio; la API acepta credenciales y con ellas el comodín ni siquiera es válido.
 55. **La nube del proyecto es AZURE, no AWS.** El documento de la Fase I cambió de proveedor y el
     repositorio se migró entero: `deploy/azure/`, los cuatro workflows de despliegue, la
     documentación y los comentarios del código. El mapeo, para no volver a discutirlo: App
     Service (era Elastic Beanstalk), Azure Database for PostgreSQL Flexible Server (RDS), Azure
-    Cache for Redis (ElastiCache), Azure Storage + Front Door (S3 + CloudFront), Application
+    Managed Redis (ElastiCache), Azure Storage con sitio estático (S3), Application
     Gateway con WAF (ALB), Key Vault (Secrets Manager), Azure Monitor y Log Analytics
-    (CloudWatch), Microsoft Entra External ID (Cognito), ACR (ECR), VNet con subredes
-    públicas/privadas y NAT Gateway (VPC). **El código de la aplicación no tenía acoplamiento
+    (CloudWatch), ACR (ECR), VNet con subredes públicas/privadas y NAT Gateway (VPC). **Tres del
+    mapeo original no sobrevivieron**: Front Door (CloudFront), Azure Cache for Redis y Entra
+    External ID (Cognito) — decisiones 62 y 63. **El código de la aplicación no tenía acoplamiento
     real con AWS**: todo lo específico llegaba por variable de entorno. La única línea funcional
     que cambió fue la cabecera de traza del middleware de logs. El `.docx` del proyecto no se
     versiona: `*.docx` está en `.gitignore` porque es binario, git no lo puede fusionar y cada
@@ -328,16 +319,17 @@ donde importa.
     más consulta del usuario), así que no hay sesión en memoria que se rompa con varias
     instancias; no hay estado mutable a nivel de módulo salvo el cortacircuitos de Redis, que es
     por proceso a propósito; `Redis.from_url` acepta `rediss://` sin tocar nada, que es lo que
-    exige Azure Cache; y nada ejecuta migraciones al arrancar. Lo único que faltaba en el
+    exigen tanto el Azure Cache de entonces como el Managed Redis de ahora; y nada ejecuta
+    migraciones al arrancar, que es lo que permitió que las escribiera un contenedor aparte
+    (decisión 62). Lo único que faltaba en el
     repositorio eran tres cosas, y dos ya están:
 
     - **El frontend no se desplegaba.** Se compilaba en CI y nadie lo publicaba. Ahora hay un
       job `desplegar-frontend` en dev, staging y producción. Va APARTE del backend porque son
       dos artefactos con dos destinos, y DESPUÉS porque `VITE_API_BASE_URL` se fija al compilar:
       la URL queda incrustada en el JavaScript, así que compilar antes de que la API responda
-      produce un paquete que apunta a un sitio que no existe. Incluye la purga de Front Door,
-      que no es opcional: sin ella se sigue sirviendo el JavaScript anterior durante horas y el
-      despliegue parece no haber ocurrido.
+      produce un paquete que apunta a un sitio que no existe. Incluía una purga de Front Door que ya no
+      aplica: sin red de entrega delante, el sitio estático sirve lo que se acaba de subir.
     - **`APP_VERSION` se escribe en cada despliegue**, no en la configuración declarada en
       `ajustes.bicep`, porque es el único valor que cambia cada vez. Sin eso
       `/health` responde siempre el valor por defecto del código y ante un fallo no hay forma de
@@ -525,6 +517,100 @@ donde importa.
       un error previsible. No rompía nada —por eso pasó desapercibido—: era ruido silencioso
       del que solo se entera quien mira la consola del navegador.
 
+62. **La infraestructura de Azure es CÓDIGO, y el modelo es EFÍMERO.** Once plantillas de Bicep
+    en `deploy/azure/bicep/` y dos perfiles de parámetros. No hay ni un recurso creado a mano.
+
+    **El modelo efímero no es una preferencia, es lo que hace viable el proyecto.** La
+    arquitectura completa cuesta unos 250 USD al mes y el crédito académico son 100. Por horas
+    sale a ~1 USD, así que existe solo durante las sesiones. Y eso solo funciona si destruirla
+    es un comando: con cuarenta minutos de clics cada vez, nadie destruye nada.
+
+    **DOS GRUPOS DE RECURSOS, y la separación sostiene todo lo demás:**
+
+    - `matricula-base` — Key Vault, Container Registry y el área de Log Analytics. ~5 USD/mes.
+      **NUNCA se borra.** El Key Vault vive ahí porque tiene borrado lógico de 90 días: si se
+      destruyera, su NOMBRE quedaría reservado y el siguiente despliegue fallaría con «name
+      already in use» sin mencionar jamás que el recurso está en la papelera. El registro,
+      porque guarda la imagen. El área de registros, para que la observabilidad se acumule
+      mientras la infraestructura va y viene.
+    - `matricula-demo` — todo lo demás. Se crea y se destruye.
+
+    **PostgreSQL no tiene punto de conexión público**, así que el esquema no lo puede escribir
+    ni una máquina local ni un runner de GitHub. Lo escribe un CONTENEDOR DE UN SOLO USO dentro
+    de la VNet, que corre `alembic upgrade head` y muere. Va dentro del despliegue para que no
+    haya un paso manual que se pueda olvidar. La alternativa —migrar al arrancar la
+    aplicación— se descartó: con las seis instancias del pico subiendo a la vez, seis procesos
+    lanzarían la misma migración contra la misma base en el mismo segundo.
+
+    **Los secretos NUNCA salen del Key Vault.** Los archivos de parámetros llevan una
+    *referencia*, no un valor. El registro no tiene usuario administrador: la imagen se
+    descarga con identidad administrada. Y los secretos no se devuelven como salidas del
+    despliegue, porque el historial del grupo de recursos lo lee cualquiera con permiso de
+    lectura.
+
+    **El orden `app → permisos → ajustes` es obligatorio y el compilador lo impuso.** La
+    primera versión metía los ajustes dentro de `app.bicep` con un `dependsOn` hacia los
+    permisos, y Bicep lo rechazó por un ciclo que era real. Importa porque App Service resuelve
+    las referencias `@Microsoft.KeyVault(...)` AL APLICAR la configuración: si en ese momento la
+    identidad no tiene permiso, no falla — guarda la CADENA LITERAL como valor de
+    `DATABASE_URL`, y el síntoma es un error de PostgreSQL sobre una URL malformada que no
+    menciona el Key Vault por ningún lado.
+
+    **`base.bicep` declara las políticas de acceso como una LISTA**, así que redesplegarlo las
+    REEMPLAZA y borra la que `permisos.bicep` concedió a la aplicación. Con la demostración
+    viva, el síntoma es el del párrafo anterior. Solo se redespliega con el grupo efímero
+    destruido.
+
+    **Los registros van a Log Analytics, no a Application Insights.** La aplicación ya escribía
+    JSON con `X-Request-ID` desde la decisión 11, pero iba a la salida estándar del contenedor y
+    ahí se perdía al reciclarse la instancia — y con autoescalado, la petición lenta que alguien
+    reporta ocurrió en una instancia que quizá ya no existe. Application Insights exigiría
+    instrumentar el código con su SDK; Log Analytics recoge lo que ya se emite sin tocar una
+    línea. Se recoge también `ApplicationGatewayFirewallLog`, que convierte la demostración del
+    WAF en algo consultable en vez de un 403 en pantalla.
+
+    **Tres scripts de ciclo de vida, y existen por un dato, no por comodidad:** la facturación
+    mostró **114 horas encendido en diez días** —once al día— en un proyecto que vive de
+    sesiones de tres. Nadie lo decidió: no había forma rápida de saber que seguía vivo.
+    `estado.sh` responde en dos segundos con el gasto acumulado, y es el que ataca la causa.
+    Hay envoltorios `.ps1` porque PowerShell no ejecuta un `.sh` **y no avisa**: devuelve el
+    prompt como si hubiera funcionado. El `bash` del PATH en Windows 11 es el lanzador de WSL,
+    no el de Git.
+
+    **`validar.sh` corre en el CI y no toca Azure ni pide credenciales.** Una validación que
+    exige secretos no corre en el pull request de nadie, y la que no corre no sirve. Compila las
+    plantillas —**un aviso del compilador tumba la validación**, porque dos de ellos en este
+    proyecto eran errores de verdad—, cuadra los parámetros contra `main.bicep` y pasa
+    shellcheck. El `what-if` contra la suscripción real queda condicionado al secreto
+    `AZURE_CREDENTIALS`: el día que exista, se activa solo.
+
+    **Un grupo de recursos VACÍO cuesta 0 USD**, así que `what-if` se puede correr contra Azure
+    de verdad sin gastar nada. Es como se validó todo lo que nunca se ha desplegado.
+
+    **Seis requisitos del documento de la Fase I no se pueden cumplir literalmente**, y los seis
+    están en `INFRASTRUCTURE.md` §7 con su causa: B1 no admite autoescalado, Standard llega a 10
+    instancias y no a 12, Burstable no admite réplica, el puerto 8000 no existe de cara al
+    balanceador, Azure Cache for Redis está retirado y Front Door son 330 USD/mes el nivel con
+    WAF. **En ninguno es una renuncia**, salvo Entra External ID (ver decisión 63).
+
+    **Y dos cifras que solo se supieron facturando:** Managed Redis cuesta **0,036 USD/hora y no
+    0,018** —la tarifa publicada es POR NODO y el nivel Balanced despliega dos—, y PostgreSQL
+    `B1ms` **costó 0,00 USD** porque entra en la capa gratuita 12 meses. El perfil de
+    demostración la pierde al subir a `D2ds_v4`.
+
+63. **La autenticación de usuarios NO usa Microsoft Entra External ID, y la decisión está
+    tomada.** Sustituye a la deuda que la sección 4 listaba como pendiente.
+
+    Se queda el JWT propio: HS256, contraseñas con bcrypt, tres roles, y la clave de firma en el
+    Key Vault que la aplicación lee con su identidad administrada. Son de 3 a 5 días de trabajo
+    y la asignatura evalúa arquitectura de nube, no implementación de identidad.
+
+    **Lo que importa recordar es que hay DOS «Entra» y el documento los mezclaba en un párrafo:**
+    Entra **External ID** para los usuarios finales NO está implementado; Entra **ID** con Azure
+    RBAC para el plano de control SÍ, y es lo que sostiene las identidades administradas, el
+    `AcrPull` con el que el contenedor descarga su imagen y el acceso al Key Vault. Al corregir
+    la documentación se separan, no se borra Entra.
+
 ## 4. Qué está construido
 
 | Fase | Estado | Endpoints |
@@ -534,10 +620,23 @@ donde importa.
 | 2 — Catálogo | ✅ | `GET /courses`, `/courses/{id}`, `/courses/{id}/offerings`, `/offerings/{id}`, `/enrollment-periods/current` |
 | 3 — Inscripción | ✅ | `POST /enrollments`, `DELETE /enrollments/{id}`, `GET /students/me/schedule` |
 | 4 — Admin y reportes | ✅ | ver desglose abajo |
-| Preparación para la nube | ✅ | `/health/ready`, CORS, logs JSON, `X-Request-ID`, pool configurable, `deploy/azure/` |
+| Preparación para la nube | ✅ | `/health/ready`, CORS, logs JSON, `X-Request-ID`, pool configurable |
+| Infraestructura como código | ✅ | 11 plantillas Bicep, 2 perfiles, 3 scripts de ciclo de vida, validación en CI (decisión 62) |
 | 5 — Frontend y comprobante | ✅ | 5.1 fundación · 5.2 autenticación · 5.3 catálogo · 5.4 inscripción y horario · 5.5 comprobante PDF |
 | 6 — Reglas por carrera | ✅ | `GET /students/me/study-plan` con semáforo, ruta `/plan` en el frontend |
 | 9 — Cierre del ciclo | ✅ | docente, notas, consolidación y `GET /students/me/history` con la ruta `/expediente` |
+
+**Infraestructura como código: COMPLETA (A–E).** A red y datos ✅ (`6cfe026`) · B App Service,
+secretos y permisos ✅ (`920a891`) · C autoescalado y borde con WAF ✅ (`2557f43`) ·
+D levantar/destruir/estado ✅ (`4211125`) · E validación en CI ✅ (`459ba8a`). Más el contenedor
+de migraciones dentro de la VNet (`7f2ddcd`), el NAT opcional (`a0c0091`) y los registros a Log
+Analytics (`deaa779`). Todo en la decisión 62.
+
+**Lo único que queda es ENCENDERLO.** El Application Gateway, el autoescalado, el frontend y el
+perfil económico sin NAT están escritos y validados contra Azure, pero **nunca se han
+desplegado**. Se cierra con una sesión de `levantar.ps1 demo` (~40 min, ~3 USD por tres horas),
+que además es de donde salen las capturas de la sustentación. La sección 5 del RUNBOOK dice qué
+mirar.
 
 **Fase 9 — Cierre del ciclo académico: COMPLETA.** 9.1 el docente como actor ✅
 (`8fe425c`) · 9.2 registro de notas ✅ (`75bc0d6`) · 9.3 cierre y consolidación del período ✅
@@ -759,7 +858,12 @@ exclusión GiST de PostgreSQL sobre el rango horario, la misma filosofía de dos
 impide el sobrecupo.
 
 El plan completo de las fases 6 a 10 está en el artefacto «Hoja de ruta FlexGrade».
-Aprovisionar Azure sigue pendiente (ver `deploy/azure/README.md`).
+
+**Aprovisionar Azure YA NO está pendiente** (decisión 62): la infraestructura es Bicep y se
+levanta con `deploy/azure/levantar.ps1`. Lo único que falta es una sesión con el perfil de
+demostración: el Application Gateway, el autoescalado y el frontend están validados contra Azure
+pero **nunca se han desplegado**, así que `what-if` confirma que la plantilla se acepta, no que
+el gateway encuentre sano al backend ni que la regla de CPU dispare.
 
 Desglose de la Fase 4 por iteraciones (la numeración es nuestra; los documentos solo describen
 la fase completa):
@@ -806,9 +910,9 @@ Ausencias que sí son deuda, pendientes de decidir cuándo se pagan:
   arregla él. Por eso el caso de uso rechaza añadir un correquisito que afecte a inscripciones
   activas cuando la ventana NO está abierta, y lo permite cuando sí lo está.
 
-- **Autenticación propia frente a Microsoft Entra External ID.** El documento del proyecto nombra Microsoft Entra External ID; el código
-  emite y valida sus propios JWT con bcrypt. `AuthService` es un puerto, así que cambiarlo sería
-  escribir un adaptador nuevo y tocar `di.py`, sin rozar el dominio. Decisión pendiente.
+- ~~Autenticación propia frente a Microsoft Entra External ID~~ **DECIDIDA: se queda el JWT
+  propio.** Ver decisión 63. `AuthService` sigue siendo un puerto, así que el día que haga falta
+  es escribir un adaptador y tocar `di.py`, sin rozar el dominio.
 - **`GET /enrollment-periods` público.** `API.md` sección 5 lo documenta como listado paginado
   de períodos; el único listado que existe es `GET /admin/enrollment-periods`, que exige rol
   ADMIN.
