@@ -294,10 +294,10 @@ El repositorio no aprovisiona infraestructura, pero sí trae lo que Azure App Se
 para arrancar la imagen y la lista de comprobaciones para verificar que quedó bien:
 **`deploy/azure/`**.
 
-- `deploy/azure/app-settings.example.json` — la plantilla de las opciones de aplicación del
-  App Service. Los valores sensibles no se escriben ahí: son referencias
-  `@Microsoft.KeyVault(SecretUri=...)` que App Service resuelve al arrancar con la identidad
-  administrada. Incluye `WEBSITES_PORT=8000`, sin la cual App Service busca a uvicorn en el 80
+- `deploy/azure/bicep/modules/ajustes.bicep` — las opciones de aplicación del App Service. Los
+  valores sensibles no se escriben: son referencias `@Microsoft.KeyVault(SecretUri=...)` que App
+  Service resuelve al arrancar con la identidad administrada. Incluye `WEBSITES_PORT=8000`, sin
+  la cual App Service busca a uvicorn en el 80
   y marca el sitio como caído.
 - `deploy/azure/README.md` — variables de entorno por ambiente, qué ruta debe usar el health check
   del Application Gateway y por qué, las ranuras de despliegue, la cuenta de conexiones contra

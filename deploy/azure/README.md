@@ -1,20 +1,41 @@
-# Despliegue en Azure — lo que el backend espera encontrar
+# Despliegue en Azure
 
-Esta carpeta contiene lo que hay que darle a Azure para que el backend arranque, y la lista de
-comprobaciones para saber si quedó bien. **No aprovisiona nada**: la infraestructura se crea
-desde el portal de Azure o con la CLI (`az`); aquí solo vive lo que el repositorio aporta.
+**Toda la infraestructura de este proyecto es código.** Once plantillas de Bicep en `bicep/`
+crean la red, la base de datos, la caché, la aplicación, los permisos, el cortafuegos de
+aplicación y el autoescalado. Se levanta con un comando y se destruye con otro.
 
-El servicio de cómputo es **Azure App Service for Containers** (plan B1). App Service no
-construye la imagen: la **descarga** de Azure Container Registry (ACR). Por eso no hay ningún
-archivo de despliegue equivalente al `Dockerrun.aws.json` de Elastic Beanstalk: qué imagen
-correr se le dice al recurso, no se sube en el paquete.
+### Empieza por [`RUNBOOK.md`](RUNBOOK.md)
 
-```bash
-az webapp config container set \
-  --name "$AZURE_WEBAPP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
-  --container-image-name "${ACR_LOGIN_SERVER}/matricula-backend:${IMAGE_TAG}" \
-  --container-registry-url "https://${ACR_LOGIN_SERVER}"
+Es lo único que hay que abrir para recrear el sistema: cómo levantarlo, qué mirar, qué cuesta y
+cómo destruirlo.
+
+```powershell
+.\estado.ps1            # ¿hay algo encendido y cuánto lleva costando?
+.\levantar.ps1 demo     # levantar para sustentar
+.\destruir.ps1          # apagarlo todo
 ```
+
+En Git Bash, Linux o macOS, los mismos con `.sh`.
+
+---
+
+## Qué es el resto de este documento
+
+Lo que sigue describe el **aprovisionamiento manual desde el portal**, que es como se hacía
+antes de que existieran las plantillas. **Ya no son instrucciones**: el Bicep hace todo eso, y
+hacerlo a mano ahora produciría una infraestructura distinta de la que se despliega.
+
+Se conserva porque la columna «el detalle que arruina el paso» reúne lo que cada recurso
+necesita de verdad, y eso sigue siendo útil cuando algo no arranca y hay que entender por qué.
+
+**Tres cosas de aquí abajo están desactualizadas y conviene saberlo antes de leerlas:**
+
+- La región `eastus` **está prohibida** por una política de la suscripción. La real es
+  `centralus`.
+- **Azure Cache for Redis está retirado.** El servicio vigente es Azure Managed Redis, que va
+  por el puerto 10000 y no por el 6380.
+- **Front Door no se despliega**, y el plan de App Service es S1, no B1. Los motivos están en
+  `INFRASTRUCTURE.md`, sección 7.
 
 ## 0. El orden de aprovisionamiento, y por qué es ese
 
@@ -31,7 +52,7 @@ de GitHub o en una opción de la aplicación.
 | 5 | Key Vault con `database-url`, `redis-url`, `jwt-secret` | el nombre del vault | Los tres valores salen de los pasos 3 y 4 |
 | 6 | App Service Plan **B1** + Web App **for Containers** | el nombre de la app | Apuntando al ACR del paso 2 |
 | 7 | Identidad administrada de la Web App + permiso `get`/`list` en el Key Vault | — | **Sin esto la app arranca con la cadena literal `@Microsoft.KeyVault(...)` como valor** y falla al conectarse, con un error que no menciona el Key Vault por ningún lado |
-| 8 | Application settings desde `app-settings.example.json` | — | `WEBSITES_PORT=8000`, o App Service busca a uvicorn en el 80 y marca el sitio como caído |
+| 8 | Application settings (hoy las pone `ajustes.bicep`) | — | `WEBSITES_PORT=8000`, o App Service busca a uvicorn en el 80 y marca el sitio como caído |
 | 9 | Entidad de servicio con rol Contributor sobre el grupo | su JSON | → secreto `AZURE_CREDENTIALS` |
 | 10 | Storage Account con **Static website** activado | el nombre de la cuenta | → secreto `AZURE_STORAGE_ACCOUNT`. Aquí van los archivos del frontend |
 | 11 | Front Door: origen al Storage (frontend) y al App Service (API) | perfil y endpoint | → secretos `FRONTDOOR_PROFILE` y `FRONTDOOR_ENDPOINT`; su dominio va a `CORS_ALLOWED_ORIGINS` y a la variable `VITE_API_BASE_URL_*` |
@@ -50,58 +71,17 @@ no se traduce literal en App Service: el 8000 es el puerto INTERNO del contenedo
 (`WEBSITES_PORT`), y el Gateway habla con el App Service por 443. El aislamiento se consigue con
 restricciones de acceso, no publicando el 8000.
 
-## 1. `app-settings.example.json` — la configuración del ambiente
+## 1. La configuración de la aplicación
 
-App Service llama «application settings» a lo que el contenedor lee como variables de entorno.
-El archivo de esta carpeta es la plantilla, en el formato que acepta la CLI:
+La aplican las plantillas, en `bicep/modules/ajustes.bicep`. Los valores sensibles **no se
+escriben**: son referencias `@Microsoft.KeyVault(SecretUri=...)` que App Service resuelve al
+arrancar usando su identidad administrada, de modo que ningún secreto pasa por el repositorio ni
+por los registros del pipeline.
 
-```bash
-sed -e "s|REEMPLAZAR_KEYVAULT|${KEYVAULT_NAME}|g" \
-    -e "s|REEMPLAZAR_FRONTDOOR|${FRONTDOOR_HOSTNAME}|" \
-    -e "s|REEMPLAZAR_AMBIENTE|${ENVIRONMENT}|" \
-    deploy/azure/app-settings.example.json > app-settings.json
-
-az webapp config appsettings set \
-  --name "$AZURE_WEBAPP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
-  --settings @app-settings.json
-```
-
-Los valores sensibles **no se escriben ahí**: son referencias
-`@Microsoft.KeyVault(SecretUri=...)` que App Service resuelve al arrancar, usando la identidad
-administrada de la aplicación. El secreto vive en Azure Key Vault y nunca pasa por el
-repositorio ni por los registros del pipeline.
-
-Para que la referencia funcione hay que habilitar la identidad administrada y darle permiso de
-lectura sobre el Key Vault. Si no, App Service arranca con la cadena literal
-`@Microsoft.KeyVault(...)` como valor y la aplicación falla al conectarse con un error que no
-menciona el Key Vault por ningún lado — el fallo más confuso de todo el montaje:
-
-```bash
-az webapp identity assign --name "$AZURE_WEBAPP_NAME" --resource-group "$AZURE_RESOURCE_GROUP"
-az keyvault set-policy --name "$KEYVAULT_NAME" --object-id "$PRINCIPAL_ID" --secret-permissions get list
-```
-
-| Variable | Obligatoria | Valor en la nube |
-|---|---|---|
-| `DATABASE_URL` | sí | `postgresql+psycopg://usuario:clave@<servidor>.postgres.database.azure.com:5432/matricula?sslmode=require` |
-| `REDIS_URL` | sí | `rediss://:<clave>@<nombre>.redis.cache.windows.net:6380/0` — Azure Cache for Redis exige TLS |
-| `JWT_SECRET` | sí | distinto por ambiente; nunca se reutiliza entre dev, staging y prod |
-| `CORS_ALLOWED_ORIGINS` | sí, en cuanto exista el frontend | el dominio de Azure Front Door, p. ej. `https://matricula.azurefd.net` |
-| `ENVIRONMENT` | recomendable | `dev`, `staging` o `prod`. Distinto de `dev` activa los logs en JSON |
-| `DOCS_ENABLED` | recomendable | `false` en producción |
-| `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | según plan | ver el apartado 4 |
-| `WEBSITES_PORT` | **sí, en contenedores** | `8000`. Sin ella App Service prueba el 80 y el 8080, no encuentra a uvicorn y marca el sitio como caído |
-| `RATE_LIMIT_ENABLED` | recomendable | `true`. **Ponerlo en `false` es la única reacción de segundos** si un límite mal calculado deja fuera a media universidad en plena ventana de matrícula: cambiar una opción de aplicación reinicia el contenedor, desplegar tarda minutos |
-| `RATE_LIMIT_LOGIN_PER_MINUTE` y sus tres hermanas | opcional | Los valores de `API.md`. Los límites POR IP los comparten miles de personas: una universidad sale a internet por unas pocas direcciones públicas, así que el número correcto solo se descubre midiéndolo |
-| `LOG_LEVEL` | opcional | `INFO` |
-| `APP_VERSION` | opcional | la etiqueta del despliegue, para verla en `/health` |
-
-Si falta alguna de las tres primeras, **la aplicación no arranca**: falla al iniciar con un
-error explícito en vez de comportarse de forma rara en caliente. Es deliberado, y en un
-despliegue es la diferencia entre enterarte en el minuto uno o cuando entra el primer estudiante.
-
-`sslmode=require` en `DATABASE_URL` no es opcional: PostgreSQL Flexible Server rechaza las
-conexiones en claro por defecto.
+Aquí vivía una plantilla llamada `app-settings.example.json`. Se eliminó porque contradecía a
+las plantillas en algo con consecuencias: declaraba un pool de 10 conexiones con 20 de
+desbordamiento, y con las seis instancias del pico serían 180 conexiones contra un servidor que
+no las admite. El Bicep usa 5 y 10 por esa razón, y lo explica donde lo declara.
 
 ## 2. Health checks
 

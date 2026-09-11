@@ -59,7 +59,7 @@ la raíz). Nada se ejecuta en el host: los comandos van por `docker-compose exec
 | Migraciones | Alembic, dentro del backend | Los tests corren `alembic upgrade head`, nunca `create_all`: así prueban el esquema real, con triggers, índices parciales y `CHECK` |
 | Configuración | `app/infrastructure/config/settings.py` (Pydantic Settings) | `DATABASE_URL`, `REDIS_URL` y `JWT_SECRET` son obligatorios; sin ellos la app no arranca. En Azure los inyecta Azure App Service desde Key Vault |
 | Frontend | `frontend/`, `http://localhost:5173` | React 18 + TS + Vite. Corre en la máquina, NO en Docker. `npm run dev`. Habla con la API por `VITE_API_BASE_URL`; **hay que copiar `.env.example` a `.env.local`** (sin él, en desarrollo cae a `http://localhost:8000` con un aviso por consola; en un build de producción falla al arrancar). El 5173 es el único origen que la API autoriza por CORS en desarrollo |
-| Despliegue en Azure | `deploy/azure/` | `app-settings.example.json` (las opciones de aplicación del App Service, con los secretos como referencias `@Microsoft.KeyVault(...)`) y el README con variables por ambiente, health checks, ranuras de despliegue, cuenta de conexiones y reglas de red |
+| Despliegue en Azure | `deploy/azure/` | las plantillas de Bicep que aprovisionan toda la infraestructura, el RUNBOOK con el ciclo de vida, y el README con variables por ambiente, health checks, ranuras de despliegue, cuenta de conexiones y reglas de red |
 
 Comandos que se usan de verdad (equivalentes en el `Makefile`):
 
@@ -338,8 +338,8 @@ donde importa.
       produce un paquete que apunta a un sitio que no existe. Incluye la purga de Front Door,
       que no es opcional: sin ella se sigue sirviendo el JavaScript anterior durante horas y el
       despliegue parece no haber ocurrido.
-    - **`APP_VERSION` se escribe en cada despliegue**, no en la plantilla de
-      `app-settings.example.json`, porque es el único valor que cambia cada vez. Sin eso
+    - **`APP_VERSION` se escribe en cada despliegue**, no en la configuración declarada en
+      `ajustes.bicep`, porque es el único valor que cambia cada vez. Sin eso
       `/health` responde siempre el valor por defecto del código y ante un fallo no hay forma de
       saber qué versión está arriba. En producción se escribe en la RANURA, para que viaje con
       el intercambio y no toque lo que está sirviendo.

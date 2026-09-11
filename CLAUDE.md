@@ -38,7 +38,13 @@ de la Fase I.
 
 **Infraestructura**
 - Docker + Docker Compose (dev local)
-- Azure App Service + Azure Database for PostgreSQL Flexible Server + Azure Cache for Redis + Azure Storage + Front Door + Microsoft Entra External ID
+- Azure App Service for Containers + Azure Database for PostgreSQL Flexible Server + Azure
+  Managed Redis + Azure Storage (sitio estático) + Application Gateway con WAF + Log Analytics
+- **Infraestructura como código: Bicep.** Todo en `deploy/azure/bicep/`; el ciclo de vida en
+  `deploy/azure/RUNBOOK.md`
+- **Tres servicios del plan inicial NO se usan**, y el motivo está en `INFRASTRUCTURE.md` §7:
+  Azure Cache for Redis (retirado), Front Door (330 USD/mes el nivel con WAF) y Microsoft Entra
+  External ID (la autenticación va con JWT propio y la clave en Key Vault)
 
 ## Arquitectura
 
