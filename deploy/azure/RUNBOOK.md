@@ -53,6 +53,7 @@ Hay dos grupos de recursos y solo uno se destruye.
 |---|---|---|
 | Key Vault | `matricula-kv-pefjbi` | `postgres-admin-password`, `jwt-secret`, `database-url`, `redis-url` |
 | Container Registry | `matriculaacrpefjbi` | La imagen `matricula-backend` |
+| Log Analytics | `matricula-logs-pefjbi` | Los registros de todas las sesiones |
 
 Cuesta unos **5 USD al mes** y es el precio de que recrear el resto sea rápido y fiable.
 
@@ -62,6 +63,20 @@ use», sin mencionar nunca que el recurso está en la papelera.
 
 **Por qué el ACR vive aquí:** guarda la imagen. Si se borrara, cada sesión empezaría
 reconstruyéndola y subiéndola antes de poder desplegar nada.
+
+**Por qué el área de registros vive aquí:** si se destruyera con el resto, cada sesión empezaría
+sin historia y solo se podría mirar lo que acabara de pasar. Así la infraestructura sigue siendo
+efímera pero la observabilidad se acumula. **No cuesta nada parada**: Log Analytics se factura
+por gigabyte ingerido, no por existir, y los primeros 5 GB al mes son gratuitos. Lleva además un
+tope de 1 GB al día, porque es el único recurso cuyo coste depende de lo que haga la aplicación
+y no del tiempo encendido.
+
+**CUIDADO AL REDESPLEGAR `base.bicep` CON LA DEMOSTRACIÓN VIVA.** El almacén declara sus
+políticas de acceso como una lista, así que volver a desplegarlo la REEMPLAZA y borra la que
+`permisos.bicep` concedió al App Service. El síntoma sería el peor de todos: la aplicación
+arranca, no puede resolver las referencias al Key Vault y falla con un error de PostgreSQL sobre
+una URL malformada, sin mencionar el almacén en ningún momento. Con el grupo efímero destruido
+no hay nada que perder, que es cuando se ha hecho aquí.
 
 ### `matricula-demo` — SE CREA Y SE DESTRUYE
 
@@ -364,7 +379,47 @@ restringir el acceso al sitio a la dirección del gateway.
 
 ---
 
-## 7. Destruir
+## 7. Los registros
+
+Todo lo que escribe la aplicación acaba en `matricula-logs-pefjbi`, en el grupo persistente. Los
+registros **sobreviven a la destrucción**: se pueden consultar días después, con la
+infraestructura apagada.
+
+Cada línea lleva un identificador de petición que también viaja en la cabecera `X-Request-ID` de
+la respuesta. Es lo que convierte «me falló la inscripción esta mañana» en una consulta con
+respuesta.
+
+```bash
+AREA=$(az monitor log-analytics workspace show --resource-group matricula-base        --workspace-name matricula-logs-pefjbi --query customerId -o tsv)
+```
+
+**Los errores de la aplicación en la última hora:**
+
+```bash
+az monitor log-analytics query --workspace "$AREA" --analytics-query   "AppServiceConsoleLogs | where TimeGenerated > ago(1h) | where ResultDescription contains 'ERROR' | project TimeGenerated, ResultDescription | order by TimeGenerated desc | take 20"   -o table
+```
+
+**Lo que bloqueó el cortafuegos** —la demostración del WAF, ya no como un 403 en pantalla sino
+con la regla que lo detuvo—:
+
+```bash
+az monitor log-analytics query --workspace "$AREA" --analytics-query   "AzureDiagnostics | where Category == 'ApplicationGatewayFirewallLog' | project TimeGenerated, action_s, ruleId_s, requestUri_s | order by TimeGenerated desc | take 20"   -o table
+```
+
+**Las peticiones más lentas**, para enseñar el efecto del autoescalado sobre la latencia:
+
+```bash
+az monitor log-analytics query --workspace "$AREA" --analytics-query   "AppServiceHTTPLogs | where TimeGenerated > ago(1h) | top 20 by TimeTaken desc | project TimeGenerated, CsUriStem, ScStatus, TimeTaken"   -o table
+```
+
+**Los registros tardan entre 2 y 5 minutos en aparecer.** No es un fallo: es el tiempo de
+ingesta. Si se consulta nada más generar la carga, la tabla sale vacía.
+
+En el portal está en `matricula-logs-pefjbi` → **Registros**.
+
+---
+
+## 8. Destruir
 
 ```bash
 ./deploy/azure/destruir.sh
@@ -385,7 +440,7 @@ crear los secretos, y el nombre del Key Vault queda bloqueado 90 días —habrí
 
 ---
 
-## 8. Coste
+## 9. Coste
 
 | Perfil | USD/hora | Sesión de 3 h | Sesión de 6 h |
 |---|---|---|---|
@@ -449,7 +504,7 @@ por qué eligió no hacerlo es criterio, no descuido.
 
 ---
 
-## 9. Cosas que solo se descubren ejecutando
+## 10. Cosas que solo se descubren ejecutando
 
 Quedan anotadas porque ninguna se ve desde el código y todas costaron un intento fallido:
 

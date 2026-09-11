@@ -105,10 +105,58 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Dónde se guardan los registros
+// ---------------------------------------------------------------------------
+//
+// POR QUÉ VIVE AQUÍ Y NO EN EL GRUPO EFÍMERO
+//
+// Si el área de trabajo se destruyera con el resto, cada sesión empezaría sin historia: los
+// registros de la demostración del martes no existirían el miércoles, y lo único que se podría
+// enseñar sería lo que acabara de pasar. Poniéndola en el grupo persistente, la infraestructura
+// sigue siendo efímera pero la observabilidad se acumula.
+//
+// NO CUESTA NADA MIENTRAS NO SE USE. Log Analytics se factura por gigabyte ingerido, no por
+// tener el recurso creado: un área de trabajo parada vale 0. Los primeros 5 GB al mes son
+// gratuitos, y una sesión de sustentación genera unos pocos megabytes.
+//
+// QUÉ RECOGE, Y POR QUÉ IMPORTA QUE SEA ASÍ
+//
+// La aplicación ya escribe sus registros en JSON a la salida estándar —ver
+// `app/infrastructure/logging/setup.py`—, con un identificador único por petición que también
+// viaja en la cabecera `X-Request-ID` de la respuesta. Eso es lo que permite pasar de «me falló
+// la inscripción esta mañana» a la línea exacta, entre millones, sin buscar por hora aproximada.
+//
+// Hasta ahora esos registros se escribían y nadie los recogía.
+
+resource registros 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
+  name: '${prefijo}-logs-${sufijo}'
+  location: ubicacion
+  properties: {
+    sku: {
+      // `PerGB2018` es el nivel vigente. El antiguo `Free` está retirado para áreas nuevas.
+      name: 'PerGB2018'
+    }
+    // 30 días entran en el tramo gratuito. Más retención se factura aparte, y para un proyecto
+    // que se sustenta una vez no aporta nada.
+    retentionInDays: 30
+    workspaceCapping: {
+      // Tope duro de ingesta diaria. No es paranoia: un bucle de errores puede generar
+      // muchísimo registro en minutos, y este es el único recurso del proyecto cuyo coste
+      // depende de lo que haga la aplicación en vez de del tiempo que esté encendida.
+      dailyQuotaGb: 1
+    }
+    publicNetworkAccessForIngestion: 'Enabled'
+    publicNetworkAccessForQuery: 'Enabled'
+  }
+}
+
 output acrNombre string = acr.name
 output acrLoginServer string = acr.properties.loginServer
 output keyVaultNombre string = keyVault.name
 output keyVaultUri string = keyVault.properties.vaultUri
+output registrosId string = registros.id
+output registrosNombre string = registros.name
 
 // Recordatorio del único secreto que NO escribe Bicep. Ver el README.
 output recordatorio string = 'Falta crear a mano el secreto `jwt-secret` en ${keyVault.name}. Ver README.'

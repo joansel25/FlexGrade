@@ -136,6 +136,26 @@ INFRASTRUCTURE.md
        Al corregir el documento hay que separarlos, no borrar Entra: el segundo uso es real y es
        justo lo que una asignatura de nube quiere ver.
 
+   7.9 Application Insights se sustituye por Log Analytics
+       El documento nombra Azure Monitor y Application Insights para metricas y registros.
+
+       Las METRICAS de plataforma si las recoge Azure Monitor por su cuenta, sin desplegar nada:
+       son las que consume la regla de autoescalado para leer la CPU.
+
+       Los REGISTROS son otra cosa. La aplicacion ya los escribia en JSON con un identificador
+       por peticion —pensados justo para esto— pero iban a la salida estandar del contenedor y
+       ahi se perdian al reciclarse la instancia. Con el autoescalado eso es peor de lo que
+       parece: la peticion lenta que alguien reporta ocurrio en una instancia que quiza ya no
+       existe.
+
+       Se despliega un area de LOG ANALYTICS en el grupo persistente, con ajustes de diagnostico
+       que le envian la salida de la aplicacion y la del cortafuegos. No se usa Application
+       Insights porque exigiria instrumentar el codigo con su SDK, y lo que hace falta —poder
+       consultar los registros que ya se emiten— lo cubre Log Analytics sin tocar la aplicacion.
+
+       Vive en el grupo persistente a proposito: la infraestructura es efimera, la observabilidad
+       se acumula. No cuesta nada parada.
+
 8. Donde vive cada cosa
 
    deploy/azure/bicep/main.bicep       la infraestructura efimera completa
@@ -146,3 +166,4 @@ INFRASTRUCTURE.md
    deploy/azure/destruir.sh|.ps1       un comando para apagarla
    deploy/azure/estado.sh|.ps1         ¿hay algo encendido y cuanto lleva costando?
    deploy/azure/validar.sh             valida plantillas y parametros sin tocar Azure
+   deploy/azure/bicep/modules/observabilidad.bicep   envia los registros a Log Analytics

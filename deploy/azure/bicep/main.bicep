@@ -101,6 +101,9 @@ param desplegarBorde bool = false
 @description('Si se despliega el NAT Gateway. Es el 37% de la factura del perfil económico —0,045 USD/hora— y App Service ya da direcciones de salida estables por su cuenta. Lo pide la sección 3 del documento, así que va encendido para sustentar y apagado para probar.')
 param desplegarNat bool = true
 
+@description('Identificador del área de trabajo de Log Analytics, que vive en el grupo PERSISTENTE. Sale de la salida `registrosId` de base.bicep. Vacío desactiva la recogida de registros.')
+param registrosId string = ''
+
 // La alta disponibilidad se deduce del nivel en vez de recibirse aparte. Con `Burstable` y
 // `altaDisponibilidad: true` el despliegue falla a los quince minutos, después de haber creado
 // media infraestructura: es la clase de contradicción que conviene hacer imposible de expresar.
@@ -230,6 +233,27 @@ module ajustes 'modules/ajustes.bicep' = {
   // Explícito y no deducido: Bicep no puede saber que aplicar esta configuración ANTES de que
   // el permiso exista deja las referencias al Key Vault sin resolver.
   dependsOn: [permisos]
+}
+
+// ---------------------------------------------------------------------------
+// Los registros
+// ---------------------------------------------------------------------------
+//
+// El área de trabajo NO se crea aquí: vive en el grupo persistente, para que los registros
+// sobrevivan a la destrucción. Esto solo conecta la salida de la aplicación —y la del
+// cortafuegos, cuando existe— con ella.
+//
+// Aparece ANTES que el borde en el archivo aunque dependa de él. No es un descuido: Bicep
+// ordena los módulos por sus dependencias reales, no por su posición en el texto, y agrupar
+// aquí todo lo que tiene que ver con registros se lee mejor que perseguirlo por el archivo.
+
+module observabilidad 'modules/observabilidad.bicep' = if (!empty(registrosId)) {
+  name: 'observabilidad'
+  params: {
+    registrosId: registrosId
+    nombreApp: app.outputs.nombreApp
+    nombreGateway: desplegarBorde ? borde!.outputs.nombreGateway : ''
+  }
 }
 
 // ---------------------------------------------------------------------------

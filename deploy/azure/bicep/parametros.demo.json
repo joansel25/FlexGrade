@@ -54,6 +54,9 @@
     },
     "desplegarNat": {
       "value": true
+    },
+    "registrosId": {
+      "value": "C:/Program Files/Git/subscriptions/d4cd0eda-b29e-45d8-accb-3a40cd92d874/resourceGroups/matricula-base/providers/Microsoft.OperationalInsights/workspaces/matricula-logs-pefjbi"
     }
   }
 }
