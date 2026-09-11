@@ -109,6 +109,12 @@ rm -f "$compilado"
 seccion "Revisando los scripts"
 
 if command -v shellcheck >/dev/null 2>&1; then
+  # La version se imprime porque IMPORTA: una version antigua avisa de menos. Este job fallo una
+  # vez por un SC2164 que la imagen `koalaman/shellcheck:stable` no marcaba y la del runner si.
+  # Sin este dato, la diferencia entre «pasa en local» y «falla en CI» no tiene explicacion
+  # visible.
+  printf '  %s\n' "$(shellcheck --version | grep version: | head -1)"
+
   for script in "$AQUI"/*.sh; do
     # SC1091: shellcheck no sigue el `source` de _comun.sh, y no tiene por que.
     if shellcheck --exclude=SC1091 "$script"; then

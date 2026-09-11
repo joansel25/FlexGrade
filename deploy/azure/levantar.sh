@@ -87,7 +87,7 @@ fi
 if [ "$ENSAYO" = "true" ]; then
   titulo "2/2  Ensayo: esto es lo que se crearia (sin crear nada)"
   (
-    cd "$BICEP"
+    cd "$BICEP" || exit 1
     az deployment group what-if \
       --resource-group "$GRUPO" \
       --template-file main.bicep \
@@ -135,7 +135,7 @@ arranque="$(date +%s)"
 # Git Bash, `--parameters @/c/Users/...` no llega bien: la arroba impide la conversion automatica
 # a ruta de Windows y az termina buscando un archivo que no existe.
 (
-  cd "$BICEP"
+  cd "$BICEP" || exit 1
   az deployment group create \
     --resource-group "$GRUPO" \
     --template-file main.bicep \
