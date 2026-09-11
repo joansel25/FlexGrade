@@ -5,6 +5,25 @@ nada más ni guardar datos aparte: todo lo que se necesita está aquí o en el r
 
 Si quien lo ejecuta es un asistente, basta con decirle «sigue `deploy/azure/RUNBOOK.md`».
 
+## El camino corto
+
+Tres comandos cubren el 95% de lo que hay aquí. El resto del documento explica qué hacen y qué
+mirar cuando algo no sale.
+
+```bash
+./deploy/azure/estado.sh                    # ¿hay algo encendido y cuánto lleva costando?
+./deploy/azure/levantar.sh demo             # levantar para sustentar (~40 min, ~1,03 USD/h)
+./deploy/azure/destruir.sh                  # apagarlo todo
+```
+
+Antes de gastar nada, `./deploy/azure/levantar.sh demo --ensayo` enseña lo que se crearía sin
+crear un solo recurso de pago: un grupo de recursos vacío no cuesta nada.
+
+**`estado.sh` es el que importa.** La facturación de septiembre mostró 114 horas encendido en
+diez días —once al día— en un proyecto cuyo modelo entero se basa en sesiones de tres horas.
+Nadie lo decidió: no había forma rápida de saber que seguía vivo. Ahora responde en dos
+segundos, con el gasto acumulado.
+
 ---
 
 ## 1. Qué sobrevive y qué no
@@ -65,8 +84,12 @@ az policy assignment list --disable-scope-strict-match --query "[0].parameters"
 
 ## 3. Levantar la infraestructura
 
-Desde `deploy/azure/bicep/`. Tarda unos **25 minutos** con el perfil económico y **40** con el de
-demostración, y no baja de ahí: Redis y PostgreSQL tardan lo que tardan.
+**El atajo:** `./deploy/azure/levantar.sh demo` hace todo lo de esta sección —incluido publicar
+el frontend y comprobar que responde—. Lo que sigue es qué hace por dentro, para cuando haga
+falta intervenir a mano.
+
+Tarda unos **25 minutos** con el perfil económico y **40** con el de demostración, y no baja de
+ahí: Redis y PostgreSQL tardan lo que tardan.
 
 **No se lanza cinco minutos antes de sustentar.**
 
@@ -327,6 +350,13 @@ restringir el acceso al sitio a la dirección del gateway.
 ## 7. Destruir
 
 ```bash
+./deploy/azure/destruir.sh
+```
+
+Dice cuántos recursos hay, cuántas horas llevan encendidos y cuánto se ha gastado en la sesión
+antes de preguntar. Por debajo es:
+
+```bash
 az group delete --name matricula-demo --yes --no-wait
 ```
 
@@ -334,6 +364,7 @@ Tarda unos diez minutos y **no hay que esperarlo**. Deja de contar el gasto casi
 
 **Nunca borrar `matricula-base`.** Si se borra por error, hay que rehacer `base.bicep` y volver a
 crear los secretos, y el nombre del Key Vault queda bloqueado 90 días —habría que usar otro—.
+`destruir.sh` se niega explícitamente a tocarlo, aunque se le pida por variable de entorno.
 
 ---
 
