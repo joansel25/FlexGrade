@@ -10,13 +10,30 @@ Si quien lo ejecuta es un asistente, basta con decirle «sigue `deploy/azure/RUN
 Tres comandos cubren el 95% de lo que hay aquí. El resto del documento explica qué hacen y qué
 mirar cuando algo no sale.
 
-```bash
-./deploy/azure/estado.sh                    # ¿hay algo encendido y cuánto lleva costando?
-./deploy/azure/levantar.sh demo             # levantar para sustentar (~40 min, ~1,03 USD/h)
-./deploy/azure/destruir.sh                  # apagarlo todo
+**Desde PowerShell** (la consola por defecto en Windows):
+
+```powershell
+.\deploy\azure\estado.ps1                   # ¿hay algo encendido y cuánto lleva costando?
+.\deploy\azure\levantar.ps1 demo            # levantar para sustentar (~40 min, ~1,03 USD/h)
+.\deploy\azure\destruir.ps1                 # apagarlo todo
 ```
 
-Antes de gastar nada, `./deploy/azure/levantar.sh demo --ensayo` enseña lo que se crearía sin
+**Desde Git Bash, Linux o macOS**, lo mismo con `.sh`:
+
+```bash
+./deploy/azure/estado.sh
+./deploy/azure/levantar.sh demo
+./deploy/azure/destruir.sh
+```
+
+Los `.ps1` son envoltorios de tres líneas: la lógica está una sola vez, en los `.sh`.
+
+**PowerShell no sabe ejecutar un `.sh`**: si se escribe `./deploy/azure/estado.sh` no pasa nada
+—ni siquiera da error—. Y escribir `bash estado.sh` tampoco vale: en Windows 11 el `bash` del
+PATH es el lanzador de WSL, que sin distribución instalada falla con un mensaje que no menciona
+ni el script ni Git. Los envoltorios buscan el bash de Git directamente.
+
+Antes de gastar nada, `.\deploy\azure\levantar.ps1 demo --ensayo` enseña lo que se crearía sin
 crear un solo recurso de pago: un grupo de recursos vacío no cuesta nada.
 
 **`estado.sh` es el que importa.** La facturación de septiembre mostró 114 horas encendido en
