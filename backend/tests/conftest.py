@@ -72,7 +72,14 @@ os.environ.setdefault("CORS_ALLOWED_ORIGINS", "http://localhost:5173")
 # Los tests que sí prueban el limitador lo encienden ellos, con `monkeypatch` sobre la
 # configuración: es la única forma de que la protección se pruebe de verdad sin contaminar al
 # resto de la suite.
-os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
+#
+# SE IMPONE, no `setdefault` como las de arriba. `docker-compose.yml` define
+# `RATE_LIMIT_ENABLED=true` en el contenedor, y `setdefault` respeta lo que ya existe: la suite
+# solo pasaba en contenedores creados ANTES de que el limitador existiera, que no traían la
+# variable. Al recrear uno, el limitador quedaba encendido y caían 99 tests con 429. Las de arriba
+# sí deben respetar el entorno —el CI pone sus propias URL—; esta no tiene ningún valor legítimo
+# distinto de `false` dentro de la suite.
+os.environ["RATE_LIMIT_ENABLED"] = "false"
 
 os.environ["DATABASE_URL"] = _url_de_pruebas(os.environ["DATABASE_URL"])
 os.environ["REDIS_URL"] = _redis_de_pruebas(os.environ["REDIS_URL"])
