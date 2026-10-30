@@ -15,6 +15,10 @@ secrets/
 credentials.json
 .azure/
 
+# La salida de `scripts/probar-politicas.sh`. Trae identificadores de la suscripción y se adjunta a
+# la matriz de controles a mano, no se versiona por defecto.
+deploy/azure/evidencias/
+
 # ---------------------------------------------------------------------------
 # Python
 # ---------------------------------------------------------------------------

@@ -41,8 +41,9 @@ INFRASTRUCTURE.md
    Las secciones 1-6 son el requisito tal y como lo pide el documento de la Fase I, y se dejan
    escritas como estan. Esta seccion anota lo que la plataforma no permitio cumplir literalmente.
    Casi ninguna es una renuncia: en la mayoria el requisito se cumple por una via distinta a la
-   prevista. La excepcion es 7.8, donde si se decide no implementar lo que el documento describe,
-   y queda explicado por que.
+   prevista. Las excepciones son 7.8, donde si se decide no implementar lo que el documento
+   describe, y 7.10, donde lo implementado no se puede activar todavia; las dos quedan
+   explicadas.
 
    7.1 SKU B1 con autoescalado -> S1
        El nivel Basic NO admite autoescalado. Azure acepta la regla, la muestra en el portal y
@@ -136,7 +137,15 @@ INFRASTRUCTURE.md
        Al corregir el documento hay que separarlos, no borrar Entra: el segundo uso es real y es
        justo lo que una asignatura de nube quiere ver.
 
-   7.9 Application Insights se sustituye por Log Analytics
+   7.9 Application Insights existe, pero la API todavia no le envia nada
+       ACTUALIZADO con las secciones 10 a 15 del documento: el componente de Application
+       Insights se crea en el grupo persistente, sobre el MISMO workspace, y la API recibe
+       `APPLICATIONINSIGHTS_CONNECTION_STRING`. Lo que sigue sin hacerse es instrumentar el
+       codigo (la «Parte A» del documento), asi que la tabla `AppRequests` esta vacia. Por eso
+       las alertas 2 y 6 leen `AppServiceHTTPLogs`, que la plataforma escribe sin tocar el
+       codigo; al instrumentar la API se cambia la tabla de esas dos consultas. Lo de abajo
+       explica por que los registros se resolvieron primero con Log Analytics.
+
        El documento nombra Azure Monitor y Application Insights para metricas y registros.
 
        Las METRICAS de plataforma si las recoge Azure Monitor por su cuenta, sin desplegar nada:
@@ -156,14 +165,56 @@ INFRASTRUCTURE.md
        Vive en el grupo persistente a proposito: la infraestructura es efimera, la observabilidad
        se acumula. No cuesta nada parada.
 
+   7.10 Los cinco perfiles RBAC estan en el codigo y no se asignan a nadie (EXCEPCION, 13.2)
+       La seccion 10.1 asigna cada perfil a un GRUPO de Entra ID. La cuenta del proyecto es de
+       estudiante en el directorio de la universidad y no puede crear grupos
+       (`allowedToCreateSecurityGroups = false`, comprobado el 2026-10-29). Asignar a usuarios
+       sueltos contradiria 10.1.
+
+       Las asignaciones estan escritas y se condicionan a que su grupo tenga identificador: hoy
+       van vacios y no se crea ninguna. Se activan sin tocar el Bicep el dia que TI cree los
+       grupos y alguien ponga sus identificadores en los archivos de parametros.
+
+         Motivo       la cuenta no tiene permiso de directorio para crear grupos
+         Alcance      los cinco perfiles humanos; la identidad de la API SI tiene su rol
+         Responsable  el equipo, a traves de TI de la universidad
+         Vencimiento  la entrega final del proyecto
+
+   7.11 Los grupos de recursos se llaman `matricula-*`, no `rg-flexgrade-*`
+       El documento propone el prefijo como convencion. Renombrar obligaria a recrear el Key
+       Vault —90 dias de borrado logico— y el registro. La consulta de auditoria de 11.3 filtra
+       por `matricula-` en vez de `rg-flexgrade`.
+
+       Tampoco hay un tercer grupo de observabilidad: el workspace ya vivia en el persistente.
+
+   7.12 La entrada por el puerto 80 sigue en HTTP (limitacion, 10.2)
+       No hay dominio propio ni certificado para terminar TLS en el gateway. Del gateway hacia
+       dentro todo va cifrado: 443 al App Service, TLS 1.2 obligatorio en PostgreSQL y TLS en el
+       10000 de Redis.
+
+   7.13 Los NSG decian 6380 para Redis, y es 10000
+       Era el puerto del Azure Cache for Redis retirado (7.5). No rompia nada —la salida dentro
+       de la VNet esta permitida por defecto y la subred del punto de conexion no evalua su
+       NSG—, pero declaraba un puerto que ya no existe en el sistema. Corregido.
+
 8. Donde vive cada cosa
 
-   deploy/azure/bicep/main.bicep       la infraestructura efimera completa
-   deploy/azure/bicep/base.bicep       Key Vault y registro, que nunca se destruyen
-   deploy/azure/bicep/parametros.*.json   los dos perfiles
-   deploy/azure/RUNBOOK.md             como levantarla, que mirar y que cuesta
-   deploy/azure/levantar.sh|.ps1       un comando para encenderla
-   deploy/azure/destruir.sh|.ps1       un comando para apagarla
-   deploy/azure/estado.sh|.ps1         ¿hay algo encendido y cuanto lleva costando?
-   deploy/azure/validar.sh             valida plantillas y parametros sin tocar Azure
-   deploy/azure/bicep/modules/observabilidad.bicep   envia los registros a Log Analytics
+   deploy/azure/bicep/main.bicep            la infraestructura efimera completa
+   deploy/azure/bicep/base.bicep            lo persistente del grupo base: Key Vault, registro,
+                                            workspace, Application Insights y alertas
+   deploy/azure/bicep/suscripcion.bicep     lo persistente de la suscripcion: registro de
+                                            actividad, presupuesto y gobernanza
+   deploy/azure/bicep/parametros/*.json     un archivo por plantilla, mas etiquetas.json
+   deploy/azure/bicep/modules/<dominio>/    comun, red, datos, aplicacion, acceso, operacion,
+                                            monitoreo, costos, gobernanza y borde
+   deploy/azure/RUNBOOK.md                  como levantarla, que mirar y que cuesta
+   deploy/azure/scripts/desplegar-base.sh   un comando para lo persistente
+   deploy/azure/scripts/levantar.sh         un comando para encenderla
+   deploy/azure/scripts/destruir.sh         un comando para apagarla
+   deploy/azure/scripts/estado.sh           ¿hay algo encendido y cuanto lleva costando?
+   deploy/azure/scripts/validar.sh          valida plantillas, parametros y scripts sin tocar Azure
+   deploy/azure/scripts/probar-politicas.sh pruebas positiva y negativas de la gobernanza (13.3)
+   deploy/azure/scripts/lib/                lo que comparten los scripts
+   deploy/azure/pruebas/                    las pruebas de la infraestructura
+   deploy/azure/bicep/modules/operacion/observabilidad.bicep
+                                            envia los registros a Log Analytics

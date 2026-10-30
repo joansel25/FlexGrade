@@ -26,6 +26,11 @@ Makefile    text eol=lf
 *.yml       text eol=lf
 *.yaml      text eol=lf
 
+# Las consultas de las alertas: Bicep las incrusta tal cual con `loadTextContent`. Con CRLF en
+# Windows y LF en el runner, la misma plantilla desplegaría consultas distintas según la máquina,
+# y cada `what-if` mostraría un cambio que no existe.
+*.kql       text eol=lf
+
 # Binarios: nunca convertir. Aplicar normalizacion de texto a un .docx o a una
 # imagen la corrompe de forma silenciosa, y el dano solo se ve al abrirla.
 *.docx      binary

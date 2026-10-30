@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "ubicacion": {
+      "value": "centralus"
+    },
+    "prefijo": {
+      "value": "matricula"
+    },
+    "grupoBase": {
+      "value": "matricula-base"
+    },
+    "montoPresupuesto": {
+      "value": 0
+    },
+    "inicioPresupuesto": {
+      "value": ""
+    },
+    "correosPresupuesto": {
+      "value": []
+    },
+    "grupoFinops": {
+      "value": ""
+    },
+    "modoPoliticas": {
+      "value": "audit"
+    }
+  }
+}

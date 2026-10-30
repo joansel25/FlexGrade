@@ -6,7 +6,7 @@ description: Memoria viva del Sistema de Matrícula. Consúltala ANTES de escrib
 # Estado del software — Sistema de Matrícula
 
 > **Actualizada al cerrar la INFRAESTRUCTURA COMO CÓDIGO: cinco iteraciones (A-E) más la
-> observabilidad.** Azure pasó de ser una lista de pasos manuales a once plantillas de Bicep que
+> observabilidad.** Azure pasó de ser una lista de pasos manuales a dieciséis plantillas de Bicep que
 > se levantan con un comando y se destruyen con otro (decisión 62). Antes, en sesiones previas:
 > el rate limiting (57), la 9.4 con su pantalla (Fase 9 COMPLETA), la migración de AWS a Azure
 > (55) y tres hallazgos de la QA manual (58, 59, 61).
@@ -47,7 +47,7 @@ la raíz). Nada se ejecuta en el host: los comandos van por `docker-compose exec
 | Migraciones | Alembic, dentro del backend | Los tests corren `alembic upgrade head`, nunca `create_all`: así prueban el esquema real, con triggers, índices parciales y `CHECK` |
 | Configuración | `app/infrastructure/config/settings.py` (Pydantic Settings) | `DATABASE_URL`, `REDIS_URL` y `JWT_SECRET` son obligatorios; sin ellos la app no arranca. En Azure los inyecta Azure App Service desde Key Vault |
 | Frontend | `frontend/`, `http://localhost:5173` | React 18 + TS + Vite. Corre en la máquina, NO en Docker. `npm run dev`. Habla con la API por `VITE_API_BASE_URL`; **hay que copiar `.env.example` a `.env.local`** (sin él, en desarrollo cae a `http://localhost:8000` con un aviso por consola; en un build de producción falla al arrancar). El 5173 es el único origen que la API autoriza por CORS en desarrollo |
-| Despliegue en Azure | `deploy/azure/` | Once plantillas de Bicep en `bicep/` aprovisionan TODO. **Empieza por `RUNBOOK.md`**. Ciclo de vida: `levantar.ps1 demo`, `destruir.ps1`, `estado.ps1` (`.sh` en Git Bash/Linux). `validar.sh` comprueba las plantillas sin tocar Azure. El README describe el camino manual que las plantillas sustituyeron, útil solo cuando algo no arranca |
+| Despliegue en Azure | `deploy/azure/` | Las plantillas de Bicep en `bicep/` (un dominio por carpeta en `modules/`) aprovisionan TODO. **Empieza por `RUNBOOK.md`**. Ciclo de vida en `scripts/`: `levantar.sh demo`, `destruir.sh`, `estado.sh`, desde Git Bash (en Windows, nunca desde PowerShell). `validar.sh` comprueba las plantillas sin tocar Azure. El README describe el camino manual que las plantillas sustituyeron, útil solo cuando algo no arranca |
 
 Comandos que se usan de verdad (equivalentes en el `Makefile`):
 
@@ -517,8 +517,21 @@ donde importa.
       un error previsible. No rompía nada —por eso pasó desapercibido—: era ruido silencioso
       del que solo se entera quien mira la consola del navegador.
 
-62. **La infraestructura de Azure es CÓDIGO, y el modelo es EFÍMERO.** Once plantillas de Bicep
-    en `deploy/azure/bicep/` y dos perfiles de parámetros. No hay ni un recurso creado a mano.
+62. **La infraestructura de Azure es CÓDIGO, y el modelo es EFÍMERO.** Dieciséis plantillas de
+    Bicep en `deploy/azure/bicep/` y dos perfiles de parámetros. No hay ni un recurso creado a mano.
+
+    **Organización: un dominio por carpeta, y quien compone no declara.** Los módulos viven en
+    `modules/{red,datos,aplicacion,operacion,borde}/`; los perfiles, en `parametros/`. Donde un
+    dominio tiene varias plantillas, una compone a las demás (`datos.bicep` a `postgres` +
+    `redis` + `secretos`; `borde.bicep` a `gateway` + `frontend`), así que `main.bicep` ve un
+    módulo por dominio. PostgreSQL y Redis se separaron SIN dependencia entre sí para que sigan
+    creándose en paralelo, y la clave de Redis se lee en `datos.bicep` con `listKeys` sobre un
+    `existing`: devolverla como salida de `redis.bicep` la dejaría en el historial del grupo.
+    Los scripts siguen la misma idea: los cuatro de entrada en `scripts/` solo orquestan, y la
+    lógica está en `scripts/lib/` (consola, perfil, azure, imagen, despliegue, frontend). Al
+    añadir un script o un módulo de `lib/`, `validar.sh` lo revisa solo con shellcheck `-x`;
+    un `source "$LIB/..."` necesita su directiva `# shellcheck source=lib/...`, o shellcheck
+    no lo sigue y la validación falla.
 
     **El modelo efímero no es una preferencia, es lo que hace viable el proyecto.** La
     arquitectura completa cuesta unos 250 USD al mes y el crédito académico son 100. Por horas
@@ -573,9 +586,11 @@ donde importa.
     mostró **114 horas encendido en diez días** —once al día— en un proyecto que vive de
     sesiones de tres. Nadie lo decidió: no había forma rápida de saber que seguía vivo.
     `estado.sh` responde en dos segundos con el gasto acumulado, y es el que ataca la causa.
-    Hay envoltorios `.ps1` porque PowerShell no ejecuta un `.sh` **y no avisa**: devuelve el
-    prompt como si hubiera funcionado. El `bash` del PATH en Windows 11 es el lanzador de WSL,
-    no el de Git.
+    **Se ejecutan desde Git Bash, no desde PowerShell.** Hubo envoltorios `.ps1` y se retiraron
+    a propósito; lo que sigue vigente es por qué existían: PowerShell no ejecuta un `.sh` **y no
+    avisa** —devuelve el prompt como si hubiera funcionado—, y el `bash` del PATH en Windows 11
+    es el lanzador de WSL, no el de Git. Desde PowerShell hay que llamar a
+    `C:\Program Files\Git\bin\bash.exe` por su ruta.
 
     **`validar.sh` corre en el CI y no toca Azure ni pide credenciales.** Una validación que
     exige secretos no corre en el pull request de nadie, y la que no corre no sirve. Compila las
@@ -611,6 +626,47 @@ donde importa.
     `AcrPull` con el que el contenedor descarga su imagen y el acceso al Key Vault. Al corregir
     la documentación se separan, no se borra Entra.
 
+64. **Las secciones 10 a 15 del documento (IAM, cifrado, observabilidad, alertas, costos y
+    gobernanza) están en Bicep, y la infraestructura tiene PRUEBAS.** Especificación en
+    `bicep/BICEP_PENDIENTES_10_15.md`, plan en `HOJA_IMPLEMENTACION_10_15.md`, estado por
+    control en `MATRIZ_CONTROLES.md`. Lo que no se vuelve a discutir:
+
+    - **Tres plantillas de entrada, tres ámbitos**, desplegadas en este orden: `base.bicep`
+      (grupo persistente) → `suscripcion.bicep` (suscripción) → `main.bicep` (efímero). Las dos
+      primeras con `scripts/desplegar-base.sh`. `main` lee de `base` Application Insights y el
+      grupo de acciones; si `base` no se redespliega antes, `main` falla al no encontrarlos.
+    - **`modules/comun/` exporta y no declara recursos**: etiquetas, nombres y roles. Los
+      NOMBRES son la pieza crítica: las alertas viven en `base` y vigilan recursos efímeros por
+      `_ResourceId`, calculado con la MISMA función con que `main` los crea. `test_nombres` lo
+      fija; cambiar un nombre a mano en un módulo deja una alerta muda para siempre.
+    - **Key Vault con RBAC.** Owner no lee secretos: `jwt-secret` exige asignarse *Secrets
+      Officer* un momento (RUNBOOK §1). Acabó con la fragilidad de la decisión 62: redesplegar
+      `base.bicep` ya no borra el permiso de la aplicación.
+    - **Los perfiles humanos están escritos y no se asignan**: la cuenta no puede crear grupos de
+      Entra en el directorio de la universidad. Excepción en INFRASTRUCTURE §7.10.
+    - **Las alertas 2 y 6 leen `AppServiceHTTPLogs`, no `AppRequests`**: la API no está
+      instrumentada con Application Insights y `AppRequests` está vacía. Al instrumentarla, se
+      cambia la tabla en `monitoreo/consultas/`.
+    - **`etiquetaAmbiente` no es `ambiente`**: con `ENVIRONMENT=dev` el backend escribe texto
+      plano y Log Analytics no lo lee.
+    - **Los valores del equipo NO se inventan** (sección 14 del documento): `dueno`,
+      `centroCosto`, correos y presupuesto van vacíos; las plantillas los exigen con
+      `@minLength(1)` y los scripts se paran antes de llamar a Azure. `validar.sh` los lista.
+    - **Gobernanza: auditar antes de bloquear.** `modoPoliticas` nace en `audit`, y
+      `probar-politicas.sh` se niega a correr fuera de `enforce`; valida sin crear nada.
+
+    **Las pruebas de la infraestructura** (`deploy/azure/pruebas/`, `unittest` de la biblioteca
+    estándar para que el CI no necesite nada) comprueban el ARM COMPILADO, no el Bicep: lo que
+    de verdad se envía a Azure. `test_scripts` ejecuta los scripts reales contra un `az` FALSO
+    que anota las llamadas. `test_consultas` ejecuta las KQL contra el workspace real, solo con
+    `FLEXGRADE_PRUEBAS_AZURE=1`. Se validaron con **11 mutaciones**, todas detectadas.
+
+    **Tres trampas de Windows que costaron un intento cada una**, y que cualquier prueba nueva
+    tiene que respetar: `az` escribe la salida en cp1252, así que se compila a archivo
+    (`--outfile`) y no a stdout; `az` es un `.cmd` y `cmd.exe` parte el comando en el `|` de una
+    consulta KQL pasada como argumento, así que va en un archivo con `--body @`; y el `bash` del
+    PATH es el de WSL, así que las pruebas buscan el de Git por su ruta.
+
 ## 4. Qué está construido
 
 | Fase | Estado | Endpoints |
@@ -621,7 +677,7 @@ donde importa.
 | 3 — Inscripción | ✅ | `POST /enrollments`, `DELETE /enrollments/{id}`, `GET /students/me/schedule` |
 | 4 — Admin y reportes | ✅ | ver desglose abajo |
 | Preparación para la nube | ✅ | `/health/ready`, CORS, logs JSON, `X-Request-ID`, pool configurable |
-| Infraestructura como código | ✅ | 11 plantillas Bicep, 2 perfiles, 3 scripts de ciclo de vida, validación en CI (decisión 62) |
+| Infraestructura como código | ✅ | 30 plantillas Bicep en 10 dominios y 3 ámbitos, 5 archivos de parámetros, 5 scripts con su librería en `scripts/lib/`, 66 pruebas en `deploy/azure/pruebas/`, validación en CI (decisiones 62 y 64) |
 | 5 — Frontend y comprobante | ✅ | 5.1 fundación · 5.2 autenticación · 5.3 catálogo · 5.4 inscripción y horario · 5.5 comprobante PDF |
 | 6 — Reglas por carrera | ✅ | `GET /students/me/study-plan` con semáforo, ruta `/plan` en el frontend |
 | 9 — Cierre del ciclo | ✅ | docente, notas, consolidación y `GET /students/me/history` con la ruta `/expediente` |
@@ -632,11 +688,16 @@ D levantar/destruir/estado ✅ (`4211125`) · E validación en CI ✅ (`459ba8a`
 de migraciones dentro de la VNet (`7f2ddcd`), el NAT opcional (`a0c0091`) y los registros a Log
 Analytics (`deaa779`). Todo en la decisión 62.
 
-**Lo único que queda es ENCENDERLO.** El Application Gateway, el autoescalado, el frontend y el
-perfil económico sin NAT están escritos y validados contra Azure, pero **nunca se han
-desplegado**. Se cierra con una sesión de `levantar.ps1 demo` (~40 min, ~3 USD por tres horas),
-que además es de donde salen las capturas de la sustentación. La sección 5 del RUNBOOK dice qué
-mirar.
+**Secciones 10 a 15 del documento: EN CÓDIGO Y PROBADAS EN LOCAL** (decisión 64, sin commit
+todavía al escribir esto). Etiquetas y región, Key Vault con RBAC y TLS por tramo, perfiles RBAC,
+Application Insights y diagnósticos, las seis alertas, presupuesto y gobernanza con pruebas
+negativas.
+
+**Lo único que queda es ENCENDERLO, y antes rellenar lo del equipo.** Nada de lo anterior ni el
+Application Gateway, el autoescalado o el frontend se ha desplegado nunca. El orden: rellenar los
+valores de RUNBOOK §2.1 → `validar.sh` → `desplegar-base.sh --ensayo` → `desplegar-base.sh` →
+`levantar.sh demo` (~40 min, ~3 USD por tres horas), que además es de donde salen las capturas de
+la sustentación. La sección 5 del RUNBOOK dice qué mirar.
 
 **Fase 9 — Cierre del ciclo académico: COMPLETA.** 9.1 el docente como actor ✅
 (`8fe425c`) · 9.2 registro de notas ✅ (`75bc0d6`) · 9.3 cierre y consolidación del período ✅
@@ -860,7 +921,7 @@ impide el sobrecupo.
 El plan completo de las fases 6 a 10 está en el artefacto «Hoja de ruta FlexGrade».
 
 **Aprovisionar Azure YA NO está pendiente** (decisión 62): la infraestructura es Bicep y se
-levanta con `deploy/azure/levantar.ps1`. Lo único que falta es una sesión con el perfil de
+levanta con `deploy/azure/scripts/levantar.sh`. Lo único que falta es una sesión con el perfil de
 demostración: el Application Gateway, el autoescalado y el frontend están validados contra Azure
 pero **nunca se han desplegado**, así que `what-if` confirma que la plantilla se acepta, no que
 el gateway encuentre sano al backend ni que la regla de CPU dispare.

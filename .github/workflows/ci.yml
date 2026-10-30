@@ -402,7 +402,7 @@ jobs:
   # que se cree, se activa solo.
   #
   # Mientras tanto el `what-if` se corre a mano con:
-  #     ./deploy/azure/levantar.sh demo --ensayo
+  #     ./deploy/azure/scripts/levantar.sh demo --ensayo
   # -------------------------------------------------------------------------
   iac-ci:
     name: Infraestructura (plantillas y parametros)
@@ -416,7 +416,7 @@ jobs:
         run: az bicep install
 
       - name: Validar plantillas, parametros y scripts
-        run: ./deploy/azure/validar.sh
+        run: ./deploy/azure/scripts/validar.sh
 
       # -----------------------------------------------------------------------
       # Comparacion contra la suscripcion real.
@@ -460,7 +460,7 @@ jobs:
             az deployment group what-if \
               --resource-group matricula-ci \
               --template-file main.bicep \
-              --parameters "@parametros.$perfil.json"
+              --parameters "@parametros/$perfil.json" "@parametros/etiquetas.json"
             echo "::endgroup::"
           done
           az group delete --name matricula-ci --yes --no-wait
@@ -468,4 +468,4 @@ jobs:
       - name: Aviso si no hay credenciales
         if: steps.creds.outputs.hay == 'false'
         run: |
-          echo "::notice title=what-if omitido::No existe el secreto AZURE_CREDENTIALS, asi que no se compara contra la suscripcion real. Las plantillas si se compilaron y los parametros se comprobaron. Para el what-if a mano: ./deploy/azure/levantar.sh demo --ensayo"
+          echo "::notice title=what-if omitido::No existe el secreto AZURE_CREDENTIALS, asi que no se compara contra la suscripcion real. Las plantillas si se compilaron y los parametros se comprobaron. Para el what-if a mano: ./deploy/azure/scripts/levantar.sh demo --ensayo"

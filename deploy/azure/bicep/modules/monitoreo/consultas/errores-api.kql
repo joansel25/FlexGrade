@@ -1,0 +1,6 @@
+AppServiceHTTPLogs
+| where _ResourceId =~ '{{RECURSO}}'
+| summarize Total = count(), Fallos = countif(ScStatus >= 500 and ScStatus <= 599)
+| where Total >= 20
+| extend Porcentaje5xx = 100.0 * Fallos / Total
+| where Porcentaje5xx > 5

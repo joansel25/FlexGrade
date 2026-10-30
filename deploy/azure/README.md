@@ -1,21 +1,55 @@
 # Despliegue en Azure
 
-**Toda la infraestructura de este proyecto es código.** Once plantillas de Bicep en `bicep/`
+**Toda la infraestructura de este proyecto es código.** Las plantillas de Bicep en `bicep/`
 crean la red, la base de datos, la caché, la aplicación, los permisos, el cortafuegos de
-aplicación y el autoescalado. Se levanta con un comando y se destruye con otro.
+aplicación y el autoescalado, y además la observabilidad, las alertas, el presupuesto y la
+gobernanza de las secciones 10 a 15 del documento. Se levanta con un comando y se destruye con
+otro.
+
+```
+deploy/azure/
+├── RUNBOOK.md            cómo levantarla, qué mirar y qué cuesta
+├── bicep/
+│   ├── main.bicep        la infraestructura efímera: solo compone los módulos
+│   ├── base.bicep        lo persistente del grupo base: Key Vault, registro, observabilidad, alertas
+│   ├── suscripcion.bicep lo persistente de la suscripción: registro de actividad, presupuesto, Policy
+│   ├── parametros/       un archivo por plantilla, más etiquetas.json, que va con las tres
+│   └── modules/          un dominio por carpeta
+│       ├── comun/        etiquetas, nombres y roles compartidos; sin recursos
+│       ├── red/          VNet, subredes, NSG y NAT
+│       ├── datos/        postgres + redis, y sus cadenas en el Key Vault (secretos)
+│       ├── aplicacion/   App Service, sus permisos y sus ajustes
+│       ├── acceso/       los perfiles humanos de 10.1
+│       ├── operacion/    autoescalado, migraciones y diagnósticos
+│       ├── monitoreo/    Application Insights, grupo de acciones y alertas (consultas en .kql)
+│       ├── costos/       el presupuesto mensual
+│       ├── gobernanza/   la iniciativa de Azure Policy y su asignación
+│       └── borde/        gateway con WAF y almacenamiento del frontend
+├── pruebas/              66 pruebas sobre el ARM compilado y los scripts; politicas/ para 13.3
+└── scripts/
+    ├── levantar.sh · destruir.sh · estado.sh       la demo
+    ├── desplegar-base.sh · probar-politicas.sh     lo persistente y su gobernanza
+    ├── validar.sh · generar-carga.py               comprobar sin Azure y generar carga
+    └── lib/              lo que comparten: consola, perfil, azure, imagen, despliegue, frontend
+```
+
+Cada carpeta con más de una plantilla tiene una que compone a las demás (`datos.bicep`,
+`borde.bicep`), así que `main.bicep` solo ve un módulo por dominio. El detalle de cada módulo está
+en [`bicep/README.md`](bicep/README.md).
 
 ### Empieza por [`RUNBOOK.md`](RUNBOOK.md)
 
 Es lo único que hay que abrir para recrear el sistema: cómo levantarlo, qué mirar, qué cuesta y
 cómo destruirlo.
 
-```powershell
-.\estado.ps1            # ¿hay algo encendido y cuánto lleva costando?
-.\levantar.ps1 demo     # levantar para sustentar
-.\destruir.ps1          # apagarlo todo
+```bash
+./scripts/estado.sh             # ¿hay algo encendido y cuánto lleva costando?
+./scripts/levantar.sh demo      # levantar para sustentar
+./scripts/destruir.sh           # apagarlo todo
 ```
 
-En Git Bash, Linux o macOS, los mismos con `.sh`.
+En Windows, desde Git Bash: PowerShell no ejecuta un `.sh` (el RUNBOOK explica cómo lanzarlos
+desde ahí si hace falta).
 
 ---
 
@@ -73,7 +107,7 @@ restricciones de acceso, no publicando el 8000.
 
 ## 1. La configuración de la aplicación
 
-La aplican las plantillas, en `bicep/modules/ajustes.bicep`. Los valores sensibles **no se
+La aplican las plantillas, en `bicep/modules/aplicacion/ajustes.bicep`. Los valores sensibles **no se
 escriben**: son referencias `@Microsoft.KeyVault(SecretUri=...)` que App Service resuelve al
 arrancar usando su identidad administrada, de modo que ningún secreto pasa por el repositorio ni
 por los registros del pipeline.

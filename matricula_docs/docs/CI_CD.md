@@ -290,11 +290,12 @@ El `Makefile` en la raíz del repo unifica estos comandos para evitar recordar l
 
 ## 13. Lo que el backend espera encontrar en Azure
 
-El repositorio no aprovisiona infraestructura, pero sí trae lo que Azure App Service necesita
-para arrancar la imagen y la lista de comprobaciones para verificar que quedó bien:
-**`deploy/azure/`**.
+La infraestructura se aprovisiona con Bicep desde **`deploy/azure/`**: las plantillas en
+`bicep/`, los scripts de ciclo de vida en `scripts/` y sus pruebas en `pruebas/`, que el job
+`iac-ci` ejecuta en cada push con `scripts/validar.sh`. Cómo se opera está en
+`deploy/azure/RUNBOOK.md`. Lo que Azure App Service necesita para arrancar la imagen:
 
-- `deploy/azure/bicep/modules/ajustes.bicep` — las opciones de aplicación del App Service. Los
+- `deploy/azure/bicep/modules/aplicacion/ajustes.bicep` — las opciones de aplicación del App Service. Los
   valores sensibles no se escriben: son referencias `@Microsoft.KeyVault(SecretUri=...)` que App
   Service resuelve al arrancar con la identidad administrada. Incluye `WEBSITES_PORT=8000`, sin
   la cual App Service busca a uvicorn en el 80

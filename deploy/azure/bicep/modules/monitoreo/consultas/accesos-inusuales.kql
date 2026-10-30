@@ -1,0 +1,5 @@
+AppServiceHTTPLogs
+| where _ResourceId =~ '{{RECURSO}}'
+| where ScStatus in (401, 403)
+| summarize Denegadas = count()
+| where Denegadas > 20

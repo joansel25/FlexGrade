@@ -1,8 +1,11 @@
 # Infraestructura como código
 
-La infraestructura de `INFRASTRUCTURE.md`, declarada en Bicep. **Esto sí aprovisiona**, al
-contrario que el `README.md` del directorio padre, que solo documenta la configuración que el
-backend espera encontrar.
+La infraestructura de `INFRASTRUCTURE.md`, declarada en Bicep, más lo que exigen las secciones 10
+a 15 del documento del proyecto (IAM, cifrado, observabilidad, alertas, costos y gobernanza).
+**Esto sí aprovisiona**, al contrario que el `README.md` del directorio padre, que documenta el
+camino manual que estas plantillas sustituyeron.
+
+Para operarla, el sitio es `../RUNBOOK.md`. Esto explica cómo está hecha.
 
 ## Por qué esto existe
 
@@ -14,39 +17,65 @@ De ahí que la infraestructura sea código. Destruirla y recrearla solo es razon
 comando; con cuarenta minutos de clics en el portal cada vez, nadie la destruye y el crédito se
 agota en tres semanas.
 
-## Dos grupos de recursos
+## Tres plantillas de entrada, tres ámbitos
 
-```
-matricula-base   ACR y Key Vault. ~5 USD/mes. NUNCA se borra.
-matricula-demo   todo lo que declara main.bicep. Se crea y se destruye.
-```
+| Plantilla | Ámbito | Ciclo de vida | Qué declara |
+|---|---|---|---|
+| `base.bicep` | grupo `matricula-base` | **Persistente** | ACR, Key Vault (RBAC), workspace, Application Insights, grupo de acciones, alertas 1, 2, 3, 5 y 6, perfiles RBAC del grupo |
+| `suscripcion.bicep` | suscripción | **Persistente** | Etiquetas del grupo base, exportación del Registro de actividad, presupuesto, iniciativa de Policy y su asignación, rol FinOps |
+| `main.bicep` | grupo `matricula-demo` | **Efímero** | Red, datos, aplicación, borde, autoescalado, migraciones, diagnósticos, alerta 4, perfiles RBAC de recursos |
 
-**El Key Vault va fuera porque tiene borrado lógico de 90 días.** Si se destruyera con el resto,
-su nombre quedaría reservado y el segundo despliegue fallaría con «name already in use», sin
-mencionar en ningún momento que el recurso está en la papelera. Es el fallo que hace que un
-montaje funcione una vez y a la siguiente no.
+Se despliegan en ese orden: `base` → `suscripcion` → `main`. Las dos primeras las lanza
+`scripts/desplegar-base.sh`, la tercera `scripts/levantar.sh`. `main` lee de `base` Application
+Insights y el grupo de acciones; `suscripcion`, el workspace y el grupo de acciones.
 
-**El ACR va fuera porque guarda las imágenes.** Si se borrara, cada sesión empezaría
-reconstruyendo y subiendo la imagen antes de que el App Service pudiera arrancar.
+**El Key Vault va en lo persistente porque tiene borrado lógico de 90 días.** Si se destruyera con
+el resto, su nombre quedaría reservado y el segundo despliegue fallaría con «name already in use»,
+sin mencionar en ningún momento que el recurso está en la papelera.
 
-## Qué se despliega
+## Cómo están organizados los módulos
 
-**`base.bicep`** sobre el grupo persistente: ACR y Key Vault. Una vez y para siempre.
+Un dominio por carpeta. Las plantillas de entrada solo componen, y donde un dominio tiene varias
+plantillas, una de ellas compone a las demás.
 
-**`main.bicep`** sobre el grupo efímero, 22 recursos:
+| Carpeta | Plantilla | Qué hace |
+|---|---|---|
+| `modules/comun/` | `etiquetas.bicep` | El objeto de etiquetas de 12.2 y los valores válidos de `Ambiente`. **Sin recursos**: solo exporta |
+| | `nombres.bicep` | Los nombres de todo lo que otro grupo necesita encontrar. **Sin recursos** |
+| | `roles.bicep` | Los GUID de los roles integrados y el tipo de los grupos de Entra. **Sin recursos** |
+| `modules/red/` | `red.bicep` | VNet, cinco subredes con su NSG, y el NAT opcional |
+| `modules/datos/` | `datos.bicep` | **Compone** los tres siguientes; es el único que conoce las dos mitades de cada cadena de conexión |
+| | `postgres.bicep` | Flexible Server en subred delegada, zona DNS, extensiones, TLS 1.2 obligatorio y la alerta 4 |
+| | `redis.bicep` | Managed Redis por TLS en el 10000, su base, el punto de conexión privado y su zona DNS |
+| | `secretos.bicep` | Escribe `database-url` y `redis-url` en el Key Vault persistente |
+| `modules/aplicacion/` | `app.bicep` → `permisos.bicep` → `ajustes.bicep` | El orden obligatorio que se explica más abajo |
+| `modules/acceso/` | `perfiles-grupo.bicep` | Los perfiles humanos de 10.1 con ámbito de grupo, condicionados a que exista su grupo de Entra |
+| | `perfiles-recursos.bicep` | Los del perfil de desarrollo, sobre la API y la cuenta del frontend |
+| `modules/operacion/` | `escalado.bicep` | Reglas de autoescalado (solo con S1) |
+| | `migraciones.bicep` | El contenedor de un solo uso que escribe el esquema dentro de la VNet |
+| | `observabilidad.bicep` | Diagnósticos de la API, el plan, PostgreSQL y el gateway hacia el workspace |
+| `modules/monitoreo/` | `telemetria.bicep` | Application Insights sobre el workspace y la retención por tabla |
+| | `grupo-acciones.bicep` | A quién avisan las alertas |
+| | `alertas-registros.bicep` | Las alertas 1, 2, 3 y 6, con sus consultas en `consultas/*.kql` |
+| | `alerta-actividad.bicep` | La alerta 5: cambios de permisos o de políticas |
+| | `registro-actividad.bicep` | Exporta el Registro de actividad de la suscripción |
+| `modules/costos/` | `presupuesto.bicep` | El presupuesto mensual con sus tres avisos. Avisa, no detiene |
+| `modules/gobernanza/` | `iniciativa.bicep` | Las cinco reglas de 13.3: definiciones, sin aplicar nada |
+| | `asignacion.bicep` | Dónde y en qué modo se aplican: `audit` o `enforce` |
+| `modules/borde/` | `borde.bicep` | **Compone** los dos siguientes; se enciende con `desplegarBorde` |
+| | `gateway.bicep` | IP pública, política WAF y Application Gateway |
+| | `frontend.bicep` | La cuenta de almacenamiento del sitio estático |
 
-| Recurso | Detalle |
-|---|---|
-| VNet `10.0.0.0/16` | Cuatro subredes, con NSG cada una |
-| NAT Gateway + IP pública | Salida con dirección fija desde la subred de la aplicación |
-| PostgreSQL Flexible Server | Inyectado en subred delegada, sin acceso público, con réplica en otra zona |
-| Azure Cache for Redis | Basic C0, TLS obligatorio, con punto de conexión privado |
-| Dos zonas DNS privadas | Sin ellas los nombres resuelven a direcciones públicas cerradas |
-| App Service Plan + Web App | Contenedor Linux, identidad administrada, integrado en la VNet |
-| Dos secretos en el Key Vault | `database-url` y `redis-url`, escritos en el grupo persistente |
-| Permisos | Lectura del almacén y descarga del ACR para la identidad |
+**Por qué existe `comun/nombres.bicep`.** Las alertas viven en el grupo persistente y vigilan
+recursos efímeros por su identificador. No pueden leer salidas de un despliegue que todavía no
+existe, y escribir los nombres a mano los dejaría desactualizados el día que alguien cambie uno.
+Con la función compartida, `main.bicep` crea y `base.bicep` vigila con el MISMO cálculo. Funciona
+porque los nombres son deterministas: el sufijo es `uniqueString` del identificador del grupo.
 
-Pendiente: autoescalado y Application Gateway (iteración C).
+**PostgreSQL y Redis van en módulos separados y sin dependencia entre sí**, así que Bicep los crea
+en paralelo: son los dos recursos más lentos del despliegue. La clave de Redis no sale como salida
+de `redis.bicep` —quedaría en el historial del grupo—: `datos.bicep` la lee con `listKeys` sobre
+un recurso `existing`.
 
 ## El orden de la aplicación, que es lo más frágil de todo
 
@@ -62,157 +91,94 @@ ese momento la identidad no tiene permiso, no falla — guarda la **cadena liter
 `@Microsoft.KeyVault(...)` como valor de `DATABASE_URL`. El síntoma es un error de PostgreSQL
 sobre una URL malformada, sin mención alguna al almacén ni a los permisos.
 
-## El único secreto que Bicep NO escribe
+## Los permisos
 
-`database-url` y `redis-url` apuntan a servidores que se crean de cero cada vez, así que los
-escribe el despliegue. **`jwt-secret` no.** Es la clave con la que se firman las sesiones:
-regenerarla en cada despliegue invalidaría todos los tokens emitidos.
+`permisos.bicep` da a las identidades administradas lo justo, y todo es RBAC:
 
-Se crea **una sola vez**, a mano, en el grupo persistente:
+- **La API**: *Key Vault Secrets User* sobre el almacén —leer secretos, nada más— y `AcrPull`.
+- **Las migraciones**: solo `AcrPull`. La cadena de conexión le llega como variable segura.
 
-```bash
-az keyvault secret set --vault-name <almacen> --name jwt-secret   --value "$(openssl rand -base64 48)"
-```
+Los cinco perfiles HUMANOS de 10.1 van en `modules/acceso/` y se asignan a grupos de Entra, nunca
+a usuarios. **Hoy no se asigna ninguno**: la cuenta del proyecto no puede crear grupos en el
+directorio de la universidad, así que sus identificadores van vacíos y cada asignación se omite.
+Es una excepción registrada en `INFRASTRUCTURE.md` §7.
 
-## Un permiso que puede faltar
+El *RBAC Administrator* del perfil de seguridad lleva una **condición** que limita los roles que
+puede delegar a la lista de la tabla de 10.1, sin Contributor, Owner ni a sí mismo: sin ella,
+quien lo tenga podría darse más poder del que tiene.
 
-`permisos.bicep` concede dos cosas, y no son iguales:
+*Key Vault Secrets Officer* **no está en Bicep** a propósito (10.1): se asigna un momento para
+escribir `jwt-secret` y se retira. El procedimiento está en el RUNBOOK.
 
-- **Leer secretos del Key Vault**: es una política de acceso, y basta con ser dueño del almacén.
-- **Descargar del ACR (`AcrPull`)**: es una asignación de rol, y **exige permiso de Owner o de
-  User Access Administrator sobre la suscripción**.
+## Los archivos de parámetros
 
-Si el despliegue falla con `AuthorizationFailed`, esa es la causa. La salida es habilitar el
-usuario administrador del ACR y pasar sus credenciales por configuración, al precio de dejar una
-contraseña de registro donde la lee cualquiera con permiso de lectura.
+| Archivo | Plantilla | Qué lleva |
+|---|---|---|
+| `parametros/economico.json` | `main.bicep` | PostgreSQL Burstable `B1ms`, sin réplica ni borde. `Ambiente: dev` |
+| `parametros/demo.json` | `main.bicep` | `D2ds_v4` con réplica, S1 con autoescalado, gateway con WAF, alerta 4. `Ambiente: demo` |
+| `parametros/base.json` | `base.bicep` | Purga del Key Vault, correos de las alertas, retenciones |
+| `parametros/suscripcion.json` | `suscripcion.bicep` | Presupuesto y modo de la gobernanza |
+| `parametros/etiquetas.json` | **las tres** | `dueno` y `centroCosto`, un solo sitio para un valor que va en todo |
 
-## Tres cosas del documento que no se traducen literales
+**Los valores del equipo van vacíos** —`dueno`, `centroCosto`, los correos y el presupuesto—
+porque el documento prohíbe inventarlos (14). Las plantillas los declaran con `@minLength(1)` o
+`@minValue(1)`, y los scripts se niegan a arrancar mientras falten.
+
+**La etiqueta `Ambiente` no es el ambiente de la aplicación.** `ambiente` llega al backend como
+`ENVIRONMENT`, y con `dev` el backend escribe los logs en texto plano. La etiqueta va en
+`etiquetaAmbiente`.
+
+## Lo que no se traduce literal del documento
 
 **1. La «subred de respaldo» para el standby no existe.** La alta disponibilidad con redundancia
-de zona coloca la réplica en otra zona de disponibilidad usando la MISMA subred delegada. El
-cuarto rango se usa para puntos de conexión privados, que sí necesitan subred propia porque la
-de PostgreSQL está delegada en exclusiva.
+de zona coloca la réplica en otra zona de disponibilidad usando la MISMA subred delegada. No hay
+propiedad para ponerla en otra subred; lo que sí podría ir en otra es una réplica de LECTURA, que
+es otro servidor. Se corrige el diagrama, no el Bicep.
 
-**2. Redis escucha en el 6380 con TLS, no en el 6379.** Azure Cache deshabilita el puerto sin
-cifrar. `REDIS_URL` empieza por `rediss://`.
+**2. Redis escucha en el 10000 con TLS**, no en el 6379 del documento original ni en el 6380 del
+servicio retirado. `REDIS_URL` empieza por `rediss://`.
 
 **3. «App Gateway → App: 8000» no aplica.** El 8000 es el puerto interno del contenedor
-(`WEBSITES_PORT`); App Service publica por 443. El aislamiento se consigue con restricciones de
-acceso, no abriendo un puerto.
+(`WEBSITES_PORT`); App Service publica por 443.
 
-**Y una cuarta, la que decide el coste:** la alta disponibilidad **no existe en el nivel
-Burstable**. `INFRASTRUCTURE.md` pide «B1ms + standby» y son mutuamente excluyentes. Por eso hay
-dos archivos de parámetros.
+**4. La entrada por el puerto 80 sigue en HTTP** (10.2). Queda registrada como limitación: no hay
+certificado ni dominio propio para terminar TLS en el gateway.
+
+**5. Las alertas 2 y 6 leen `AppServiceHTTPLogs`, no `AppRequests`.** La API todavía no envía
+telemetría a Application Insights; sobre `AppRequests` estarían desplegadas y mudas.
+
+**Y la que decide el coste:** la alta disponibilidad **no existe en el nivel Burstable**.
+`INFRASTRUCTURE.md` pide «B1ms + standby» y son mutuamente excluyentes. Por eso hay dos perfiles.
 
 ## La región no se elige libremente
 
-**La suscripción de estudiante tiene una política que restringe dónde se puede desplegar**, y es
-lo primero que hay que saber: intentar `eastus` falla con `RequestDisallowedByAzure` después de
-haber escrito la plantilla entera. El mensaje habla de «best available regions» y no dice cuáles
-son.
+`ubicacion` solo admite `centralus` (`@allowed`), por dos razones que se suman:
 
-Se consultan así:
+- **13.2**: Estados Unidos figura entre los países con nivel adecuado de protección de la Circular
+  Externa 005 de 2017 de la SIC. Añadir otra región solo si su país está en esa lista.
+- **La suscripción de estudiante** restringe dónde se puede desplegar, y de sus cinco regiones
+  `northcentralus` no tiene zonas de disponibilidad: la réplica de PostgreSQL no se activaría.
 
 ```bash
 az policy assignment list --disable-scope-strict-match --query "[0].parameters"
 ```
 
-En esta suscripción son cinco, y **solo cuatro sirven**:
-
-| Región | Zonas | ¿Vale? |
-|---|---|---|
-| `centralus` | 3 | **Sí — la elegida** |
-| `canadacentral` | 3 | Sí |
-| `brazilsouth` | 3 | Sí, pero más cara |
-| `chilecentral` | 3 | Sí, pero más cara |
-| `northcentralus` | **0** | **No**: sin zonas de disponibilidad, la réplica de PostgreSQL no se puede activar |
-
-Se eligió `centralus` por tener las tres zonas y precios de Estados Unidos. Las regiones
-latinoamericanas están más cerca de Medellín, pero el sobreprecio pesa más que la latencia cuando
-el presupuesto es un crédito de estudiante.
-
-Si la política cambia o se usa otra suscripción, hay que repetir la consulta antes de desplegar.
-
-## Los dos archivos de parámetros
-
-| | Nivel | Réplica | Coste aproximado |
-|---|---|---|---|
-| `parametros.demo.json` | GeneralPurpose `D2ds_v4` | **sí** | ~0,36 USD/hora |
-| `parametros.economico.json` | Burstable `B1ms` | no | ~0,022 USD/hora |
-
-El económico sirve para probar el despliegue sin gastar; el de demostración es el que cumple el
-documento y el que se usa para sustentar.
-
-## Cómo se ejecuta
-
-Los comandos van con la CLI de Azure. **Las plantillas ya están validadas contra Azure**:
-`az bicep build` compila los seis archivos sin advertencias, `az deployment group validate` pasa
-con los dos perfiles, y `what-if` anuncia los 22 recursos esperados. Lo que todavía no se ha
-hecho es aplicarlas.
-
-`what-if` marca como `Unsupported` la política de acceso y la asignación de rol. **No es un
-error**: son recursos cuyo nombre se calcula en tiempo de despliegue y la previsualización no
-sabe resolverlos.
+## Cómo se comprueba sin tocar Azure
 
 ```bash
-# 1. Iniciar sesión y fijar la suscripción
-az login
-az account set --subscription "<tu suscripción>"
-
-# 2. Los proveedores tienen que estar registrados, o el despliegue falla al minuto
-az provider register --namespace Microsoft.DBforPostgreSQL --wait
-az provider register --namespace Microsoft.Cache --wait
-az provider register --namespace Microsoft.Network --wait
-
-# 3a. El grupo PERSISTENTE, una sola vez en la vida del proyecto
-az group create --name matricula-base --location centralus
-az deployment group create --resource-group matricula-base --template-file base.bicep
-
-#     y el secreto que Bicep no escribe, también una sola vez
-az keyvault secret set --vault-name <el que devolvio el paso anterior>   --name jwt-secret --value "$(openssl rand -base64 48)"
-
-# 3b. El grupo efímero
-az group create --name matricula-demo --location centralus
-
-# 4. VER qué haría, sin hacerlo. Nunca se aplica nada sin mirar esto antes.
-#    `validate` comprueba que Azure acepta la plantilla; `what-if` dice qué crearía.
-az deployment group what-if \
-  --resource-group matricula-demo \
-  --template-file main.bicep \
-  --parameters @parametros.demo.json \
-  --parameters claveAdminPostgres="<la clave>"
-
-# 5. Aplicarlo. Unos 40 minutos.
-az deployment group create \
-  --resource-group matricula-demo \
-  --template-file main.bicep \
-  --parameters @parametros.demo.json \
-  --parameters claveAdminPostgres="<la clave>"
-
-# 6. Al terminar la sesión de pruebas
-az group delete --name matricula-demo --yes --no-wait
+./deploy/azure/scripts/validar.sh
 ```
 
-**La contraseña se pasa por línea de comandos y no vive en ningún archivo de parámetros.** En
-cuanto exista el Key Vault persistente, se leerá de ahí y desaparecerá también del historial de
-la terminal.
+Compila las 34 plantillas —un aviso del compilador es un fallo—, pasa shellcheck a los scripts y
+ejecuta `deploy/azure/pruebas/`: 66 pruebas sobre el ARM compilado que comprueban lo que exige el
+documento, de los parámetros a la gobernanza, más el flujo real de los scripts contra un `az`
+falso. Las consultas de las alertas se ejecutan contra el workspace real con
+`FLEXGRADE_PRUEBAS_AZURE=1`, que solo lee.
 
 ## Cuánto tarda, y por qué importa
 
-Unos **cuarenta minutos**. Redis ronda los veinte por su cuenta y PostgreSQL con alta
-disponibilidad otros quince; Bicep los crea en paralelo pero no puede acelerarlos.
+Unos **cuarenta minutos** la demo. Redis ronda los veinte por su cuenta y PostgreSQL con alta
+disponibilidad otros quince; Bicep los crea en paralelo pero no puede acelerarlos. Lo persistente,
+un par de minutos.
 
 **No se lanza cinco minutos antes de sustentar.**
-
-## Los datos no sobreviven
-
-Destruir el grupo se lleva la base de datos entera. Cada sesión empieza con el esquema vacío, así
-que después de cada despliegue hay que correr las migraciones y el seed:
-
-```bash
-alembic upgrade head
-python -m app.infrastructure.seed
-```
-
-El seed es idempotente y crea materias, estudiantes, docentes y una ventana de matrícula. Sin ese
-paso el sistema arranca sin nada que enseñar.

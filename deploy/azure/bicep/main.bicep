@@ -34,8 +34,16 @@
 
 targetScope = 'resourceGroup'
 
+import { etiquetas } from 'modules/comun/etiquetas.bicep'
+import { sufijo as calcularSufijo, idGrupo, nombresBase } from 'modules/comun/nombres.bicep'
+import { gruposEntra } from 'modules/comun/roles.bicep'
+
+// La única región verificada (13.2): Estados Unidos figura entre los países con nivel adecuado de
+// protección de la Circular Externa 005 de 2017 de la SIC. Añadir otra solo si su país está en esa
+// lista. Además tiene zonas de disponibilidad, sin las que la réplica de PostgreSQL no se activa.
 @description('Región. Debe tener zonas de disponibilidad: sin ellas la alta disponibilidad de PostgreSQL no se puede activar.')
-param ubicacion string = resourceGroup().location
+@allowed(['centralus'])
+param ubicacion string = 'centralus'
 
 @description('Prefijo de todos los nombres.')
 param prefijo string = 'matricula'
@@ -80,8 +88,29 @@ param etiquetaImagen string = 'latest'
 @description('Orígenes autorizados por CORS. Lo rellena el script de arranque con la URL del sitio estático, que no se conoce hasta que la cuenta de almacenamiento existe.')
 param origenesCors string = ''
 
-@description('Ambiente que se reporta en /health.')
+@description('Ambiente de la APLICACIÓN: se reporta en /health y decide el formato de los logs. NO es la etiqueta `Ambiente`: con `dev` el backend escribe texto plano y Log Analytics deja de poder leerlo.')
 param ambiente string = 'demo'
+
+@description('Valor de la etiqueta `Ambiente` (12.2): `dev` en el perfil económico, `demo` en el de demostración.')
+@allowed(['dev', 'demo'])
+param etiquetaAmbiente string
+
+@description('Equipo dueño, para la etiqueta `Dueno` (12.2). Sin valor por defecto (14).')
+@minLength(1)
+param dueno string
+
+@description('Código académico de centro de costo (12.2). Sin valor por defecto (14).')
+@minLength(1)
+param centroCosto string
+
+@description('Fecha de revisión de la etiqueta `Vigencia`, AAAA-MM-DD (12.2). La pone `levantar.sh`: el día siguiente, porque esto es una sesión.')
+param vigencia string = ''
+
+@description('Grupos de Entra de los perfiles de 10.1. Vacío = sin asignar.')
+param grupos gruposEntra
+
+@description('Si se crea la alerta de almacenamiento de PostgreSQL (alerta 4 de 11.1). Va en el perfil de demostración.')
+param desplegarAlertas bool = false
 
 @description('Si se ejecutan las migraciones y el seed tras desplegar. Es lo único que puede escribir el esquema: PostgreSQL está en red privada y no lo alcanza nada de fuera.')
 param ejecutarMigraciones bool = true
@@ -112,22 +141,36 @@ var altaDisponibilidad = nivelPostgres != 'Burstable'
 // Los nombres de PostgreSQL y Redis se resuelven por DNS público y tienen que ser únicos en
 // todo Azure. `uniqueString` da un sufijo estable para un mismo grupo de recursos: el mismo
 // despliegue repetido devuelve los mismos nombres, y no se crean recursos duplicados.
-var sufijo = take(uniqueString(resourceGroup().id), 6)
+var sufijo = calcularSufijo(resourceGroup().id)
 
-module red 'modules/red.bicep' = {
+var tags = etiquetas(etiquetaAmbiente, dueno, centroCosto, vigencia)
+
+// Lo que vive en el grupo persistente y se lee desde aquí. Se calcula con la misma función con la
+// que `base.bicep` lo nombra: no hace falta pasarlo por los archivos de parámetros.
+var nombresPersistentes = nombresBase(prefijo, calcularSufijo(idGrupo(subscription().id, grupoBase)))
+var grupoAccionesId = resourceId(grupoBase, 'Microsoft.Insights/actionGroups', nombresPersistentes.grupoAcciones)
+
+resource appInsights 'Microsoft.Insights/components@2020-02-02' existing = {
+  name: nombresPersistentes.appInsights
+  scope: resourceGroup(grupoBase)
+}
+
+module red 'modules/red/red.bicep' = {
   name: 'red'
   params: {
     ubicacion: ubicacion
     prefijo: prefijo
+    tags: tags
     desplegarNat: desplegarNat
   }
 }
 
-module datos 'modules/datos.bicep' = {
+module datos 'modules/datos/datos.bicep' = {
   name: 'datos'
   params: {
     ubicacion: ubicacion
     prefijo: prefijo
+    tags: tags
     sufijo: sufijo
     vnetId: red.outputs.vnetId
     subredDatosId: red.outputs.subredDatosId
@@ -139,6 +182,8 @@ module datos 'modules/datos.bicep' = {
     altaDisponibilidad: altaDisponibilidad
     grupoBase: grupoBase
     nombreKeyVault: nombreKeyVault
+    desplegarAlertas: desplegarAlertas
+    grupoAccionesId: desplegarAlertas ? grupoAccionesId : ''
   }
 }
 
@@ -154,11 +199,12 @@ module datos 'modules/datos.bicep' = {
 // La cadena queda LINEAL: aplicación -> permisos -> ajustes. La primera versión intentaba
 // meter los ajustes dentro de `app.bicep` y el compilador la rechazó por un ciclo que era real.
 
-module app 'modules/app.bicep' = {
+module app 'modules/aplicacion/app.bicep' = {
   name: 'app'
   params: {
     ubicacion: ubicacion
     prefijo: prefijo
+    tags: tags
     sufijo: sufijo
     skuPlan: skuAppService
     instancias: instanciasIniciales
@@ -168,7 +214,7 @@ module app 'modules/app.bicep' = {
   }
 }
 
-module permisos 'modules/permisos.bicep' = {
+module permisos 'modules/aplicacion/permisos.bicep' = {
   name: 'permisos'
   scope: resourceGroup(grupoBase)
   params: {
@@ -193,6 +239,7 @@ resource identidadTareas 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-
   if (ejecutarMigraciones) {
     name: '${prefijo}-id-tareas'
     location: ubicacion
+    tags: tags
   }
 
 resource almacen 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
@@ -200,11 +247,12 @@ resource almacen 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
   scope: resourceGroup(grupoBase)
 }
 
-module migraciones 'modules/migraciones.bicep' = if (ejecutarMigraciones) {
+module migraciones 'modules/operacion/migraciones.bicep' = if (ejecutarMigraciones) {
   name: 'migraciones'
   params: {
     ubicacion: ubicacion
     prefijo: prefijo
+    tags: tags
     subredTareasId: red.outputs.subredTareasId
     acrLoginServer: acrLoginServer
     etiquetaImagen: etiquetaImagen
@@ -219,7 +267,7 @@ module migraciones 'modules/migraciones.bicep' = if (ejecutarMigraciones) {
   dependsOn: [datos, permisos]
 }
 
-module ajustes 'modules/ajustes.bicep' = {
+module ajustes 'modules/aplicacion/ajustes.bicep' = {
   name: 'ajustes'
   params: {
     nombreApp: app.outputs.nombreApp
@@ -229,6 +277,7 @@ module ajustes 'modules/ajustes.bicep' = {
     ambiente: ambiente
     origenesCors: origenesCors
     etiquetaImagen: etiquetaImagen
+    conexionAppInsights: appInsights.properties.ConnectionString
   }
   // Explícito y no deducido: Bicep no puede saber que aplicar esta configuración ANTES de que
   // el permiso exista deja las referencias al Key Vault sin resolver.
@@ -247,12 +296,37 @@ module ajustes 'modules/ajustes.bicep' = {
 // ordena los módulos por sus dependencias reales, no por su posición en el texto, y agrupar
 // aquí todo lo que tiene que ver con registros se lee mejor que perseguirlo por el archivo.
 
-module observabilidad 'modules/observabilidad.bicep' = if (!empty(registrosId)) {
+module observabilidad 'modules/operacion/observabilidad.bicep' = if (!empty(registrosId)) {
   name: 'observabilidad'
   params: {
     registrosId: registrosId
     nombreApp: app.outputs.nombreApp
+    nombrePlan: app.outputs.planNombre
+    nombrePostgres: datos.outputs.postgresNombre
     nombreGateway: desplegarBorde ? borde!.outputs.nombreGateway : ''
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Perfiles humanos (10.1)
+// ---------------------------------------------------------------------------
+//
+// Nacen y mueren con el grupo. Con los grupos de Entra vacíos —hoy, porque la cuenta del
+// proyecto no puede crearlos— no se asigna nada.
+
+module perfilesDelGrupo 'modules/acceso/perfiles-grupo.bicep' = {
+  name: 'perfiles-grupo'
+  params: {
+    grupos: grupos
+  }
+}
+
+module perfilesDeRecursos 'modules/acceso/perfiles-recursos.bicep' = {
+  name: 'perfiles-recursos'
+  params: {
+    grupos: grupos
+    nombreApp: app.outputs.nombreApp
+    nombreCuentaFrontend: desplegarBorde ? borde!.outputs.cuentaAlmacenamientoWeb : ''
   }
 }
 
@@ -270,22 +344,24 @@ module observabilidad 'modules/observabilidad.bicep' = if (!empty(registrosId)) 
 // económico con el autoescalado encendido por error no cree una regla muerta que aparenta
 // funcionar.
 
-module escalado 'modules/escalado.bicep' = if (desplegarAutoescalado && skuAppService == 'S1') {
+module escalado 'modules/operacion/escalado.bicep' = if (desplegarAutoescalado && skuAppService == 'S1') {
   name: 'escalado'
   params: {
     ubicacion: ubicacion
     prefijo: prefijo
+    tags: tags
     planId: app.outputs.planId
     planNombre: app.outputs.planNombre
     modoDemostracion: autoescaladoEnModoDemostracion
   }
 }
 
-module borde 'modules/borde.bicep' = if (desplegarBorde) {
+module borde 'modules/borde/borde.bicep' = if (desplegarBorde) {
   name: 'borde'
   params: {
     ubicacion: ubicacion
     prefijo: prefijo
+    tags: tags
     sufijo: sufijo
     subredGatewayId: red.outputs.subredGatewayId
     hostApp: app.outputs.hostApp
