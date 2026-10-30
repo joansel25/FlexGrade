@@ -28,7 +28,10 @@ dependencies = [
     "psycopg[binary]==3.2.3",
     "redis==5.2.1",
     # Autenticacion (Fase 1): firma de tokens y hashing de contrasenas.
-    "pyjwt==2.13.0",
+    # 2.15.1 y no 2.13.0: la 2.13 acumula 15 avisos de seguridad (endurecimiento de claves HMAC,
+    # JWS mal formados, recursion) y pip-audit dejaba el CI en rojo. Entre ambas no cambia nada de
+    # lo que usa `jwt_auth_service.py` —encode/decode HS256—: lo demas es de JWKS.
+    "pyjwt==2.15.1",
     "bcrypt==5.0.0",
     # Comprobante de matricula en PDF (Fase 5). Se elige reportlab y no una conversion
     # desde HTML (weasyprint, wkhtmltopdf) porque esas exigen librerias del sistema
